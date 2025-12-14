@@ -1,0 +1,453 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+    background: #000;
+    position: relative;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+}
+
+/* Background shader canvas - fullscreen */
+#backgroundCanvas {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1;
+    pointer-events: none;
+    opacity: 1 !important;
+    display: block !important;
+    visibility: visible !important;
+    background-color: magenta !important; /* TEMP TEST - remove after debugging */
+}
+
+/* Audio Controls - Modern Minimal Design */
+#audioControls {
+    position: fixed;
+    top: 24px;
+    left: 24px;
+    z-index: 1000;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    padding: 20px;
+    min-width: 240px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+/* Track Controls (Bottom Left) */
+.track-controls {
+    position: fixed;
+    bottom: 24px;
+    left: 24px;
+    z-index: 1000;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.track-controls-top {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 16px;
+}
+
+/* Track Selection */
+.tracks {
+    display: flex;
+    flex-direction: row;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.track-btn {
+    padding: 10px 14px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    color: rgba(255, 255, 255, 0.9);
+    cursor: default;
+    text-align: center;
+    font-size: 13px;
+    font-weight: 400;
+    transition: all 0.2s ease;
+    user-select: none;
+    white-space: nowrap;
+}
+
+.track-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.2);
+    color: white;
+}
+
+.track-btn.active {
+    background: rgba(0, 136, 164, 0.2);
+    border-color: rgba(0, 136, 164, 0.5);
+    color: #00C8E8;
+}
+
+/* Play Control Button */
+.play-control {
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    background: rgba(0, 136, 164, 0.3);
+    border: 1px solid rgba(0, 136, 164, 0.5);
+    border-radius: 12px;
+    color: #00C8E8;
+    cursor: default;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    user-select: none;
+    flex-shrink: 0;
+}
+
+.play-control:hover {
+    background: rgba(0, 136, 164, 0.4);
+    border-color: rgba(0, 136, 164, 0.7);
+    color: #00E8FF;
+}
+
+.play-control:active {
+    transform: scale(0.95);
+}
+
+.play-control svg {
+    width: 20px;
+    height: 20px;
+}
+
+/* Seek Container */
+.seek-container {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    flex: 1;
+    min-width: 0;
+}
+
+.time-display {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.6);
+    font-weight: 400;
+    letter-spacing: 0.5px;
+}
+
+/* Seek Bar */
+.seek-bar {
+    width: 100%;
+    height: 4px;
+    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.1);
+    outline: none;
+    cursor: pointer;
+    -webkit-appearance: none;
+    appearance: none;
+}
+
+.seek-bar::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #00C8E8;
+    cursor: pointer;
+    border: 2px solid rgba(0, 0, 0, 0.3);
+    transition: all 0.2s ease;
+}
+
+.seek-bar::-webkit-slider-thumb:hover {
+    background: #00E8FF;
+    transform: scale(1.2);
+}
+
+.seek-bar::-moz-range-thumb {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #00C8E8;
+    cursor: pointer;
+    border: 2px solid rgba(0, 0, 0, 0.3);
+    transition: all 0.2s ease;
+}
+
+.seek-bar::-moz-range-thumb:hover {
+    background: #00E8FF;
+    transform: scale(1.2);
+}
+
+.seek-bar::-moz-range-track {
+    background: rgba(255, 255, 255, 0.1);
+    height: 4px;
+    border-radius: 2px;
+}
+
+
+/* Color Preset Controls */
+.preset-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.preset-buttons {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 6px;
+}
+
+.preset-btn {
+    padding: 0;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    cursor: default;
+    transition: all 0.2s ease;
+    user-select: none;
+    aspect-ratio: 1;
+    overflow: hidden;
+    min-height: 40px;
+}
+
+.preset-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+.preset-btn.active {
+    border-color: rgba(0, 136, 164, 0.8);
+    border-width: 2px;
+    box-shadow: 0 0 0 1px rgba(0, 136, 164, 0.3);
+}
+
+.preset-swatch {
+    width: 100%;
+    height: 100%;
+    border-radius: 4px;
+}
+
+.control-group {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.control-label {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.7);
+    font-weight: 500;
+    min-width: 50px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.control-slider {
+    flex: 1;
+    height: 4px;
+    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.1);
+    outline: none;
+    cursor: pointer;
+    -webkit-appearance: none;
+    appearance: none;
+}
+
+.control-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #00C8E8;
+    cursor: pointer;
+    border: 2px solid rgba(0, 0, 0, 0.3);
+    transition: all 0.2s ease;
+}
+
+.control-slider::-webkit-slider-thumb:hover {
+    background: #00E8FF;
+    transform: scale(1.2);
+}
+
+.control-slider::-moz-range-thumb {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #00C8E8;
+    cursor: pointer;
+    border: 2px solid rgba(0, 0, 0, 0.3);
+    transition: all 0.2s ease;
+}
+
+.control-slider::-moz-range-thumb:hover {
+    background: #00E8FF;
+    transform: scale(1.2);
+}
+
+.control-slider::-moz-range-track {
+    background: rgba(255, 255, 255, 0.1);
+    height: 4px;
+    border-radius: 2px;
+}
+
+.control-value {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.9);
+    font-weight: 500;
+    min-width: 40px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.control-checkbox {
+    width: 18px;
+    height: 18px;
+    cursor: default;
+    user-select: none;
+    accent-color: #00C8E8;
+}
+
+/* UI Toggle Button */
+.ui-toggle-btn {
+    position: fixed;
+    top: 24px;
+    right: 76px;
+    z-index: 1000;
+    width: 44px;
+    height: 44px;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    color: rgba(255, 255, 255, 0.9);
+    cursor: default;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    user-select: none;
+}
+
+.ui-toggle-btn:hover {
+    background: rgba(0, 0, 0, 0.8);
+    border-color: rgba(255, 255, 255, 0.2);
+    color: white;
+    transform: scale(1.05);
+}
+
+.ui-toggle-btn:active {
+    transform: scale(0.95);
+}
+
+.ui-toggle-btn svg {
+    width: 20px;
+    height: 20px;
+}
+
+/* Fullscreen Button */
+.fullscreen-btn {
+    position: fixed;
+    top: 24px;
+    right: 24px;
+    z-index: 1000;
+    width: 44px;
+    height: 44px;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    color: rgba(255, 255, 255, 0.9);
+    cursor: default;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    user-select: none;
+}
+
+.fullscreen-btn:hover {
+    background: rgba(0, 0, 0, 0.8);
+    border-color: rgba(255, 255, 255, 0.2);
+    color: white;
+    transform: scale(1.05);
+}
+
+.fullscreen-btn:active {
+    transform: scale(0.95);
+}
+
+.fullscreen-btn svg {
+    width: 20px;
+    height: 20px;
+}
+
+/* Hide UI elements when UI is toggled off (but keep toggle and fullscreen buttons visible) */
+body.ui-hidden #audioControls,
+body.ui-hidden #trackControls,
+body.ui-hidden #colorSwatches,
+body.ui-hidden #frequencyCanvas,
+body.ui-hidden #shaderParameters {
+    display: none !important;
+}
+
+/* Frequency Band Visualizer - Bottom Right */
+#frequencyCanvas {
+    position: fixed;
+    bottom: 70px;
+    right: 24px;
+    z-index: 100;
+    pointer-events: none;
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.3);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    display: block;
+    opacity: 1;
+}
+
+/* Color Swatch Display */
+#colorSwatches {
+    display: flex;
+    gap: 0;
+}
+
+#colorSwatches > div {
+    flex: 1;
+    height: 30px;
+    border-radius: 0;
+}
+
+#colorSwatches > div:first-child {
+    border-top-left-radius: 4px;
+    border-bottom-left-radius: 4px;
+}
+
+#colorSwatches > div:last-child {
+    border-top-right-radius: 4px;
+    border-bottom-right-radius: 4px;
+}
+

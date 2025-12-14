@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Background Shader</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Background Shader Canvas -->
+    <canvas id="backgroundCanvas"></canvas>
+    
+    <!-- Frequency Band Visualizer -->
+    <canvas id="frequencyCanvas"></canvas>
+    
+    <!-- Audio Controls -->
+    <div id="audioControls">
+        
+        <!-- Color Preset Switcher -->
+        <div class="preset-controls">
+            <div class="control-label" style="margin-bottom: 8px;">Color Preset</div>
+            <div id="presetButtons" class="preset-buttons">
+                <!-- Will be populated by JavaScript -->
+            </div>
+        </div>
+        
+        <!-- Loudness Animation Controls -->
+        <div class="control-group" style="margin-top: 16px;">
+            <label class="control-label">Loudness Animation</label>
+            <input type="checkbox" id="loudnessAnimationToggle" checked class="control-checkbox" />
+        </div>
+        
+        <div class="control-group" style="margin-top: 8px;">
+            <label class="control-label">Loudness Threshold</label>
+            <input type="range" id="loudnessThresholdSlider" min="0" max="0.5" value="0.1" step="0.01" class="control-slider" />
+            <span class="control-value" id="loudnessThresholdValue">0.10</span>
+        </div>
+        
+        <!-- File Input (hidden, for custom files) -->
+        <input type="file" id="audioFileInput" accept="audio/*" style="display: none;" />
+    </div>
+    
+    <!-- UI Toggle Button -->
+    <button id="uiToggleBtn" class="ui-toggle-btn" title="Toggle UI">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M3 4H17V6H3V4ZM3 9H17V11H3V9ZM3 14H17V16H3V14Z" fill="currentColor"/>
+        </svg>
+    </button>
+    
+    <!-- Fullscreen Button -->
+    <button id="fullscreenBtn" class="fullscreen-btn" title="Toggle Fullscreen">
+        <svg class="fullscreen-enter" width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M2 2H6V4H4V6H2V2ZM14 2H18V6H16V4H14V2ZM2 14V18H6V16H4V14H2ZM18 14V18H14V16H16V14H18Z" fill="currentColor"/>
+        </svg>
+        <svg class="fullscreen-exit" width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" style="display: none;">
+            <path d="M4 4H8V6H6V8H4V4ZM12 4H16V8H14V6H12V4ZM4 12V16H8V14H6V12H4ZM16 12V16H12V14H14V12H16Z" fill="currentColor"/>
+        </svg>
+    </button>
+    
+    <!-- Color Swatch Display -->
+    <div id="colorSwatches" style="position: fixed; bottom: 10px; right: 24px; display: flex; gap: 2px; z-index: 1000; background: rgba(0,0,0,0.7); padding: 10px; border-radius: 5px; width: 300px;">
+        <!-- Will be populated by JavaScript -->
+    </div>
+    
+    <!-- Track Selection and Scrubber (Bottom Left) -->
+    <div id="trackControls" class="track-controls">
+        <div class="track-controls-top">
+            <!-- Playback Control -->
+            <button id="playControlBtn" class="play-control">
+                <svg class="play-icon" width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M6 4L16 10L6 16V4Z" fill="currentColor"/>
+                </svg>
+                <svg class="pause-icon" width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" style="display: none;">
+                    <path d="M5 4H9V16H5V4Z" fill="currentColor"/>
+                    <path d="M11 4H15V16H11V4Z" fill="currentColor"/>
+                </svg>
+            </button>
+            
+            <!-- Seek Bar -->
+            <div class="seek-container">
+                <div class="time-display">
+                    <span id="currentTime">0:00</span>
+                    <span id="totalTime">0:00</span>
+                </div>
+                <input type="range" id="seekBar" min="0" max="100" value="0" step="0.1" class="seek-bar" />
+            </div>
+        </div>
+        
+        <!-- Track Selection -->
+        <div class="tracks">
+            <button class="track-btn" data-track="autumn-ride.mp3">Autumn Ride</button>
+            <button class="track-btn" data-track="brae.mp3">Brae</button>
+            <button class="track-btn" data-track="by-myself.mp3">By Myself</button>
+            <button class="track-btn" data-track="classic-billie.mp3">Classic Billie</button>
+            <button class="track-btn" data-track="letter to the sun.mp3">Letter to the Sun</button>
+            <button class="track-btn" data-track="pm10.mp3">PM10</button>
+            <button class="track-btn" data-track="quiet-between-us.mp3">Quiet Between Us</button>
+        </div>
+    </div>
+    
+    <script type="module" src="src/main.js"></script>
+    <script type="module" src="frequency-visualizer.js"></script>
+</body>
+</html>
+
