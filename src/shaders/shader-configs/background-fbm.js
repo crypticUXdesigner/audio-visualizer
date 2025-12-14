@@ -12,33 +12,33 @@ export default {
     parameters: {
         pixelSize: { 
             type: 'float', 
-            default: 1.0, 
+            default: 1, 
             min: 0.5, 
-            max: 5.0, 
+            max: 5, 
             step: 0.1,
             label: 'Pixel Size'
         },
         steps: { 
             type: 'float', 
-            default: 5.0, 
-            min: 2.0, 
-            max: 10.0, 
+            default: 5, 
+            min: 2, 
+            max: 10, 
             step: 0.5,
             label: 'Steps'
         },
         targetFPS: {
             type: 'float',
-            default: 30.0,
-            min: 15.0,
-            max: 60.0,
-            step: 1.0,
+            default: 60,
+            min: 15,
+            max: 60,
+            step: 1,
             label: 'Target FPS'
         },
         rippleSpeed: {
             type: 'float',
-            default: 0.5,
+            default: 0.3,
             min: 0.1,
-            max: 2.0,
+            max: 2,
             step: 0.05,
             label: 'Ripple Speed'
         },
@@ -52,33 +52,33 @@ export default {
         },
         rippleMinRadius: {
             type: 'float',
-            default: 0.0,
-            min: 0.0,
-            max: 1.0,
+            default: 0.15,
+            min: 0,
+            max: 1,
             step: 0.05,
             label: 'Ripple Min Radius'
         },
         rippleMaxRadius: {
             type: 'float',
-            default: 1.5,
+            default: 3,
             min: 0.1,
-            max: 3.0,
+            max: 3,
             step: 0.1,
             label: 'Ripple Max Radius'
         },
         rippleIntensityThreshold: {
             type: 'float',
-            default: 0.6,
-            min: 0.0,
-            max: 1.0,
+            default: 0.75,
+            min: 0,
+            max: 1,
             step: 0.05,
             label: 'Ripple Threshold'
         },
         rippleIntensity: {
             type: 'float',
-            default: 0.4,
-            min: 0.0,
-            max: 1.0,
+            default: 0.25,
+            min: 0,
+            max: 1,
             step: 0.05,
             label: 'Ripple Intensity'
         }
@@ -90,12 +90,12 @@ export default {
         darkest: {
             lightness: 0.09,
             chroma: 0.08,
-            hueOffset: -80
+            hueOffset: -60
         },
         brightest: {
             lightness: 0.97,
-            chroma: 0.20,
-            hueOffset: 90
+            chroma: 0.2,
+            hueOffset: 60
         },
         interpolationCurve: [0.5, 0.2, 0.6, 0.7]
     },
