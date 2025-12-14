@@ -319,9 +319,20 @@ window.FrequencyVisualizer = {
 // Initialize when DOM is ready
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
-        window.FrequencyVisualizer.init();
+        // Don't initialize on mobile
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+                        (window.matchMedia && window.matchMedia('(max-width: 768px)').matches);
+        
+        if (!isMobile && window.FrequencyVisualizer) {
+            window.FrequencyVisualizer.init();
+        }
     });
 } else {
-    window.FrequencyVisualizer.init();
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+                    (window.matchMedia && window.matchMedia('(max-width: 768px)').matches);
+    
+    if (!isMobile && window.FrequencyVisualizer) {
+        window.FrequencyVisualizer.init();
+    }
 }
 

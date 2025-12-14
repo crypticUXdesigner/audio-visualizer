@@ -25,12 +25,12 @@
         </div>
         
         <!-- Loudness Animation Controls -->
-        <div class="control-group" style="margin-top: 16px;">
+        <div class="control-group loudness-controls" style="margin-top: 16px;">
             <label class="control-label">Loudness Animation</label>
             <input type="checkbox" id="loudnessAnimationToggle" checked class="control-checkbox" />
         </div>
         
-        <div class="control-group" style="margin-top: 8px;">
+        <div class="control-group loudness-controls" style="margin-top: 8px;">
             <label class="control-label">Loudness Threshold</label>
             <input type="range" id="loudnessThresholdSlider" min="0" max="0.5" value="0.1" step="0.01" class="control-slider" />
             <span class="control-value" id="loudnessThresholdValue">0.10</span>
@@ -39,13 +39,6 @@
         <!-- File Input (hidden, for custom files) -->
         <input type="file" id="audioFileInput" accept="audio/*" style="display: none;" />
     </div>
-    
-    <!-- UI Toggle Button -->
-    <button id="uiToggleBtn" class="ui-toggle-btn" title="Toggle UI">
-        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M3 4H17V6H3V4ZM3 9H17V11H3V9ZM3 14H17V16H3V14Z" fill="currentColor"/>
-        </svg>
-    </button>
     
     <!-- Fullscreen Button -->
     <button id="fullscreenBtn" class="fullscreen-btn" title="Toggle Fullscreen">

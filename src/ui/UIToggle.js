@@ -8,27 +8,57 @@ export class UIToggle {
         this.autoHideTimeout = null;
         this.autoHideDelay = 3000; // Hide UI after 3 seconds of inactivity
         this.isManuallyHidden = false; // Track if user manually hid the UI
+        this.isMobile = this.detectMobile();
         this.init();
     }
     
+    detectMobile() {
+        return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+               (window.matchMedia && window.matchMedia('(max-width: 768px)').matches);
+    }
+    
     init() {
-        if (!this.uiToggleBtn) return;
+        // Manual toggle button (optional - removed on mobile)
+        if (this.uiToggleBtn) {
+            this.uiToggleBtn.addEventListener('click', () => {
+                this.toggle();
+            });
+        }
         
-        // Manual toggle button
-        this.uiToggleBtn.addEventListener('click', () => {
-            this.toggle();
+        // Mouse movement detection for auto-show (desktop)
+        document.addEventListener('mousemove', () => {
+            this.handleActivity();
         });
         
-        // Mouse movement detection for auto-show
-        document.addEventListener('mousemove', () => {
-            this.handleMouseActivity();
+        // Touch events for mobile
+        if (this.isMobile) {
+            document.addEventListener('touchstart', () => {
+                this.handleActivity();
+            }, { passive: true });
+            
+            document.addEventListener('touchmove', () => {
+                this.handleActivity();
+            }, { passive: true });
+        }
+        
+        // Also show UI when interacting with controls
+        const interactiveElements = document.querySelectorAll(
+            '#audioControls, #trackControls, .preset-btn, .track-btn, .play-control, .seek-bar'
+        );
+        interactiveElements.forEach(el => {
+            el.addEventListener('touchstart', () => {
+                this.handleActivity();
+            }, { passive: true });
+            el.addEventListener('mousedown', () => {
+                this.handleActivity();
+            });
         });
         
         // Start auto-hide timer
         this.startAutoHideTimer();
     }
     
-    handleMouseActivity() {
+    handleActivity() {
         // Only auto-show if UI wasn't manually hidden
         if (!this.isManuallyHidden) {
             this.show();

@@ -331,43 +331,6 @@ body {
     accent-color: #00C8E8;
 }
 
-/* UI Toggle Button */
-.ui-toggle-btn {
-    position: fixed;
-    top: 24px;
-    right: 76px;
-    z-index: 1000;
-    width: 44px;
-    height: 44px;
-    background: rgba(0, 0, 0, 0.6);
-    backdrop-filter: blur(20px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 12px;
-    color: rgba(255, 255, 255, 0.9);
-    cursor: default;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: all 0.2s ease;
-    user-select: none;
-}
-
-.ui-toggle-btn:hover {
-    background: rgba(0, 0, 0, 0.8);
-    border-color: rgba(255, 255, 255, 0.2);
-    color: white;
-    transform: scale(1.05);
-}
-
-.ui-toggle-btn:active {
-    transform: scale(0.95);
-}
-
-.ui-toggle-btn svg {
-    width: 20px;
-    height: 20px;
-}
-
 /* Fullscreen Button */
 .fullscreen-btn {
     position: fixed;
@@ -449,5 +412,85 @@ body.ui-hidden #shaderParameters {
 #colorSwatches > div:last-child {
     border-top-right-radius: 4px;
     border-bottom-right-radius: 4px;
+}
+
+/* Mobile Optimization - Hide elements and adjust layout */
+@media (max-width: 768px) {
+    /* Hide frequency visualizer completely on mobile */
+    #frequencyCanvas {
+        display: none !important;
+    }
+    
+    /* Hide color swatches (color switch preview) on mobile */
+    #colorSwatches {
+        display: none !important;
+    }
+    
+    /* Hide shader parameter panel on mobile */
+    #shaderParameters {
+        display: none !important;
+    }
+    
+    /* Hide loudness controls on mobile */
+    .loudness-controls {
+        display: none !important;
+    }
+    
+    /* Adjust audio controls for mobile */
+    #audioControls {
+        top: 16px;
+        left: 16px;
+        right: 16px;
+        min-width: auto;
+        padding: 16px;
+        max-width: calc(100vw - 32px);
+    }
+    
+    /* Adjust track controls for mobile */
+    .track-controls {
+        bottom: 16px;
+        left: 16px;
+        right: 16px;
+        padding: 16px;
+        max-width: calc(100vw - 32px);
+    }
+    
+    /* Make track buttons scrollable on mobile */
+    .tracks {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+    }
+    
+    .tracks::-webkit-scrollbar {
+        display: none;
+    }
+    
+    /* Adjust preset buttons grid for mobile */
+    .preset-buttons {
+        grid-template-columns: repeat(4, 1fr);
+        gap: 8px;
+    }
+    
+    /* Adjust button sizes for touch */
+    .preset-btn {
+        min-height: 48px;
+    }
+    
+    .track-btn {
+        padding: 12px 16px;
+        font-size: 14px;
+    }
+    
+    .play-control {
+        width: 48px;
+        height: 48px;
+    }
+    
+    /* Hide fullscreen button on mobile */
+    .fullscreen-btn {
+        display: none !important;
+    }
 }
 
