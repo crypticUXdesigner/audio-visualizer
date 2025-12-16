@@ -83,14 +83,14 @@ export class AudioAnalyzer {
         
         // Multiple ripple tracking system
         // Each ripple: { startTime, centerX, centerY, intensity, active }
-        this.maxRipples = 16; // Maximum number of simultaneous ripples
+        this.maxRipples = 12; // Maximum number of simultaneous ripples
         this.ripples = []; // Array of active ripples
         this.rippleLifetime = 2.0; // Ripples fade out after 2 seconds
         
         // Rate limiting and cooldown system
         this.rippleCreationTimes = []; // Track when ripples were created (for rate limiting)
         this.rippleRateLimitWindow = 500; // 500ms window
-        this.rippleRateLimit = 12; // Max 10 ripples in 500ms window
+        this.rippleRateLimit = 9; // Max 10 ripples in 500ms window
         this.rippleCooldownUntil = 0; // Timestamp when cooldown ends
         this.rippleCooldownDuration = 300; // 300ms cooldown after hitting rate limit
         
@@ -230,20 +230,45 @@ export class AudioAnalyzer {
                 }
             }
             
-            // Get base URL from Vite (handles both dev and production)
-            const baseUrl = import.meta.env.BASE_URL || '/';
-            
-            // Normalize the path: if it starts with /, remove it; otherwise use as-is
-            // Then prepend base URL
-            const normalizedPath = filePath.startsWith('/') ? filePath.substring(1) : filePath;
-            const absolutePath = baseUrl + normalizedPath;
-            
-            // Ensure base URL doesn't have double slashes
-            const cleanPath = absolutePath.replace(/([^:]\/)\/+/g, '$1');
+            // Check if it's a full URL (http/https) - use as-is
+            let cleanPath;
+            if (filePath.startsWith('http://') || filePath.startsWith('https://')) {
+                cleanPath = filePath;
+            } else {
+                // Get base URL from Vite (handles both dev and production)
+                const baseUrl = import.meta.env.BASE_URL || '/';
+                
+                // Normalize the path: if it starts with /, remove it; otherwise use as-is
+                // Then prepend base URL
+                const normalizedPath = filePath.startsWith('/') ? filePath.substring(1) : filePath;
+                const absolutePath = baseUrl + normalizedPath;
+                
+                // Ensure base URL doesn't have double slashes
+                cleanPath = absolutePath.replace(/([^:]\/)\/+/g, '$1');
+            }
             
             // Create audio element
             this.audioElement = new Audio(cleanPath);
             this.audioElement.crossOrigin = 'anonymous'; // For CORS when using API later
+            
+            // Ensure playbackRate is 1.0 (normal speed)
+            if (this.audioElement.playbackRate !== 1.0) {
+                console.warn(`⚠️  Audio playbackRate is ${this.audioElement.playbackRate}, resetting to 1.0`);
+                this.audioElement.playbackRate = 1.0;
+            }
+            
+            // Add event listeners to track audio loading and metadata
+            this.audioElement.addEventListener('loadedmetadata', () => {
+                // Metadata loaded - audio is ready
+            });
+            
+            this.audioElement.addEventListener('error', (e) => {
+                console.error('Audio loading error:', e, this.audioElement.error);
+            });
+            
+            this.audioElement.addEventListener('canplay', () => {
+                // Audio can start playing
+            });
             
             // Create source node
             this.source = this.audioContext.createMediaElementSource(this.audioElement);
@@ -261,7 +286,6 @@ export class AudioAnalyzer {
             
             // Play
             await this.audioElement.play();
-            console.log('Audio track loaded:', filePath);
         } catch (error) {
             console.error('Error loading audio track:', error);
             throw error;

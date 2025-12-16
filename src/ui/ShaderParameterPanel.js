@@ -61,10 +61,9 @@ export class ShaderParameterPanel {
             this.container.appendChild(saveButton);
         }
         
-        // Show container if there are parameters
-        if (this.controls.size > 0) {
-            this.container.style.display = 'block';
-        } else {
+        // Don't automatically show the panel - visibility is controlled by the button click handler
+        // Keep the current display state (should be 'none' initially)
+        if (this.container.style.display === '') {
             this.container.style.display = 'none';
         }
     }

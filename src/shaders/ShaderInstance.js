@@ -2,7 +2,7 @@
 // Handles WebGL context, program, uniforms, and rendering for one shader
 
 import { loadShader, createProgram, createQuad } from '../core/WebGLUtils.js';
-import Sentry from '../core/SentryInit.js';
+import Sentry, { safeSentryMetric, isSentryAvailable } from '../core/SentryInit.js';
 
 export class ShaderInstance {
     constructor(canvasId, config) {
@@ -478,7 +478,7 @@ export class ShaderInstance {
         // Set multiple ripple arrays (if available from audioData)
         if (audioData && audioData.rippleData) {
             const rippleData = audioData.rippleData;
-            const maxRipples = 16;
+            const maxRipples = 12;
             
             // Split centers array into separate x and y arrays
             const centerX = new Float32Array(maxRipples);
@@ -800,9 +800,9 @@ export class ShaderInstance {
                 const currentFPS = 1000 / avgFrameTime;
                 const targetFPS = this.targetFPS;
                 
-                // Send performance metrics to Sentry
-                if (typeof Sentry !== 'undefined' && Sentry.metrics) {
-                    Sentry.metrics.distribution('render.fps', currentFPS, {
+                // Send performance metrics to Sentry (handles blocked requests gracefully)
+                if (isSentryAvailable()) {
+                    safeSentryMetric('render.fps', currentFPS, {
                         unit: 'none',
                         tags: {
                             qualityLevel: this.qualityLevel.toFixed(2),
@@ -812,7 +812,7 @@ export class ShaderInstance {
                         },
                     });
                     
-                    Sentry.metrics.distribution('render.frameTime', avgFrameTime, {
+                    safeSentryMetric('render.frameTime', avgFrameTime, {
                         unit: 'millisecond',
                         tags: {
                             qualityLevel: this.qualityLevel.toFixed(2),

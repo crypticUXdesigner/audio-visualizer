@@ -8,7 +8,15 @@
     <meta http-equiv="Expires" content="0">
     <title>Background Shader</title>
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@100;200;300;400;500;600;700;800;900&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css">
+    <script>
+        // Check for debug mode immediately to prevent flash of buttons
+        (function() {
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.has('debug')) {
+                document.documentElement.classList.add('debug-mode');
+            }
+        })();
+    </script>
 </head>
 <body>
     <!-- Background Shader Canvas -->
@@ -41,8 +49,8 @@
         
         <!-- Shader Controls Button -->
         <button id="shaderControlsBtn" class="top-control-btn">
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 256 256">
-                <path fill="currentColor" d="M176 80a8 8 0 0 1 8-8h32a8 8 0 0 1 0 16h-32a8 8 0 0 1-8-8M40 88h104v16a8 8 0 0 0 16 0V56a8 8 0 0 0-16 0v16H40a8 8 0 0 0 0 16m176 80h-96a8 8 0 0 0 0 16h96a8 8 0 0 0 0-16M88 144a8 8 0 0 0-8 8v16H40a8 8 0 0 0 0 16h40v16a8 8 0 0 0 16 0v-48a8 8 0 0 0-8-8"/>
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M11 15v4H8v4l-.005.102a1 1 0 0 1-1.99 0L6 23v-4H3v-4h8Zm10-8v4h-3v12l-.005.102a1 1 0 0 1-1.99 0L16 23V11h-3V7h8ZM7 0a1 1 0 0 1 1 1v12H6V1a1 1 0 0 1 1-1Zm10 0a1 1 0 0 1 1 1v4h-2V1a1 1 0 0 1 1-1Z"/>
             </svg>
         </button>
         
@@ -52,45 +60,64 @@
                 <path fill="currentColor" d="M46.05 60.163H31.923c-.836 0-1.513.677-1.513 1.513V83.61c0 .836.677 1.513 1.513 1.513H46.05c.836 0 1.512-.677 1.512-1.513V61.675c0-.836-.677-1.512-1.512-1.512m22.027-45.285H53.95c-.836 0-1.513.677-1.513 1.513v67.218c0 .836.677 1.513 1.513 1.513h14.127c.836 0 1.513-.677 1.513-1.513V16.391c0-.836-.677-1.513-1.513-1.513m22.14 20.421H76.09c-.836 0-1.513.677-1.513 1.513v46.797c0 .836.677 1.513 1.513 1.513h14.126c.836 0 1.513-.677 1.513-1.513V36.812c0-.835-.677-1.513-1.512-1.513m-66.307 0H9.783c-.836 0-1.513.677-1.513 1.513v46.797c0 .836.677 1.513 1.513 1.513H23.91c.836 0 1.513-.677 1.513-1.513V36.812c0-.835-.677-1.513-1.513-1.513"/>
             </svg>
         </button>
-    </div>
-    
-    <!-- Play Button (Bottom Center) -->
-    <button id="playControlBtn" class="play-control">
-        <svg class="play-icon" width="48" height="48" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M6 4L16 10L6 16V4Z" fill="currentColor"/>
-        </svg>
-        <svg class="pause-icon" width="48" height="48" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" style="display: none;">
-            <path d="M5 4H9V16H5V4Z" fill="currentColor"/>
-            <path d="M11 4H15V16H11V4Z" fill="currentColor"/>
-        </svg>
-    </button>
-    
-    <!-- Track Selection Dropdown -->
-    <div id="trackDropdown" class="track-dropdown">
-        <button id="trackDropdownBtn" class="track-dropdown-btn">
-            <span id="trackDropdownText">Select Track</span>
-            <svg class="dropdown-arrow" width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M4 6L8 10L12 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        
+        <!-- Loop Button -->
+        <button id="loopBtn" class="top-control-btn" title="Loop">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M21.657 6.343a8 8 0 0 1-5.245 13.647L16 20h-6v4l-5-5 5-5v4h6a6 6 0 0 0 4.242-10.242l1.415-1.415ZM19 5l-5 5V6H8a6 6 0 0 0-4.242 10.242l-1.413 1.413A8 8 0 0 1 8 4h6V0l5 5Z"/>
             </svg>
         </button>
-        <div id="trackDropdownMenu" class="track-dropdown-menu">
-            <button class="track-option" data-track="autumn-ride.mp3">Autumn Ride</button>
-            <button class="track-option" data-track="brae.mp3">Brae</button>
-            <button class="track-option" data-track="by-myself.mp3">By Myself</button>
-            <button class="track-option" data-track="classic-billie.mp3">Classic Billie</button>
-            <button class="track-option" data-track="letter to the sun.mp3">Letter to the Sun</button>
-            <button class="track-option" data-track="pm10.mp3">PM10</button>
-            <button class="track-option" data-track="quiet-between-us.mp3">Quiet Between Us</button>
-        </div>
+        
+        <!-- Random Button -->
+        <button id="randomBtn" class="top-control-btn" title="Random">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24">
+                <path fill="currentColor" d="M10.59 9.17L5.41 4L4 5.41l5.17 5.17l1.42-1.41M14.5 4l2.04 2.04L4 18.59L5.41 20L17.96 7.46L20 9.5V4h-5.5m.33 9.41l-1.41 1.41l3.13 3.13L14.5 20H20v-5.5l-2.04 2.04l-3.13-3.13z"/>
+            </svg>
+        </button>
     </div>
     
-    <!-- Scrubber (Outside Container) -->
-    <div class="scrubber-container">
-        <div class="time-display" style="display: none;">
-            <span id="currentTime">0:00</span>
-            <span id="totalTime">0:00</span>
+    <!-- Audio Controls Container -->
+    <div class="audio-controls-container">
+        <!-- Track Selection Dropdown -->
+        <div id="trackDropdown" class="track-dropdown">
+            <button id="trackDropdownBtn" class="track-dropdown-btn">
+                <span id="trackDropdownText">Select Track</span>
+                <svg class="track-loading-spinner" width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" style="display: none;">
+                    <circle cx="7" cy="7" r="5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="8 20" opacity="0.7"/>
+                </svg>
+                <svg class="dropdown-arrow" width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M4 6L8 10L12 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+            </button>
+            <div id="trackDropdownMenu" class="track-dropdown-menu">
+                <button class="track-option" data-track="autumn-ride.mp3">Autumn Ride</button>
+                <button class="track-option" data-track="brae.mp3">Brae</button>
+                <button class="track-option" data-track="by-myself.mp3">By Myself</button>
+                <button class="track-option" data-track="classic-billie.mp3">Classic Billie</button>
+                <button class="track-option" data-track="letter to the sun.mp3">Letter to the Sun</button>
+                <button class="track-option" data-track="pm10.mp3">PM10</button>
+                <button class="track-option" data-track="quiet-between-us.mp3">Quiet Between Us</button>
+            </div>
         </div>
-        <input type="range" id="seekBar" min="0" max="100" value="0" step="0.1" class="seek-bar" />
+        
+        <!-- Scrubber -->
+        <div class="scrubber-container">
+            <div class="time-display" style="display: none;">
+                <span id="currentTime">0:00</span>
+                <span id="totalTime">0:00</span>
+            </div>
+            <input type="range" id="seekBar" min="0" max="100" value="0" step="0.1" class="seek-bar" />
+        </div>
+        
+        <!-- Play Button -->
+        <button id="playControlBtn" class="play-control">
+            <svg class="play-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M20.752 11.168 5.555 1.037A1 1 0 0 0 4 1.869v20.263a1 1 0 0 0 1.555.832l15.197-10.132a1 1 0 0 0 0-1.664Z"/>
+            </svg>
+            <svg class="pause-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 24 24" style="display: none;">
+                <path d="M7.8 2c1.12 0 1.68 0 2.108.218a2 2 0 0 1 .874.874C11 3.52 11 4.08 11 5.2v13.6c0 1.12 0 1.68-.218 2.108a2 2 0 0 1-.874.874C9.48 22 8.92 22 7.8 22h-.6c-1.12 0-1.68 0-2.108-.218a2 2 0 0 1-.874-.874C4 20.48 4 19.92 4 18.8V5.2c0-1.12 0-1.68.218-2.108a2 2 0 0 1 .874-.874C5.52 2 6.08 2 7.2 2h.6Zm9 0c1.12 0 1.68 0 2.108.218a2 2 0 0 1 .874.874C20 3.52 20 4.08 20 5.2v13.6c0 1.12 0 1.68-.218 2.108a2 2 0 0 1-.874.874C18.48 22 17.92 22 16.8 22h-.6c-1.12 0-1.68 0-2.108-.218a2 2 0 0 1-.874-.874C13 20.48 13 19.92 13 18.8V5.2c0-1.12 0-1.68.218-2.108a2 2 0 0 1 .874-.874C14.52 2 15.08 2 16.2 2h.6Z"/>
+            </svg>
+        </button>
     </div>
     
     <script type="module" src="src/main.js"></script>

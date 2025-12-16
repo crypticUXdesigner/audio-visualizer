@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import { copyFileSync, mkdirSync, existsSync, readdirSync, statSync, writeFileSync, readFileSync } from 'fs';
 import { join } from 'path';
 
@@ -55,7 +55,22 @@ const copyAudioPlugin = () => {
   };
 };
 
-export default defineConfig(({ command }) => ({
+export default defineConfig(({ command, mode }) => {
+  // Explicitly load environment variables from .env files
+  // Vite should do this automatically, but we'll ensure it works
+  const env = loadEnv(mode, process.cwd(), '');
+  
+  // Debug: Log if token is loaded (only in dev mode, and don't log the actual token)
+  if (command === 'serve') {
+    const tokenSet = !!env.VITE_AUDIOTOOL_API_TOKEN;
+    console.log(`[Vite Config] VITE_AUDIOTOOL_API_TOKEN is ${tokenSet ? 'SET' : 'NOT SET'}`);
+    if (!tokenSet) {
+      console.warn('[Vite Config] Warning: VITE_AUDIOTOOL_API_TOKEN not found in environment variables');
+      console.warn('[Vite Config] Make sure .env.local exists in the project root and contains: VITE_AUDIOTOOL_API_TOKEN=your_token');
+    }
+  }
+  
+  return {
   // Use base path only for production builds (GitHub Pages)
   // For dev server, use root path
   base: command === 'build' ? '/audio-visualizer/' : '/',
@@ -222,5 +237,6 @@ export default defineConfig(({ command }) => ({
       }
     }
   ],
-}));
+  };
+});
 

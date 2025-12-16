@@ -144,8 +144,8 @@ body {
 }
 
 .top-control-btn svg {
-    width: 20px;
-    height: 20px;
+    width: 24px;
+    height: 24px;
 }
 
 .top-control-btn:hover {
@@ -160,6 +160,18 @@ body {
     backdrop-filter: blur(20px);
     border-color: rgba(255, 255, 255, 0.2);
     color: white;
+}
+
+/* Hide debug buttons by default - only show when ?debug is in URL */
+#shaderControlsBtn,
+#frequencyVisualizerBtn {
+    display: none !important;
+}
+
+/* Show debug buttons when debug mode is enabled */
+html.debug-mode #shaderControlsBtn,
+html.debug-mode #frequencyVisualizerBtn {
+    display: flex !important;
 }
 
 /* Color Preset Menu */
@@ -328,8 +340,8 @@ body {
 }
 
 .play-control svg {
-    width: 48px;
-    height: 48px;
+    width: 40px;
+    height: 40px;
 }
 
 /* Track Dropdown */
@@ -386,6 +398,29 @@ body {
 
 .track-dropdown.open .track-dropdown-btn .dropdown-arrow {
     transform: rotate(180deg);
+}
+
+.track-dropdown-btn .track-loading-spinner {
+    display: none;
+    flex-shrink: 0;
+    animation: track-spin 1s linear infinite;
+}
+
+.track-dropdown-btn.loading .track-loading-spinner {
+    display: block;
+}
+
+.track-dropdown-btn.loading .dropdown-arrow {
+    display: none;
+}
+
+@keyframes track-spin {
+    0% {
+        transform: rotate(0deg);
+    }
+    100% {
+        transform: rotate(360deg);
+    }
 }
 
 .track-dropdown-menu {

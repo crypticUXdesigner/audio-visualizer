@@ -319,19 +319,27 @@ window.FrequencyVisualizer = {
 // Initialize when DOM is ready
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
-        // Don't initialize on mobile
+        // Check for debug mode
+        const urlParams = new URLSearchParams(window.location.search);
+        const isDebugMode = urlParams.has('debug');
+        
+        // Don't initialize on mobile or if not in debug mode
         const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
                         (window.matchMedia && window.matchMedia('(max-width: 768px)').matches);
         
-        if (!isMobile && window.FrequencyVisualizer) {
+        if (!isMobile && isDebugMode && window.FrequencyVisualizer) {
             window.FrequencyVisualizer.init();
         }
     });
 } else {
+    // Check for debug mode
+    const urlParams = new URLSearchParams(window.location.search);
+    const isDebugMode = urlParams.has('debug');
+    
     const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
                     (window.matchMedia && window.matchMedia('(max-width: 768px)').matches);
     
-    if (!isMobile && window.FrequencyVisualizer) {
+    if (!isMobile && isDebugMode && window.FrequencyVisualizer) {
         window.FrequencyVisualizer.init();
     }
 }

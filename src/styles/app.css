@@ -1,0 +1,70 @@
+/* Main Application Styles */
+/* This file imports all other CSS files in the correct order */
+
+@import './reset.css';
+@import './scales.css';
+@import './token.css';
+@import './layout.css';
+@import './components.css';
+
+/* Mobile Optimization - Hide elements and adjust layout */
+@media (max-width: 768px) {
+  /* Hide frequency visualizer completely on mobile */
+  #frequencyCanvas {
+    display: none !important;
+  }
+  
+  /* Hide color swatches (color switch preview) on mobile */
+  #colorSwatches {
+    display: none !important;
+  }
+  
+  /* Hide shader parameter panel on mobile */
+  #shaderParameters {
+    display: none !important;
+  }
+  
+  /* Adjust audio controls for mobile */
+  #audioControls {
+    top: var(--spacing-lg);
+    left: var(--spacing-lg);
+    right: var(--spacing-lg);
+    min-width: auto;
+    padding: var(--spacing-lg);
+    max-width: calc(100vw - var(--spacing-2xl));
+  }
+  
+  /* Adjust audio controls container for mobile */
+  .audio-controls-container {
+    width: calc(100% - var(--spacing-2xl));
+    max-width: 100%;
+  }
+  
+  /* Adjust track dropdown for mobile */
+  .track-dropdown {
+    max-width: 100%;
+    width: 100%;
+  }
+  
+  /* Adjust scrubber for mobile */
+  .scrubber-container {
+    width: 100%;
+  }
+  
+  /* Adjust preset buttons grid for mobile */
+  .preset-buttons {
+    grid-template-columns: repeat(4, 1fr);
+    gap: var(--spacing-sm);
+  }
+  
+  /* Adjust button sizes for touch */
+  .preset-btn {
+    min-height: var(--size-3xl);
+  }
+  
+  .track-btn {
+    padding: var(--spacing-md) var(--spacing-lg);
+    font-size: var(--size-sm);
+  }
+}
+

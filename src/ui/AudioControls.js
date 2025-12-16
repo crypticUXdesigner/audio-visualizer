@@ -14,11 +14,17 @@ export class AudioControls {
         this.trackDropdownText = document.getElementById('trackDropdownText');
         this.trackDropdownMenu = document.getElementById('trackDropdownMenu');
         this.trackOptions = document.querySelectorAll('.track-option');
+        this.trackLoadingSpinner = this.trackDropdownBtn?.querySelector('.track-loading-spinner');
         this.scrubberContainer = document.querySelector('.scrubber-container');
+        this.audioControlsContainer = document.querySelector('.audio-controls-container');
+        this.loopBtn = document.getElementById('loopBtn');
+        this.randomBtn = document.getElementById('randomBtn');
         
         this.isSeeking = false;
         this.seekUpdateInterval = null;
         this.isDropdownOpen = false;
+        this.isLoopEnabled = false;
+        this.isRandomEnabled = false;
         
         // Auto-hide controls state
         this.mouseMoveTimeout = null;
@@ -48,8 +54,42 @@ export class AudioControls {
             return;
         }
         
-        // Set first track as active by default
-        if (this.trackOptions.length > 0) {
+        // Check for track parameter in URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const trackParam = urlParams.get('track');
+        
+        let defaultTrackSet = false;
+        
+        // If track parameter is provided, try to load it
+        if (trackParam) {
+            // Try to find matching track (with or without .mp3 extension)
+            const trackToLoad = trackParam.endsWith('.mp3') ? trackParam : `${trackParam}.mp3`;
+            const matchingOption = Array.from(this.trackOptions).find(
+                option => option.dataset.track === trackToLoad || 
+                         option.dataset.track === trackParam ||
+                         option.dataset.track.toLowerCase() === trackToLoad.toLowerCase()
+            );
+            
+            if (matchingOption) {
+                // Load the track from URL parameter
+                const filename = matchingOption.dataset.track;
+                matchingOption.classList.add('active');
+                this.trackDropdownText.textContent = matchingOption.textContent;
+                this.updateTrackTitle(matchingOption.textContent);
+                
+                // Load track asynchronously after a short delay to ensure audio context is ready
+                setTimeout(async () => {
+                    await this.loadTrack(filename);
+                }, 100);
+                
+                defaultTrackSet = true;
+            } else {
+                console.warn(`Track "${trackParam}" not found, using default track`);
+            }
+        }
+        
+        // Set first track as active by default if no URL parameter or if URL track wasn't found
+        if (!defaultTrackSet && this.trackOptions.length > 0) {
             const firstTrack = this.trackOptions[0];
             firstTrack.classList.add('active');
             this.trackDropdownText.textContent = firstTrack.textContent;
@@ -70,8 +110,15 @@ export class AudioControls {
             option.addEventListener('click', async (e) => {
                 e.stopPropagation();
                 const filename = option.dataset.track;
-                await this.loadTrack(filename);
+                
+                // Close dropdown immediately for instant feedback
                 this.closeDropdown();
+                
+                // Load track asynchronously (non-blocking)
+                this.loadTrack(filename).catch(error => {
+                    console.error('Error loading track:', error);
+                    // Track loading error is already logged in loadTrack method
+                });
             });
         });
         
@@ -98,6 +145,7 @@ export class AudioControls {
             try {
                 await this.audioAnalyzer.loadTrack(fileUrl);
                 this.setupAudioElementListeners();
+                this.updateLoopButtonState();
                 this.updateSeekBar();
                 this.startSeekUpdate();
                 this.updatePlayControlButton();
@@ -142,6 +190,13 @@ export class AudioControls {
         
         // Setup auto-hide controls on mouse movement
         this.setupAutoHideControls();
+        
+        // Setup loop and random buttons
+        this.setupLoopButton();
+        this.setupRandomButton();
+        
+        // Setup keyboard controls
+        this.setupKeyboardControls();
     }
     
     setupAutoHideControls() {
@@ -163,7 +218,9 @@ export class AudioControls {
             this.scrubberContainer,
             this.trackDropdown,
             this.trackDropdownMenu,
-            this.topControls
+            this.topControls,
+            this.loopBtn,
+            this.randomBtn
         ];
         
         controlElements.forEach(element => {
@@ -215,9 +272,7 @@ export class AudioControls {
         if (this.isControlsVisible) return;
         
         this.isControlsVisible = true;
-        this.playControlBtn?.classList.remove('ui-hidden');
-        this.scrubberContainer?.classList.remove('ui-hidden');
-        this.trackDropdown?.classList.remove('ui-hidden');
+        this.audioControlsContainer?.classList.remove('ui-hidden');
         this.topControls?.classList.remove('ui-hidden');
     }
     
@@ -225,9 +280,7 @@ export class AudioControls {
         if (!this.isControlsVisible) return;
         
         this.isControlsVisible = false;
-        this.playControlBtn?.classList.add('ui-hidden');
-        this.scrubberContainer?.classList.add('ui-hidden');
-        this.trackDropdown?.classList.add('ui-hidden');
+        this.audioControlsContainer?.classList.add('ui-hidden');
         this.topControls?.classList.add('ui-hidden');
     }
     
@@ -320,12 +373,32 @@ export class AudioControls {
         }
     }
     
-    async loadTrack(filename) {
+    showLoading() {
+        if (this.trackDropdownBtn) {
+            this.trackDropdownBtn.classList.add('loading');
+        }
+    }
+    
+    hideLoading() {
+        if (this.trackDropdownBtn) {
+            this.trackDropdownBtn.classList.remove('loading');
+        }
+    }
+    
+    async loadTrack(filenameOrUrl) {
         try {
+            // Show loading spinner
+            this.showLoading();
+            
+            // Check if it's a full URL (API track) or local file
+            const isUrl = filenameOrUrl.startsWith('http://') || filenameOrUrl.startsWith('https://');
+            const filePath = isUrl ? filenameOrUrl : `audio/${filenameOrUrl}`;
+            
             // Update active option and dropdown text
             let selectedOption = null;
             this.trackOptions.forEach(option => {
-                if (option.dataset.track === filename) {
+                const trackId = option.dataset.track;
+                if (trackId === filenameOrUrl || trackId === filePath) {
                     option.classList.add('active');
                     selectedOption = option;
                 } else {
@@ -339,7 +412,10 @@ export class AudioControls {
                 this.updateTrackTitle(selectedOption.textContent);
             }
             
-            await this.audioAnalyzer.loadTrack(`audio/${filename}`);
+            await this.audioAnalyzer.loadTrack(filePath);
+            
+            // Apply loop state to new track
+            this.updateLoopButtonState();
             
             // Wait for metadata
             if (this.audioAnalyzer.audioElement.readyState >= 1) {
@@ -360,6 +436,107 @@ export class AudioControls {
             this.updatePlayControlButton();
         } catch (error) {
             console.error('Error loading track:', error);
+        } finally {
+            // Hide loading spinner when done (success or error)
+            this.hideLoading();
+        }
+    }
+    
+    /**
+     * Add a track from the Audiotool TrackService to the track selection
+     * @param {string} songName - Name of the song
+     * @param {string} username - Username of the artist
+     * @param {boolean} autoLoad - Whether to automatically load the track after adding
+     */
+    async addTrackFromAPI(songName, username, autoLoad = false) {
+        try {
+            // Import the TrackService function dynamically to avoid circular dependencies
+            const { loadTrack } = await import('../core/AudiotoolTrackService.js');
+            
+            // Get track information from TrackService (tries identifier first, falls back to search)
+            const result = await loadTrack(songName, username);
+            
+            if (!result.success || !result.track) {
+                // Return gracefully instead of throwing
+                const errorMsg = result.error || 'Failed to load track information from TrackService';
+                console.warn(`⚠️  ${errorMsg}`);
+                return null; // Return null to indicate failure without throwing
+            }
+            
+            const track = result.track;
+            
+            // Prefer OGG or WAV over MP3 (better quality, less encoding issues)
+            // Fallback to MP3 if OGG/WAV not available
+            // Note: Protobuf JSON encoding may use snake_case or camelCase
+            const audioUrl = track.ogg_url || track.oggUrl || 
+                            track.wav_url || track.wavUrl || 
+                            track.mp3_url || track.mp3Url || 
+                            track.hls_url || track.hlsUrl;
+            
+            if (!audioUrl) {
+                throw new Error('Track has no audio URL');
+            }
+            
+            // Check if track already exists
+            const existingTrack = Array.from(this.trackOptions).find(
+                option => option.dataset.track === audioUrl || 
+                         option.dataset.apiTrackId === track.name
+            );
+            
+            if (existingTrack) {
+                console.log('Track already exists in selection');
+                if (autoLoad) {
+                    await this.loadTrack(audioUrl);
+                }
+                return existingTrack;
+            }
+            
+            // Create new track option button
+            const trackOption = document.createElement('button');
+            trackOption.className = 'track-option';
+            // Use the songName parameter (user's search term) as the display name
+            // display_name is actually an identifier, not the human-readable title
+            trackOption.textContent = songName || track.description || track.name;
+            trackOption.dataset.track = audioUrl; // Store the full URL
+            trackOption.dataset.apiTrackId = track.name; // Store API ID for reference
+            trackOption.dataset.apiTrack = 'true'; // Mark as API track
+            
+            // Add click handler
+            trackOption.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const trackUrl = trackOption.dataset.track;
+                
+                // Close dropdown immediately for instant feedback
+                this.closeDropdown();
+                
+                // Load track asynchronously (non-blocking)
+                this.loadTrack(trackUrl).catch(error => {
+                    console.error('Error loading track:', error);
+                    // Track loading error is already logged in loadTrack method
+                });
+            });
+            
+            // Add to dropdown menu
+            if (this.trackDropdownMenu) {
+                this.trackDropdownMenu.appendChild(trackOption);
+                
+                // Update trackOptions reference
+                this.trackOptions = document.querySelectorAll('.track-option');
+                
+                console.log(`✅ Added "${songName || track.description || track.name}" to track selection`);
+                
+                // Auto-load if requested
+                if (autoLoad) {
+                    await this.loadTrack(audioUrl);
+                }
+                
+                return trackOption;
+            } else {
+                throw new Error('Track dropdown menu not found');
+            }
+        } catch (error) {
+            console.error('Error adding track from API:', error);
+            throw error;
         }
     }
     
@@ -406,9 +583,24 @@ export class AudioControls {
     
     setupAudioElementListeners() {
         if (this.audioAnalyzer.audioElement) {
+            // Update loop state when new track is loaded
+            this.updateLoopButtonState();
+            
             this.audioAnalyzer.audioElement.addEventListener('ended', () => {
                 this.stopSeekUpdate();
                 this.updatePlayControlButton();
+                
+                // Handle loop - if loop is enabled, it will automatically restart
+                // due to audioElement.loop property, so we don't need to do anything here
+                if (this.isLoopEnabled) {
+                    return;
+                }
+                
+                // Handle random - play random track when current track ends
+                if (this.isRandomEnabled) {
+                    this.playRandomTrack();
+                    return;
+                }
             });
             
             this.audioAnalyzer.audioElement.addEventListener('play', () => {
@@ -428,6 +620,154 @@ export class AudioControls {
                 this.updateSeekBar();
             });
         }
+    }
+    
+    setupLoopButton() {
+        if (!this.loopBtn) return;
+        
+        this.loopBtn.addEventListener('click', () => {
+            this.isLoopEnabled = !this.isLoopEnabled;
+            this.updateLoopButtonState();
+            
+            // If random is enabled, disable it (mutually exclusive)
+            if (this.isLoopEnabled && this.isRandomEnabled) {
+                this.isRandomEnabled = false;
+                this.updateRandomButtonState();
+            }
+        });
+        
+        this.updateLoopButtonState();
+    }
+    
+    updateLoopButtonState() {
+        if (!this.loopBtn) return;
+        
+        if (this.isLoopEnabled) {
+            this.loopBtn.classList.add('active');
+            if (this.audioAnalyzer.audioElement) {
+                this.audioAnalyzer.audioElement.loop = true;
+            }
+        } else {
+            this.loopBtn.classList.remove('active');
+            if (this.audioAnalyzer.audioElement) {
+                this.audioAnalyzer.audioElement.loop = false;
+            }
+        }
+    }
+    
+    setupRandomButton() {
+        if (!this.randomBtn) return;
+        
+        this.randomBtn.addEventListener('click', () => {
+            this.isRandomEnabled = !this.isRandomEnabled;
+            this.updateRandomButtonState();
+            
+            // If loop is enabled, disable it (mutually exclusive)
+            if (this.isRandomEnabled && this.isLoopEnabled) {
+                this.isLoopEnabled = false;
+                this.updateLoopButtonState();
+            }
+        });
+        
+        this.updateRandomButtonState();
+    }
+    
+    updateRandomButtonState() {
+        if (!this.randomBtn) return;
+        
+        if (this.isRandomEnabled) {
+            this.randomBtn.classList.add('active');
+        } else {
+            this.randomBtn.classList.remove('active');
+        }
+    }
+    
+    setupKeyboardControls() {
+        // Prevent default space behavior (page scroll) and handle keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            // Space key for play/pause (only when not in input fields)
+            if (e.code === 'Space' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+                e.preventDefault();
+                this.handlePlayControl();
+            }
+            
+            // Arrow keys for seeking (only when not in input fields)
+            if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+                if (e.code === 'ArrowLeft') {
+                    e.preventDefault();
+                    this.skipBackward(15);
+                } else if (e.code === 'ArrowRight') {
+                    e.preventDefault();
+                    this.skipForward(15);
+                }
+            }
+        });
+    }
+    
+    skipBackward(seconds) {
+        if (!this.audioAnalyzer.audioElement || !this.audioAnalyzer.audioElement.duration) {
+            return;
+        }
+        
+        const newTime = Math.max(0, this.audioAnalyzer.audioElement.currentTime - seconds);
+        this.audioAnalyzer.audioElement.currentTime = newTime;
+        this.updateSeekBar();
+    }
+    
+    skipForward(seconds) {
+        if (!this.audioAnalyzer.audioElement || !this.audioAnalyzer.audioElement.duration) {
+            return;
+        }
+        
+        const duration = this.audioAnalyzer.audioElement.duration;
+        const newTime = Math.min(duration, this.audioAnalyzer.audioElement.currentTime + seconds);
+        this.audioAnalyzer.audioElement.currentTime = newTime;
+        this.updateSeekBar();
+    }
+    
+    async playRandomTrack() {
+        if (!this.trackOptions || this.trackOptions.length === 0) {
+            return;
+        }
+        
+        // Get all available tracks
+        const tracks = Array.from(this.trackOptions);
+        
+        // If only one track, just play it
+        if (tracks.length === 1) {
+            const filename = tracks[0].dataset.track;
+            await this.loadTrack(filename);
+            return;
+        }
+        
+        // Pick a random track (excluding current track if possible)
+        const currentTrack = this.audioAnalyzer.audioElement?.src;
+        let availableTracks = tracks.filter(track => {
+            const trackPath = track.dataset.track;
+            // Check if this track matches the current one
+            if (!currentTrack) return true;
+            
+            // For local files, check if the path matches
+            if (trackPath.startsWith('http')) {
+                return trackPath !== currentTrack;
+            } else {
+                // For local files, check if the filename appears in the current track src
+                const filename = trackPath.replace('.mp3', '');
+                return !currentTrack.includes(filename);
+            }
+        });
+        
+        // If all tracks filtered out, use all tracks
+        if (availableTracks.length === 0) {
+            availableTracks = tracks;
+        }
+        
+        // Pick random track
+        const randomIndex = Math.floor(Math.random() * availableTracks.length);
+        const randomTrack = availableTracks[randomIndex];
+        const filename = randomTrack.dataset.track;
+        
+        await this.loadTrack(filename);
     }
 }
 

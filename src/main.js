@@ -1,6 +1,9 @@
 // Main Application Entry Point
 // Wires together all modules and initializes the application
 
+// Import styles (Vite will process and bundle these)
+import './styles/app.css';
+
 // Initialize Sentry as early as possible (before other imports)
 import Sentry from './core/SentryInit.js';
 import { AudioAnalyzer } from './core/AudioAnalyzer.js';
@@ -31,7 +34,21 @@ class VisualPlayer {
         this.colorsInitialized = false;
     }
     
+    /**
+     * Check if debug mode is enabled via URL parameter
+     * @returns {boolean} True if ?debug is in the URL
+     */
+    isDebugMode() {
+        const urlParams = new URLSearchParams(window.location.search);
+        return urlParams.has('debug');
+    }
+    
     async init() {
+        // Set debug mode class on html element (already set by inline script, but ensure it's set)
+        if (this.isDebugMode()) {
+            document.documentElement.classList.add('debug-mode');
+        }
+        
         // Track initialization as a transaction
         return Sentry.startSpan(
             {
@@ -236,6 +253,64 @@ class VisualPlayer {
             }
         }
         
+        // Load tracks from TrackService dynamically
+        // This happens asynchronously so it doesn't block initialization
+        setTimeout(() => {
+            // Load "Blue Eyes (Trust Fund)" (has identifier, will use direct lookup)
+            this.loadAPITrack('Blue Eyes (Trust Fund)', 'dquerg').catch(error => {
+                console.warn('Failed to load API track "Blue Eyes (Trust Fund)" (this is optional):', error);
+            });
+            
+            // Load "Beast Within" (has identifier, will use direct lookup)
+            setTimeout(() => {
+                this.loadAPITrack('Beast Within', 'dquerg').catch(error => {
+                    console.warn('Failed to load API track "Beast Within" (this is optional):', error);
+                });
+            }, 300);
+            
+            // Load "#BBCHTRN" (has identifier, will use direct lookup)
+            setTimeout(() => {
+                this.loadAPITrack('#BBCHTRN', 'dquerg').catch(error => {
+                    console.warn('Failed to load API track "#BBCHTRN" (this is optional):', error);
+                });
+            }, 600);
+            
+            // Load "#DFNTLYNABYPK" (has identifier, will use direct lookup)
+            setTimeout(() => {
+                this.loadAPITrack('#DFNTLYNABYPK', 'dquerg').catch(error => {
+                    console.warn('Failed to load API track "#DFNTLYNABYPK" (this is optional):', error);
+                });
+            }, 900);
+            
+            // Load "kitsch (Kepz Remix)" (will search first time, then save identifier)
+            setTimeout(() => {
+                this.loadAPITrack('kitsch (Kepz Remix)', 'various').catch(error => {
+                    console.warn('Failed to load API track "kitsch (Kepz Remix)" (this is optional):', error);
+                });
+            }, 1200);
+            
+            // Load "Five Hundred" (will search first time, then save identifier)
+            setTimeout(() => {
+                this.loadAPITrack('Five Hundred', 'various').catch(error => {
+                    console.warn('Failed to load API track "Five Hundred" (this is optional):', error);
+                });
+            }, 1500);
+            
+            // Load "Sackgesicht" (will search first time, then save identifier)
+            setTimeout(() => {
+                this.loadAPITrack('Sackgesicht', 'various').catch(error => {
+                    console.warn('Failed to load API track "Sackgesicht" (this is optional):', error);
+                });
+            }, 1800);
+            
+            // Load "Back To You - Icebox, SIREN & dcln" (will search first time, then save identifier)
+            setTimeout(() => {
+                this.loadAPITrack('Back To You - Icebox, SIREN & dcln', 'various').catch(error => {
+                    console.warn('Failed to load API track "Back To You - Icebox, SIREN & dcln" (this is optional):', error);
+                });
+            }, 2100);
+        }, 1000); // Wait 1 second after initialization to load API tracks
+        
         // Initialize color preset switcher
         this.colorPresetSwitcher = new ColorPresetSwitcher(
             colorPresets,
@@ -279,8 +354,10 @@ class VisualPlayer {
             }
         );
         
-        // Initialize shader parameter panel
-        this.shaderParameterPanel = new ShaderParameterPanel(this.shaderManager);
+        // Initialize shader parameter panel only in debug mode
+        if (this.isDebugMode()) {
+            this.shaderParameterPanel = new ShaderParameterPanel(this.shaderManager);
+        }
     }
     
     initDevTools() {
@@ -299,27 +376,44 @@ class VisualPlayer {
             loudnessThreshold: 0.1
         };
         
+        const isDebugMode = this.isDebugMode();
+        
         // Shader Controls Button
         const shaderControlsBtn = document.getElementById('shaderControlsBtn');
         const shaderParameters = document.getElementById('shaderParameters');
         
-        if (shaderControlsBtn && shaderParameters) {
-            // Ensure it starts hidden
-            shaderParameters.style.display = 'none';
-            
-            let isShaderControlsVisible = false;
-            
-            shaderControlsBtn.addEventListener('click', () => {
-                isShaderControlsVisible = !isShaderControlsVisible;
-                
-                if (isShaderControlsVisible) {
-                    shaderParameters.style.display = 'block';
-                    shaderControlsBtn.classList.add('active');
-                } else {
+        if (shaderControlsBtn) {
+            // Button visibility is now controlled by CSS (debug-mode class on body)
+            if (isDebugMode) {
+                // Ensure it starts hidden
+                if (shaderParameters) {
                     shaderParameters.style.display = 'none';
-                    shaderControlsBtn.classList.remove('active');
                 }
-            });
+                
+                let isShaderControlsVisible = false;
+                
+                shaderControlsBtn.addEventListener('click', () => {
+                    if (!shaderParameters) return;
+                    
+                    isShaderControlsVisible = !isShaderControlsVisible;
+                    
+                    if (isShaderControlsVisible) {
+                        shaderParameters.style.display = 'block';
+                        shaderControlsBtn.classList.add('active');
+                    } else {
+                        shaderParameters.style.display = 'none';
+                        shaderControlsBtn.classList.remove('active');
+                    }
+                });
+            } else {
+                // Also hide the shader parameters panel if it exists
+                if (shaderParameters) {
+                    shaderParameters.style.display = 'none';
+                }
+            }
+        } else if (shaderParameters && !isDebugMode) {
+            // If button doesn't exist but panel does, hide it
+            shaderParameters.style.display = 'none';
         }
         
         // Frequency Visualizer Button
@@ -327,22 +421,51 @@ class VisualPlayer {
         const frequencyCanvas = document.getElementById('frequencyCanvas');
         
         if (frequencyVisualizerBtn && frequencyCanvas) {
-            // Ensure it starts hidden
-            frequencyCanvas.style.display = 'none';
-            
-            let isFrequencyVisible = false;
-            
-            frequencyVisualizerBtn.addEventListener('click', () => {
-                isFrequencyVisible = !isFrequencyVisible;
+            // Button visibility is now controlled by CSS (debug-mode class on body)
+            if (isDebugMode) {
+                // Ensure it starts hidden
+                frequencyCanvas.style.display = 'none';
                 
-                if (isFrequencyVisible) {
-                    frequencyCanvas.style.display = 'block';
-                    frequencyVisualizerBtn.classList.add('active');
-                } else {
-                    frequencyCanvas.style.display = 'none';
-                    frequencyVisualizerBtn.classList.remove('active');
-                }
-            });
+                let isFrequencyVisible = false;
+                
+                frequencyVisualizerBtn.addEventListener('click', () => {
+                    isFrequencyVisible = !isFrequencyVisible;
+                    
+                    if (isFrequencyVisible) {
+                        frequencyCanvas.style.display = 'block';
+                        frequencyVisualizerBtn.classList.add('active');
+                    } else {
+                        frequencyCanvas.style.display = 'none';
+                        frequencyVisualizerBtn.classList.remove('active');
+                    }
+                });
+            }
+        }
+    }
+    
+    /**
+     * Load a track from the Audiotool TrackService and add it to the track selection
+     * @param {string} songName - Name of the song
+     * @param {string} username - Username of the artist
+     * @param {boolean} autoLoad - Whether to automatically load the track after adding
+     */
+    async loadAPITrack(songName, username, autoLoad = false) {
+        if (!this.audioControls) {
+            console.warn('AudioControls not initialized yet');
+            return;
+        }
+        
+        try {
+            const result = await this.audioControls.addTrackFromAPI(songName, username, autoLoad);
+            if (result) {
+                console.log(`✅ Successfully added "${songName}" by ${username} to track selection`);
+            }
+            // If result is null, track wasn't found - already logged in addTrackFromAPI, skip silently
+        } catch (error) {
+            // Only log unexpected errors, not "track not found" errors
+            if (!error.message?.includes('not found') && !error.message?.includes('Failed to load')) {
+                console.warn(`⚠️  Unexpected error loading track "${songName}" by ${username}:`, error.message || error);
+            }
         }
     }
     
