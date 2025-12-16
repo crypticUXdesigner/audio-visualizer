@@ -9,12 +9,36 @@ export class AudioControls {
         this.seekBar = document.getElementById('seekBar');
         this.currentTimeDisplay = document.getElementById('currentTime');
         this.totalTimeDisplay = document.getElementById('totalTime');
-        this.trackButtons = document.querySelectorAll('.track-btn');
+        this.trackDropdown = document.getElementById('trackDropdown');
+        this.trackDropdownBtn = document.getElementById('trackDropdownBtn');
+        this.trackDropdownText = document.getElementById('trackDropdownText');
+        this.trackDropdownMenu = document.getElementById('trackDropdownMenu');
+        this.trackOptions = document.querySelectorAll('.track-option');
+        this.scrubberContainer = document.querySelector('.scrubber-container');
         
         this.isSeeking = false;
         this.seekUpdateInterval = null;
+        this.isDropdownOpen = false;
+        
+        // Auto-hide controls state
+        this.mouseMoveTimeout = null;
+        this.hideDelay = 2000; // Hide after 2 seconds of no mouse movement
+        this.isControlsVisible = false;
+        
+        // Title texture for shader
+        this.titleTexture = null;
         
         this.init();
+    }
+    
+    setTitleTexture(titleTexture) {
+        this.titleTexture = titleTexture;
+    }
+    
+    async updateTrackTitle(title) {
+        if (this.titleTexture) {
+            await this.titleTexture.updateTitle(title);
+        }
     }
     
     init() {
@@ -25,16 +49,37 @@ export class AudioControls {
         }
         
         // Set first track as active by default
-        if (this.trackButtons.length > 0) {
-            this.trackButtons[0].classList.add('active');
+        if (this.trackOptions.length > 0) {
+            const firstTrack = this.trackOptions[0];
+            firstTrack.classList.add('active');
+            this.trackDropdownText.textContent = firstTrack.textContent;
+            // Update title texture with first track
+            this.updateTrackTitle(firstTrack.textContent);
         }
         
-        // Track button clicks
-        this.trackButtons.forEach(btn => {
-            btn.addEventListener('click', async () => {
-                const filename = btn.dataset.track;
-                await this.loadTrack(filename);
+        // Track dropdown button click
+        if (this.trackDropdownBtn) {
+            this.trackDropdownBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.toggleDropdown();
             });
+        }
+        
+        // Track option clicks
+        this.trackOptions.forEach(option => {
+            option.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const filename = option.dataset.track;
+                await this.loadTrack(filename);
+                this.closeDropdown();
+            });
+        });
+        
+        // Close dropdown when clicking outside
+        document.addEventListener('click', (e) => {
+            if (this.trackDropdown && !this.trackDropdown.contains(e.target)) {
+                this.closeDropdown();
+            }
         });
         
         // File input handler
@@ -42,8 +87,12 @@ export class AudioControls {
             const file = e.target.files[0];
             if (!file) return;
             
-            // Remove active state from track buttons
-            this.trackButtons.forEach(btn => btn.classList.remove('active'));
+            // Remove active state from track options
+            this.trackOptions.forEach(option => option.classList.remove('active'));
+            this.trackDropdownText.textContent = file.name;
+            // Update title texture (remove file extension)
+            const titleWithoutExt = file.name.replace(/\.[^/.]+$/, "");
+            this.updateTrackTitle(titleWithoutExt);
             
             const fileUrl = URL.createObjectURL(file);
             try {
@@ -90,6 +139,106 @@ export class AudioControls {
             this.setupAudioElementListeners();
             this.updateSeekBar();
         };
+        
+        // Setup auto-hide controls on mouse movement
+        this.setupAutoHideControls();
+    }
+    
+    setupAutoHideControls() {
+        // Get top controls container
+        this.topControls = document.querySelector('.top-controls');
+        
+        // Start with controls hidden
+        this.hideControls();
+        
+        // Show controls on mouse movement
+        document.addEventListener('mousemove', () => {
+            this.showControls();
+            this.resetHideTimeout();
+        });
+        
+        // Keep controls visible when hovering over them or interacting
+        const controlElements = [
+            this.playControlBtn,
+            this.scrubberContainer,
+            this.trackDropdown,
+            this.trackDropdownMenu,
+            this.topControls
+        ];
+        
+        controlElements.forEach(element => {
+            if (element) {
+                element.addEventListener('mouseenter', () => {
+                    this.showControls();
+                    this.resetHideTimeout();
+                });
+                
+                // Keep visible during interaction
+                element.addEventListener('mousedown', () => {
+                    this.showControls();
+                    if (this.mouseMoveTimeout) {
+                        clearTimeout(this.mouseMoveTimeout);
+                    }
+                });
+            }
+        });
+        
+        // Keep controls visible when dropdown is open
+        if (this.trackDropdownMenu) {
+            const observer = new MutationObserver(() => {
+                if (this.trackDropdown?.classList.contains('open')) {
+                    this.showControls();
+                    if (this.mouseMoveTimeout) {
+                        clearTimeout(this.mouseMoveTimeout);
+                    }
+                }
+            });
+            observer.observe(this.trackDropdown, { attributes: true, attributeFilter: ['class'] });
+        }
+        
+        // Keep top controls visible when color preset menu is open
+        const colorPresetItem = document.querySelector('.top-control-item');
+        if (colorPresetItem) {
+            const colorObserver = new MutationObserver(() => {
+                if (colorPresetItem.classList.contains('open')) {
+                    this.showControls();
+                    if (this.mouseMoveTimeout) {
+                        clearTimeout(this.mouseMoveTimeout);
+                    }
+                }
+            });
+            colorObserver.observe(colorPresetItem, { attributes: true, attributeFilter: ['class'] });
+        }
+    }
+    
+    showControls() {
+        if (this.isControlsVisible) return;
+        
+        this.isControlsVisible = true;
+        this.playControlBtn?.classList.remove('ui-hidden');
+        this.scrubberContainer?.classList.remove('ui-hidden');
+        this.trackDropdown?.classList.remove('ui-hidden');
+        this.topControls?.classList.remove('ui-hidden');
+    }
+    
+    hideControls() {
+        if (!this.isControlsVisible) return;
+        
+        this.isControlsVisible = false;
+        this.playControlBtn?.classList.add('ui-hidden');
+        this.scrubberContainer?.classList.add('ui-hidden');
+        this.trackDropdown?.classList.add('ui-hidden');
+        this.topControls?.classList.add('ui-hidden');
+    }
+    
+    resetHideTimeout() {
+        if (this.mouseMoveTimeout) {
+            clearTimeout(this.mouseMoveTimeout);
+        }
+        
+        this.mouseMoveTimeout = setTimeout(() => {
+            this.hideControls();
+        }, this.hideDelay);
     }
     
     formatTime(seconds) {
@@ -155,16 +304,40 @@ export class AudioControls {
         }
     }
     
+    toggleDropdown() {
+        this.isDropdownOpen = !this.isDropdownOpen;
+        if (this.isDropdownOpen) {
+            this.trackDropdown.classList.add('open');
+        } else {
+            this.trackDropdown.classList.remove('open');
+        }
+    }
+    
+    closeDropdown() {
+        this.isDropdownOpen = false;
+        if (this.trackDropdown) {
+            this.trackDropdown.classList.remove('open');
+        }
+    }
+    
     async loadTrack(filename) {
         try {
-            // Update active button
-            this.trackButtons.forEach(btn => {
-                if (btn.dataset.track === filename) {
-                    btn.classList.add('active');
+            // Update active option and dropdown text
+            let selectedOption = null;
+            this.trackOptions.forEach(option => {
+                if (option.dataset.track === filename) {
+                    option.classList.add('active');
+                    selectedOption = option;
                 } else {
-                    btn.classList.remove('active');
+                    option.classList.remove('active');
                 }
             });
+            
+            if (selectedOption && this.trackDropdownText) {
+                this.trackDropdownText.textContent = selectedOption.textContent;
+                // Update title texture
+                this.updateTrackTitle(selectedOption.textContent);
+            }
             
             await this.audioAnalyzer.loadTrack(`audio/${filename}`);
             
@@ -177,6 +350,12 @@ export class AudioControls {
                 }, { once: true });
             }
             
+            // Auto-play the selected track
+            if (this.audioAnalyzer.audioContext.state === 'suspended') {
+                await this.audioAnalyzer.audioContext.resume();
+            }
+            await this.audioAnalyzer.play();
+            
             this.startSeekUpdate();
             this.updatePlayControlButton();
         } catch (error) {
@@ -186,19 +365,10 @@ export class AudioControls {
     
     async handlePlayControl() {
         // If no track is loaded, load the first track
-        if (!this.audioAnalyzer.audioElement && this.trackButtons.length > 0) {
-            const firstTrackBtn = this.trackButtons[0];
-            const filename = firstTrackBtn.dataset.track;
+        if (!this.audioAnalyzer.audioElement && this.trackOptions.length > 0) {
+            const firstTrackOption = this.trackOptions[0];
+            const filename = firstTrackOption.dataset.track;
             await this.loadTrack(filename);
-            
-            if (this.audioAnalyzer.audioElement) {
-                if (this.audioAnalyzer.audioContext.state === 'suspended') {
-                    await this.audioAnalyzer.audioContext.resume();
-                }
-                await this.audioAnalyzer.play();
-                this.startSeekUpdate();
-                this.updatePlayControlButton();
-            }
             return;
         }
         

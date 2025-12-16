@@ -17,21 +17,8 @@ export class ShaderParameterPanel {
             this.container = document.createElement('div');
             this.container.id = this.containerId;
             this.container.className = 'shader-parameters';
-            this.container.style.cssText = `
-                position: fixed;
-                top: 24px;
-                right: 24px;
-                z-index: 1000;
-                background: rgba(0, 0, 0, 0.6);
-                backdrop-filter: blur(20px);
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 16px;
-                padding: 20px;
-                min-width: 240px;
-                max-height: 80vh;
-                overflow-y: auto;
-                display: none;
-            `;
+            // Ensure it's hidden initially (CSS should handle this, but set it explicitly for safety)
+            this.container.style.display = 'none';
             document.body.appendChild(this.container);
         }
         

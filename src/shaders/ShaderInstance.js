@@ -28,6 +28,25 @@ export class ShaderInstance {
         this.maxTimeOffset = 10.0;
         this.targetFPS = this.parameters.targetFPS || 30;
         this.lastFrameTime = 0;
+        
+        // Pixel size animation for loud triggers
+        this.pixelSizeMultiplier = 1.0;
+        this.previousVolume = 0.0;
+        this.loudTriggerThreshold = 0.25; // Volume threshold to trigger (higher = rarer)
+        this.loudTriggerChangeThreshold = 0.12; // Minimum volume increase to trigger (higher = rarer)
+        this.pixelSizeAnimationDuration = 0.1; // Duration in seconds (100ms - short and instant)
+        this.pixelSizeAnimationStartTime = 0;
+        this.isPixelSizeAnimating = false;
+        
+        // Rate limiting for pixel size animation
+        this.pixelSizeTriggerTimes = []; // Track when triggers occurred (for rate limiting)
+        this.pixelSizeRateLimitWindow = 500; // 500ms window
+        this.pixelSizeRateLimit = 4; // Max 4 triggers in 500ms window
+        this.pixelSizeCooldownUntil = 0; // Timestamp when cooldown ends
+        this.pixelSizeCooldownDuration = 500; // 500ms cooldown after hitting rate limit
+        
+        // Title texture
+        this.titleTexture = null;
     }
     
     async init() {
@@ -94,6 +113,31 @@ export class ShaderInstance {
         
         this.isInitialized = true;
         console.log(`ShaderInstance ${this.config.name} initialized`);
+    }
+    
+    /**
+     * Check if pixel size animation can be triggered (rate limiting and cooldown)
+     * @param {number} currentTime - Current timestamp (milliseconds)
+     * @returns {boolean} True if animation can be triggered
+     */
+    canTriggerPixelSizeAnimation(currentTime) {
+        // Check if we're in cooldown
+        if (currentTime < this.pixelSizeCooldownUntil) {
+            return false;
+        }
+        
+        // Remove old trigger times outside the window
+        const windowStart = currentTime - this.pixelSizeRateLimitWindow;
+        this.pixelSizeTriggerTimes = this.pixelSizeTriggerTimes.filter(time => time > windowStart);
+        
+        // Check if we've hit the rate limit
+        if (this.pixelSizeTriggerTimes.length >= this.pixelSizeRateLimit) {
+            // Start cooldown
+            this.pixelSizeCooldownUntil = currentTime + this.pixelSizeCooldownDuration;
+            return false;
+        }
+        
+        return true;
     }
     
     cacheUniformLocations() {
@@ -178,8 +222,20 @@ export class ShaderInstance {
             uRippleCenterY: gl.getUniformLocation(program, 'uRippleCenterY'),
             uRippleTimes: gl.getUniformLocation(program, 'uRippleTimes'),
             uRippleIntensities: gl.getUniformLocation(program, 'uRippleIntensities'),
+            uRippleWidths: gl.getUniformLocation(program, 'uRippleWidths'),
+            uRippleMinRadii: gl.getUniformLocation(program, 'uRippleMinRadii'),
+            uRippleMaxRadii: gl.getUniformLocation(program, 'uRippleMaxRadii'),
+            uRippleIntensityMultipliers: gl.getUniformLocation(program, 'uRippleIntensityMultipliers'),
             uRippleActive: gl.getUniformLocation(program, 'uRippleActive'),
             uRippleCount: gl.getUniformLocation(program, 'uRippleCount'),
+            
+            // Title texture
+            uTitleTexture: gl.getUniformLocation(program, 'uTitleTexture'),
+            uTitleTextureSize: gl.getUniformLocation(program, 'uTitleTextureSize'),
+            uTitleScale: gl.getUniformLocation(program, 'uTitleScale'),
+            uTitleScaleBottomLeft: gl.getUniformLocation(program, 'uTitleScaleBottomLeft'),
+            uPlaybackProgress: gl.getUniformLocation(program, 'uPlaybackProgress'),
+            uTitlePositionOffset: gl.getUniformLocation(program, 'uTitlePositionOffset'),
             
             // Position attribute
             a_position: gl.getAttribLocation(program, 'a_position')
@@ -207,6 +263,13 @@ export class ShaderInstance {
             this.gl.useProgram(this.program);
             this.gl.uniform2f(this.uniformLocations.uResolution, this.canvas.width, this.canvas.height);
         }
+        
+        // Resize title texture to match canvas (async, but don't wait)
+        if (this.titleTexture && typeof this.titleTexture.resize === 'function') {
+            this.titleTexture.resize(this.canvas.width, this.canvas.height).catch(err => {
+                console.warn('TitleTexture resize error:', err);
+            });
+        }
     }
     
     setParameter(name, value) {
@@ -227,6 +290,10 @@ export class ShaderInstance {
     
     getAllParameters() {
         return { ...this.parameters };
+    }
+    
+    setTitleTexture(titleTexture) {
+        this.titleTexture = titleTexture;
     }
     
     render(audioData = null, colors = null) {
@@ -263,6 +330,41 @@ export class ShaderInstance {
                 // Loudness animation disabled: force decay to 0
                 this.timeOffset = Math.max(0, this.timeOffset - this.baseTimeOffsetDecayRate * deltaTime);
             }
+            
+            // Detect loud trigger for pixel size animation
+            const volumeChange = volume - this.previousVolume;
+            
+            // Get current time in milliseconds for rate limiting
+            const currentTimeMs = Date.now();
+            
+            // Trigger if volume exceeds threshold AND shows significant increase AND rate limiting allows it
+            if (volume > this.loudTriggerThreshold && 
+                volumeChange > this.loudTriggerChangeThreshold &&
+                !this.isPixelSizeAnimating &&
+                this.canTriggerPixelSizeAnimation(currentTimeMs)) {
+                // Start pixel size animation
+                this.isPixelSizeAnimating = true;
+                this.pixelSizeAnimationStartTime = currentTime;
+                this.pixelSizeMultiplier = 2.0; // Double the pixel size
+                
+                // Track trigger time for rate limiting
+                this.pixelSizeTriggerTimes.push(currentTimeMs);
+            }
+            
+            // Update previous volume for next frame
+            this.previousVolume = volume;
+        }
+        
+        // Instant return to normal pixel size after short duration
+        if (this.isPixelSizeAnimating) {
+            const animationElapsed = currentTime - this.pixelSizeAnimationStartTime;
+            
+            if (animationElapsed >= this.pixelSizeAnimationDuration) {
+                // Instant return to normal (no transition)
+                this.pixelSizeMultiplier = 1.0;
+                this.isPixelSizeAnimating = false;
+            }
+            // Keep multiplier at 2.0 during the duration (instant doubling, instant return)
         }
         
         gl.clearColor(0.0, 0.0, 0.0, 1.0);
@@ -282,7 +384,11 @@ export class ShaderInstance {
             gl.uniform1f(this.uniformLocations.uTimeOffset, this.timeOffset);
         }
         if (this.uniformLocations.uPixelSize) {
-            gl.uniform1f(this.uniformLocations.uPixelSize, this.parameters.pixelSize || 1.0);
+            const dpr = window.devicePixelRatio || 1;
+            const basePixelSize = this.parameters.pixelSize || 1.0;
+            // Apply animation multiplier to the configured pixel size
+            const scaledPixelSize = basePixelSize * this.pixelSizeMultiplier * dpr;
+            gl.uniform1f(this.uniformLocations.uPixelSize, scaledPixelSize);
         }
         if (this.uniformLocations.uSteps) {
             gl.uniform1f(this.uniformLocations.uSteps, this.parameters.steps || 5.0);
@@ -344,6 +450,30 @@ export class ShaderInstance {
             if (this.uniformLocations.uRippleIntensities) {
                 const intensities = new Float32Array(rippleData.intensities || new Array(maxRipples).fill(0));
                 gl.uniform1fv(this.uniformLocations.uRippleIntensities, intensities);
+            }
+            
+            // Set widths array
+            if (this.uniformLocations.uRippleWidths) {
+                const widths = new Float32Array(rippleData.widths || new Array(maxRipples).fill(0));
+                gl.uniform1fv(this.uniformLocations.uRippleWidths, widths);
+            }
+            
+            // Set minRadii array
+            if (this.uniformLocations.uRippleMinRadii) {
+                const minRadii = new Float32Array(rippleData.minRadii || new Array(maxRipples).fill(0));
+                gl.uniform1fv(this.uniformLocations.uRippleMinRadii, minRadii);
+            }
+            
+            // Set maxRadii array
+            if (this.uniformLocations.uRippleMaxRadii) {
+                const maxRadii = new Float32Array(rippleData.maxRadii || new Array(maxRipples).fill(0));
+                gl.uniform1fv(this.uniformLocations.uRippleMaxRadii, maxRadii);
+            }
+            
+            // Set intensityMultipliers array
+            if (this.uniformLocations.uRippleIntensityMultipliers) {
+                const intensityMultipliers = new Float32Array(rippleData.intensityMultipliers || new Array(maxRipples).fill(0));
+                gl.uniform1fv(this.uniformLocations.uRippleIntensityMultipliers, intensityMultipliers);
             }
             
             // Set active array
@@ -415,6 +545,123 @@ export class ShaderInstance {
                     }
                 }
             });
+        }
+        
+        // Set title texture if available
+        if (this.titleTexture && this.uniformLocations.uTitleTexture) {
+            const textureUnit = this.titleTexture.bindTexture(0);
+            gl.uniform1i(this.uniformLocations.uTitleTexture, textureUnit);
+            if (this.uniformLocations.uTitleTextureSize) {
+                const size = this.titleTexture.getSize();
+                gl.uniform2f(
+                    this.uniformLocations.uTitleTextureSize,
+                    size.width,
+                    size.height
+                );
+            }
+            // Set title scale (1.5 = 50% larger, 2.0 = 2x larger, etc.)
+            if (this.uniformLocations.uTitleScale !== null && this.uniformLocations.uTitleScale !== undefined) {
+                gl.uniform1f(this.uniformLocations.uTitleScale, 1.5); // Default scale: 1.5x larger
+            }
+            
+            // Set playback progress (0.0 = start, 1.0 = end)
+            if (this.uniformLocations.uPlaybackProgress !== null && this.uniformLocations.uPlaybackProgress !== undefined) {
+                const playbackProgress = audioData && audioData.playbackProgress !== undefined 
+                    ? audioData.playbackProgress 
+                    : 0.0;
+                gl.uniform1f(this.uniformLocations.uPlaybackProgress, playbackProgress);
+            }
+            
+            // Set title position offset and scale based on playback sequence
+            if (this.uniformLocations.uTitlePositionOffset !== null && this.uniformLocations.uTitlePositionOffset !== undefined) {
+                const playbackProgress = audioData && audioData.playbackProgress !== undefined 
+                    ? audioData.playbackProgress 
+                    : 0.0;
+                
+                // Sequence phases:
+                // Phase 1: 0-5% - Beginning: middle left with padding
+                // Phase 2: 5-8% - Transition: move position and scale (text hidden)
+                // Phase 3: 8%-95% - Bottom left with padding
+                // Phase 4: 95-100% - End: can show again if needed
+                
+                const phase1End = 0.03;      // End of beginning phase (5%)
+                const phase2Start = 0.05;    // Start of transition (5%)
+                const phase2End = 0.08;      // End of transition (8%)
+                const phase3Start = 0.08;    // Start of bottom left phase (8%)
+                const phase3End = 0.95;      // End of bottom left phase (95%)
+                
+                // Padding values (as fraction of screen: 0.0 = edge, 0.05 = 5% from edge)
+                const leftPadding = 0.01;      // 5% padding from left edge
+                const bottomPadding = 0.01;    // 5% padding from bottom edge
+                
+                // Target screen position (0-1 normalized)
+                // x: 0.0 = left edge, 0.5 = center, 1.0 = right edge
+                // y: 0.0 = top edge, 0.5 = center, 1.0 = bottom edge
+                let targetX = 0.0;
+                let targetY = 0.0;
+                let scale = 1.0;    // Default scale for center
+                let bottomLeftScale = 0.6; // Smaller scale for bottom left
+                
+                // Determine vertical position in texture and font size based on phase
+                let verticalPositionInTexture = 0.5; // Default to center
+                let fontSize = '12vh'; // Default font size for intro
+                
+                if (playbackProgress < phase2Start) {
+                    // Phase 1: Middle left with padding
+                    targetX = leftPadding;        // Left edge + padding
+                    targetY = 0.5;                 // Middle vertically (0.5 = center)
+                    scale = 1.0;
+                    verticalPositionInTexture = 0.5; // Render at center of texture
+                    fontSize = '12vh'; // Large font for intro
+                } else {
+                    // Phase 2+: Transition to bottom left (text may be hidden during transition)
+                    // Phase 3+: Bottom left with padding
+                    targetX = leftPadding;        // Left edge + padding
+                    targetY = 1.0 - bottomPadding; // Bottom edge - padding
+                    scale = 1.0; // No scaling needed since we change font size
+                    verticalPositionInTexture = 1.0 - bottomPadding; // Render at bottom of texture
+                    fontSize = '8vh'; // Smaller font for bottom left (60% of intro size)
+                }
+                
+                // Update texture rendering position and font size (async, but don't wait)
+                if (this.titleTexture) {
+                    // Force update by ensuring needsUpdate is set
+                    this.titleTexture.needsUpdate = true;
+                    
+                    // Update font size if method exists
+                    if (typeof this.titleTexture.setFontSize === 'function') {
+                        this.titleTexture.setFontSize(fontSize).catch(err => {
+                            console.warn('TitleTexture setFontSize error:', err);
+                        });
+                    }
+                    
+                    // Update vertical position if method exists
+                    if (typeof this.titleTexture.setVerticalPosition === 'function') {
+                        this.titleTexture.setVerticalPosition(verticalPositionInTexture).catch(err => {
+                            console.warn('TitleTexture setVerticalPosition error:', err);
+                        });
+                    }
+                }
+                
+                // Pass target screen position (0-1) to shader
+                gl.uniform2f(this.uniformLocations.uTitlePositionOffset, targetX, targetY);
+                
+                // Set scale (now always 1.0 since we use font size instead)
+                if (this.uniformLocations.uTitleScaleBottomLeft !== null && this.uniformLocations.uTitleScaleBottomLeft !== undefined) {
+                    gl.uniform1f(this.uniformLocations.uTitleScaleBottomLeft, scale);
+                }
+            }
+        } else if (this.uniformLocations.uTitleTextureSize) {
+            // Set size to 0,0 if no texture to disable sampling
+            gl.uniform2f(this.uniformLocations.uTitleTextureSize, 0.0, 0.0);
+        }
+        
+        // Always set playback progress even if no texture (for consistency)
+        if (this.uniformLocations.uPlaybackProgress !== null && this.uniformLocations.uPlaybackProgress !== undefined) {
+            const playbackProgress = audioData && audioData.playbackProgress !== undefined 
+                ? audioData.playbackProgress 
+                : 0.0;
+            gl.uniform1f(this.uniformLocations.uPlaybackProgress, playbackProgress);
         }
         
         // Setup quad

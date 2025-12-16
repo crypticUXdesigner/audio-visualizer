@@ -7,11 +7,33 @@
  * @returns {Promise<string>} Shader source code
  */
 export async function loadShader(url) {
-    const response = await fetch(url);
+    // Ensure URL is absolute (starts with /) for proper resolution
+    const absoluteUrl = url.startsWith('/') ? url : `/${url}`;
+    
+    // Add cache-busting query parameter with timestamp and random to prevent browser caching
+    // This ensures each request is unique and bypasses browser cache
+    const cacheBuster = `?v=${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+    const fetchUrl = absoluteUrl + cacheBuster;
+    
+    console.log(`Loading shader: ${fetchUrl}`);
+    
+    const response = await fetch(fetchUrl, {
+        cache: 'no-store' // Prevent browser caching
+    });
+    
     if (!response.ok) {
-        throw new Error(`Failed to load shader: ${url}`);
+        const errorText = await response.text().catch(() => 'Unknown error');
+        throw new Error(`Failed to load shader: ${absoluteUrl} (${response.status} ${response.statusText}). Response: ${errorText.substring(0, 100)}`);
     }
-    return await response.text();
+    
+    const text = await response.text();
+    
+    // Check if we got HTML instead of GLSL (common when 404 returns index.html)
+    if (text.trim().startsWith('<!DOCTYPE') || text.trim().startsWith('<html')) {
+        throw new Error(`Shader file returned HTML instead of GLSL. Check that ${absoluteUrl} exists and is accessible. Got: ${text.substring(0, 200)}`);
+    }
+    
+    return text;
 }
 
 /**

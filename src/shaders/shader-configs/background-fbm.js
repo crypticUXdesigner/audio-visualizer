@@ -12,10 +12,10 @@ export default {
     parameters: {
         pixelSize: { 
             type: 'float', 
-            default: 1, 
+            default: 0.5, 
             min: 0.5, 
             max: 5, 
-            step: 0.1,
+            step: 0.5,
             label: 'Pixel Size'
         },
         steps: { 

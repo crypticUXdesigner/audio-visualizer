@@ -1,5 +1,5 @@
 import { defineConfig } from 'vite';
-import { copyFileSync, mkdirSync, existsSync, readdirSync, statSync, writeFileSync } from 'fs';
+import { copyFileSync, mkdirSync, existsSync, readdirSync, statSync, writeFileSync, readFileSync } from 'fs';
 import { join } from 'path';
 
 // Plugin to copy shaders directory to dist
@@ -55,8 +55,10 @@ const copyAudioPlugin = () => {
   };
 };
 
-export default defineConfig({
-  base: '/audio-visualizer/', // GitHub Pages project path
+export default defineConfig(({ command }) => ({
+  // Use base path only for production builds (GitHub Pages)
+  // For dev server, use root path
+  base: command === 'build' ? '/audio-visualizer/' : '/',
   build: {
     outDir: 'dist',
     assetsDir: 'assets',
@@ -68,6 +70,157 @@ export default defineConfig({
       }
     }
   },
-  plugins: [copyShadersPlugin(), copyAudioPlugin()],
-});
+  plugins: [
+    copyShadersPlugin(), 
+    copyAudioPlugin(),
+    // Plugin to serve shaders in dev mode
+    {
+      name: 'serve-shaders',
+      configureServer(server) {
+        // Register middleware early to intercept shader requests
+        server.middlewares.use('/shaders', (req, res, next) => {
+          // Serve shader files from the shaders directory
+          let url = req.url;
+          
+          // Remove query parameters (cache-busting)
+          if (url.includes('?')) {
+            url = url.split('?')[0];
+          }
+          
+          if (url && url.endsWith('.glsl')) {
+            try {
+              // req.url includes the full path like '/shaders/vertex.glsl'
+              // Extract just the filename
+              const filename = url.split('/').pop();
+              const filePath = join(process.cwd(), 'shaders', filename);
+              
+              if (!existsSync(filePath)) {
+                console.error(`Shader file not found: ${filePath} (requested: ${req.url})`);
+                next();
+                return;
+              }
+              
+              const content = readFileSync(filePath, 'utf-8');
+              
+              // Set aggressive headers to prevent caching
+              res.setHeader('Content-Type', 'text/plain');
+              res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate, max-age=0');
+              res.setHeader('Pragma', 'no-cache');
+              res.setHeader('Expires', '0');
+              res.setHeader('X-Accel-Expires', '0'); // Nginx cache control
+              res.setHeader('Vary', '*'); // Prevent cache matching
+              // Add ETag to help with cache validation (always changing)
+              const etag = `"${Date.now()}-${Math.random()}"`;
+              res.setHeader('ETag', etag);
+              res.setHeader('Last-Modified', new Date().toUTCString());
+              
+              console.log(`Served shader: ${filename}`);
+              res.end(content);
+            } catch (err) {
+              console.error(`Error serving shader ${req.url}:`, err);
+              next();
+            }
+          } else {
+            next();
+          }
+        });
+      }
+    },
+    // Plugin to serve audio files in dev mode
+    {
+      name: 'serve-audio',
+      configureServer(server) {
+        server.middlewares.use('/audio', (req, res, next) => {
+          let url = req.url;
+          
+          // Remove query parameters if any
+          if (url.includes('?')) {
+            url = url.split('?')[0];
+          }
+          
+          if (url && (url.endsWith('.mp3') || url.endsWith('.ogg') || url.endsWith('.wav'))) {
+            try {
+              const filename = url.split('/').pop();
+              const filePath = join(process.cwd(), 'audio', filename);
+              
+              if (!existsSync(filePath)) {
+                console.error(`Audio file not found: ${filePath} (requested: ${req.url})`);
+                next();
+                return;
+              }
+              
+              const content = readFileSync(filePath);
+              
+              // Set proper MIME type and cache headers
+              const mimeType = url.endsWith('.mp3') ? 'audio/mpeg' : 
+                              url.endsWith('.ogg') ? 'audio/ogg' : 
+                              url.endsWith('.wav') ? 'audio/wav' : 'audio/mpeg';
+              
+              res.setHeader('Content-Type', mimeType);
+              res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate, max-age=0');
+              res.setHeader('Pragma', 'no-cache');
+              res.setHeader('Expires', '0');
+              res.setHeader('Accept-Ranges', 'bytes');
+              
+              res.end(content);
+            } catch (err) {
+              console.error(`Error serving audio ${req.url}:`, err);
+              next();
+            }
+          } else {
+            next();
+          }
+        });
+      }
+    },
+    // Plugin to serve font files in dev mode
+    {
+      name: 'serve-fonts',
+      configureServer(server) {
+        server.middlewares.use('/src/fonts', (req, res, next) => {
+          let url = req.url;
+          
+          // Remove query parameters if any
+          if (url.includes('?')) {
+            url = url.split('?')[0];
+          }
+          
+          if (url && (url.endsWith('.woff2') || url.endsWith('.woff') || url.endsWith('.otf') || url.endsWith('.ttf'))) {
+            try {
+              // Extract path after /src/fonts
+              const fontPath = url.replace('/src/fonts', '');
+              const filePath = join(process.cwd(), 'src', 'fonts', fontPath);
+              
+              if (!existsSync(filePath)) {
+                console.error(`Font file not found: ${filePath} (requested: ${req.url})`);
+                next();
+                return;
+              }
+              
+              const content = readFileSync(filePath);
+              
+              // Set proper MIME type
+              let mimeType = 'application/octet-stream';
+              if (url.endsWith('.woff2')) mimeType = 'font/woff2';
+              else if (url.endsWith('.woff')) mimeType = 'font/woff';
+              else if (url.endsWith('.otf')) mimeType = 'font/otf';
+              else if (url.endsWith('.ttf')) mimeType = 'font/ttf';
+              
+              res.setHeader('Content-Type', mimeType);
+              res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+              res.setHeader('Access-Control-Allow-Origin', '*');
+              
+              res.end(content);
+            } catch (err) {
+              console.error(`Error serving font ${req.url}:`, err);
+              next();
+            }
+          } else {
+            next();
+          }
+        });
+      }
+    }
+  ],
+}));
 

@@ -164,8 +164,11 @@ export class AudioAnalyzer {
                 }
             }
             
+            // Ensure path is absolute
+            const absolutePath = filePath.startsWith('/') ? filePath : `/${filePath}`;
+            
             // Create audio element
-            this.audioElement = new Audio(filePath);
+            this.audioElement = new Audio(absolutePath);
             this.audioElement.crossOrigin = 'anonymous'; // For CORS when using API later
             
             // Create source node
@@ -301,7 +304,8 @@ export class AudioAnalyzer {
                 intensity: 'beatIntensityBass',
                 stereoPos: 'beatStereoBass',
                 lastTime: 'lastBeatTimeBass',
-                minThreshold: this.bassThreshold // Configurable threshold
+                minThreshold: this.bassThreshold, // Configurable threshold
+                bandType: 'bass' // For vertical positioning
             },
             { 
                 value: this.mid, 
@@ -311,7 +315,8 @@ export class AudioAnalyzer {
                 intensity: 'beatIntensityMid',
                 stereoPos: 'beatStereoMid',
                 lastTime: 'lastBeatTimeMid',
-                minThreshold: this.midThreshold // Configurable threshold
+                minThreshold: this.midThreshold, // Configurable threshold
+                bandType: 'mid' // For vertical positioning
             },
             { 
                 value: this.treble, 
@@ -321,7 +326,8 @@ export class AudioAnalyzer {
                 intensity: 'beatIntensityTreble',
                 stereoPos: 'beatStereoTreble',
                 lastTime: 'lastBeatTimeTreble',
-                minThreshold: this.trebleThreshold // Configurable threshold
+                minThreshold: this.trebleThreshold, // Configurable threshold
+                bandType: 'treble' // For vertical positioning
             }
         ];
         
@@ -374,7 +380,8 @@ export class AudioAnalyzer {
                 this[band.beatTime] = 0; // Reset beat time
                 
                 // Add new ripple to tracking system (rate limiting handled inside)
-                this.addRipple(currentTime, band.stereo, intensity);
+                // Pass band type for vertical positioning: bass=lower, mid=center, treble=higher
+                this.addRipple(currentTime, band.stereo, intensity, band.bandType);
             }
             
             // Update previous values for next frame
@@ -451,9 +458,10 @@ export class AudioAnalyzer {
      * @param {number} startTime - Timestamp when ripple started (milliseconds)
      * @param {number} stereoPos - Stereo position (-1 to 1)
      * @param {number} intensity - Intensity of the beat (0-1)
+     * @param {string} bandType - Frequency band type: 'bass', 'mid', or 'treble'
      * @returns {boolean} True if ripple was created, false if rate limited
      */
-    addRipple(startTime, stereoPos, intensity) {
+    addRipple(startTime, stereoPos, intensity, bandType = 'mid') {
         // Check rate limiting and cooldown
         if (!this.canCreateRipple(startTime)) {
             return false; // Rate limited or in cooldown
@@ -470,12 +478,45 @@ export class AudioAnalyzer {
         // Track creation time for rate limiting
         this.rippleCreationTimes.push(startTime);
         
+        // Set vertical position based on frequency band
+        // Bass: starts at 20% down from center (-0.2), intensity moves it lower (max -0.9 at 90% from top)
+        // Mid: centered (0.0)
+        // Treble: 20% up from center (+0.2) - 10% closer to center than before
+        let centerY = 0.0;
+        let rippleWidth = 0.05; // Default width
+        let rippleMinRadius = 0.0; // Default min radius
+        let rippleMaxRadius = 1.3; // Default max radius
+        let intensityMultiplier = 0.8; // Default intensity multiplier
+        
+        if (bandType === 'bass') {
+            // Base position: 20% down from center (-0.2)
+            // Intensity-based offset: more intense = lower position
+            // Intensity 0.0 → -0.2 (base), Intensity 1.0 → -0.9 (90% from top)
+            // Formula: base + (maxOffset - base) * intensity
+            const bassBaseY = -0.15; // 20% down from center
+            const bassMaxY = -0.4; // 90% from top (max distance)
+            centerY = bassBaseY + (bassMaxY - bassBaseY) * intensity;
+            rippleWidth = 0.3; // Thicker rings
+            intensityMultiplier = 0.75; // Less intensity (60% of normal)
+        } else if (bandType === 'treble') {
+            centerY = 0.25; // 20% up from center (10% closer than before)
+            rippleWidth = 0.07; // Thinner rings
+            rippleMinRadius = 0.0; // Smaller min radius
+            rippleMaxRadius = 0.5; // Smaller max radius
+            intensityMultiplier = 0.4; // Less intensity (60% of normal)
+        }
+        // else: mid stays at defaults
+        
         // Add new ripple
         this.ripples.push({
             startTime: startTime,
             centerX: stereoPos, // Will be scaled in shader
-            centerY: 0.0, // Always centered vertically
+            centerY: centerY, // Vertical position based on frequency band
             intensity: intensity,
+            width: rippleWidth, // Per-ripple width
+            minRadius: rippleMinRadius, // Per-ripple min radius
+            maxRadius: rippleMaxRadius, // Per-ripple max radius
+            intensityMultiplier: intensityMultiplier, // Per-ripple intensity multiplier
             active: 1.0
         });
         
@@ -508,6 +549,10 @@ export class AudioAnalyzer {
         const centers = new Array(this.maxRipples * 2).fill(0); // x, y pairs
         const times = new Array(this.maxRipples).fill(0); // Time since start in seconds
         const intensities = new Array(this.maxRipples).fill(0);
+        const widths = new Array(this.maxRipples).fill(0); // Per-ripple width
+        const minRadii = new Array(this.maxRipples).fill(0); // Per-ripple min radius
+        const maxRadii = new Array(this.maxRipples).fill(0); // Per-ripple max radius
+        const intensityMultipliers = new Array(this.maxRipples).fill(0); // Per-ripple intensity multiplier
         const active = new Array(this.maxRipples).fill(0);
         
         // Fill with active ripple data
@@ -520,6 +565,10 @@ export class AudioAnalyzer {
             centers[index * 2 + 1] = ripple.centerY;
             times[index] = age;
             intensities[index] = ripple.intensity;
+            widths[index] = ripple.width || 0.1; // Default to 0.1 if not set
+            minRadii[index] = ripple.minRadius !== undefined ? ripple.minRadius : 0.0;
+            maxRadii[index] = ripple.maxRadius !== undefined ? ripple.maxRadius : 1.5;
+            intensityMultipliers[index] = ripple.intensityMultiplier !== undefined ? ripple.intensityMultiplier : 1.0;
             active[index] = 1.0;
         });
         
@@ -527,6 +576,10 @@ export class AudioAnalyzer {
             centers,
             times,
             intensities,
+            widths,
+            minRadii,
+            maxRadii,
+            intensityMultipliers,
             active,
             count: this.ripples.length
         };
@@ -586,6 +639,14 @@ export class AudioAnalyzer {
      */
     getData() {
         const currentTime = Date.now();
+        
+        // Calculate playback progress (0.0 to 1.0)
+        let playbackProgress = 0.0;
+        if (this.audioElement && this.audioElement.duration && isFinite(this.audioElement.duration)) {
+            playbackProgress = this.audioElement.currentTime / this.audioElement.duration;
+            playbackProgress = Math.max(0.0, Math.min(1.0, playbackProgress)); // Clamp to [0, 1]
+        }
+        
         return {
             bass: this.bass,
             mid: this.mid,
@@ -628,6 +689,8 @@ export class AudioAnalyzer {
             beatStereoTreble: this.beatStereoTreble,
             // Multiple ripple tracking data
             rippleData: this.getRippleData(currentTime),
+            // Playback progress (0.0 = start, 1.0 = end)
+            playbackProgress: playbackProgress,
             // Raw data arrays for frequency visualizer
             frequencyData: this.frequencyData,
             timeData: this.timeData,

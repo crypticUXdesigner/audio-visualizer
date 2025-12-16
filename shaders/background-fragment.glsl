@@ -65,9 +65,13 @@ uniform float uBeatStereoTreble; // Fixed stereo position when treble beat was d
 // WebGL doesn't support array uniforms directly, so we use separate arrays
 #define MAX_RIPPLES 16
 uniform float uRippleCenterX[MAX_RIPPLES];  // X position (stereo) for each ripple
-uniform float uRippleCenterY[MAX_RIPPLES];  // Y position (always 0) for each ripple
+uniform float uRippleCenterY[MAX_RIPPLES];  // Y position (vertical) for each ripple
 uniform float uRippleTimes[MAX_RIPPLES];    // Time since ripple started (seconds)
 uniform float uRippleIntensities[MAX_RIPPLES]; // Intensity of each ripple (0-1)
+uniform float uRippleWidths[MAX_RIPPLES];   // Width of ring for each ripple
+uniform float uRippleMinRadii[MAX_RIPPLES]; // Minimum radius for each ripple
+uniform float uRippleMaxRadii[MAX_RIPPLES]; // Maximum radius for each ripple
+uniform float uRippleIntensityMultipliers[MAX_RIPPLES]; // Intensity multiplier for each ripple
 uniform float uRippleActive[MAX_RIPPLES];   // 1.0 if ripple is active, 0.0 otherwise
 uniform int uRippleCount;                   // Number of active ripples
 
@@ -85,6 +89,13 @@ uniform float uRippleMaxRadius;           // Maximum ring radius (0.0-2.0)
 uniform float uRippleIntensityThreshold; // Intensity threshold for ripples (0.0-1.0)
 uniform float uRippleIntensity;          // Overall ripple intensity multiplier (0.0-1.0)
 
+// Title texture
+uniform sampler2D uTitleTexture;
+uniform vec2 uTitleTextureSize;
+uniform float uTitleScale; // Scale factor for title texture (1.0 = normal, >1.0 = zoomed in/larger)
+uniform float uTitleScaleBottomLeft; // Scale factor when in bottom left position
+uniform float uPlaybackProgress; // Playback progress (0.0 = start, 1.0 = end)
+uniform vec2 uTitlePositionOffset; // Position offset for title (x, y) - used to move text to bottom left
 
 // Bayer matrix helpers (ordered dithering thresholds)
 float Bayer2(vec2 a) {
@@ -309,11 +320,12 @@ void main() {
     // Calculate ripple parameters
     // Stereo ranges from -1 (left) to 1 (right), map to horizontal position
     // UV space is centered and scaled by aspectRatio, so we need to scale the stereo position
-    // Use configurable uniforms for real-time tuning
+    // Use configurable uniforms for real-time tuning (fallback values)
     float rippleSpeed = uRippleSpeed > 0.0 ? uRippleSpeed : 0.5; // Speed of expanding ring (how fast it travels)
-    float rippleWidth = uRippleWidth > 0.0 ? uRippleWidth : 0.1; // Width of the ring (thinner = sharper ring)
-    float rippleMinRadius = uRippleMinRadius >= 0.0 ? uRippleMinRadius : 0.0; // Minimum ring radius (where it starts)
-    float rippleMaxRadius = uRippleMaxRadius > 0.0 ? uRippleMaxRadius : 1.5; // Maximum ring radius (where it stops)
+    float defaultRippleWidth = uRippleWidth > 0.0 ? uRippleWidth : 0.1; // Default width of the ring
+    float defaultRippleMinRadius = uRippleMinRadius >= 0.0 ? uRippleMinRadius : 0.0; // Default minimum ring radius
+    float defaultRippleMaxRadius = uRippleMaxRadius > 0.0 ? uRippleMaxRadius : 1.5; // Default maximum ring radius
+    float defaultRippleIntensityMultiplier = uRippleIntensity >= 0.0 ? uRippleIntensity : 0.4; // Default intensity multiplier
     
     // Scale stereo position by aspectRatio to match UV space coordinates
     // UV space goes from -aspectRatio/2 to aspectRatio/2 horizontally
@@ -327,7 +339,7 @@ void main() {
         
         // Check if this ripple is active
         if (uRippleActive[i] > 0.5 && uRippleIntensities[i] > 0.0) {
-            // Get ripple center position (stereo position is stored in x, y is always 0)
+            // Get ripple center position (stereo position in x, vertical position in y based on frequency band)
             vec2 rippleCenter = vec2(uRippleCenterX[i] * stereoScale, uRippleCenterY[i]);
             
             // Get ripple age (time since it started)
@@ -336,16 +348,21 @@ void main() {
             // Get ripple intensity
             float rippleIntensity = uRippleIntensities[i];
             
+            // Get per-ripple parameters (use defaults if not set)
+            float rippleWidth = uRippleWidths[i] > 0.0 ? uRippleWidths[i] : defaultRippleWidth;
+            float rippleMinRadius = uRippleMinRadii[i] >= 0.0 ? uRippleMinRadii[i] : defaultRippleMinRadius;
+            float rippleMaxRadius = uRippleMaxRadii[i] > 0.0 ? uRippleMaxRadii[i] : defaultRippleMaxRadius;
+            float rippleIntensityMultiplier = uRippleIntensityMultipliers[i] > 0.0 ? uRippleIntensityMultipliers[i] : defaultRippleIntensityMultiplier;
+            
             // Create this ripple and add it to the total
             float ripple = createRipple(uv, rippleCenter, rippleAge, rippleIntensity, rippleSpeed, rippleWidth, rippleMinRadius, rippleMaxRadius);
-            beatRipple += ripple;
+            beatRipple += ripple * rippleIntensityMultiplier; // Apply per-ripple intensity multiplier
         }
     }
     
     // Add ripple to feed - expanding rings add brightness at the wave front
     // This creates the water drop effect where the ring is brighter than the background
-    float rippleIntensityMultiplier = uRippleIntensity >= 0.0 ? uRippleIntensity : 0.4; // Configurable intensity
-    feed = feed + beatRipple * rippleIntensityMultiplier; // Visible but integrated with dithering
+    feed = feed + beatRipple; // Intensity multiplier already applied per-ripple
     
     // DEBUG: Force ripple to be visible for testing - shows bright area when any beat is detected
     // Uncomment the line below to test if beat uniforms are being set
@@ -491,5 +508,132 @@ void main() {
     // Remove aggressive fallback - let natural gradients show through
     // The wider t range and better threshold distribution should handle visibility
     
-    gl_FragColor = vec4(color, coverage);
+    // Blend title texture with shader output
+    vec3 finalColor = color;
+    
+    // Check if title texture is available (size > 0 indicates texture is set)
+    if (uTitleTextureSize.x > 1.0 && uTitleTextureSize.y > 1.0) {
+        // Calculate UV coordinates for title texture
+        // Since texture matches canvas size, screen space maps 1:1 to texture UV
+        vec2 screenUV = gl_FragCoord.xy / uResolution.xy; // 0-1 screen space
+        
+        // Determine which scale to use based on playback progress
+        float playbackProgressForScale = clamp(uPlaybackProgress, 0.0, 1.0);
+        float titleScale = uTitleScale > 0.0 ? uTitleScale : 1.0;
+        float currentScale;
+        if (playbackProgressForScale < 0.08) {
+            // Phase 1-2: use center scale
+            currentScale = titleScale;
+        } else {
+            // Phase 3+: use bottom left scale (smaller)
+            currentScale = uTitleScaleBottomLeft > 0.0 ? uTitleScaleBottomLeft : 0.6;
+        }
+        
+        // uTitlePositionOffset contains target screen position (0-1)
+        // x: 0.0 = left edge, 0.5 = center, 1.0 = right edge
+        // y: 0.0 = top edge, 0.5 = center, 1.0 = bottom edge
+        vec2 targetScreenPos = uTitlePositionOffset;
+        
+        // Since texture matches canvas, screen space maps 1:1 to texture UV
+        // Text is now rendered at the correct position in the texture (matching targetScreenPos)
+        // So we can simply scale around the target position
+        
+        vec2 titleUV;
+        // Scale around target position (text is already at targetScreenPos in texture)
+        titleUV = (screenUV - targetScreenPos) / currentScale + targetScreenPos;
+        
+        // Flip Y coordinate (canvas has 0,0 at top-left, WebGL texture has 0,0 at bottom-left)
+        titleUV.y = 1.0 - titleUV.y;
+        
+        // Clamp UV to valid range
+        titleUV = clamp(titleUV, 0.0, 1.0);
+        
+        // Sample title texture
+        vec4 titleColor = texture2D(uTitleTexture, titleUV);
+        
+        // Calculate text position in the same UV space as visualization
+        // Convert titleUV (screen space 0-1) to centered UV space used by fBm
+        // titleUV is already in screen space, convert to centered UV like the main visualization
+        vec2 textScreenUV = titleUV;
+        vec2 textVizUV = (textScreenUV - 0.5) * vec2(aspectRatio, 1.0);
+        
+        // Calculate feed at text position (use same fBm system, no ripples)
+        float textFeed = fbm2(textVizUV, (uTime + staticTimeOffset + uTimeOffset) * baseTimeSpeed);
+        textFeed = textFeed * volumeScale * stereoBrightness;
+        textFeed = clamp(textFeed, 0.0, 1.0);
+        
+        // Calculate intensity/brightness at text position (needed for all phases)
+        float textBrightness = dot(color, vec3(0.299, 0.587, 0.114)); // Luminance calculation
+        
+        // Sequence phases:
+        // Phase 1: 0-5% - Beginning: fade in, visible, affected by sound/visualization, then fade out
+        // Phase 2: 5-8% - Transition: move position and scale (text hidden during transition)
+        // Phase 3: 8%-95% - Bottom left: visible based on loudness, impacted by pixels, slightly visible
+        // Phase 4: 95-100% - End: can show again if needed
+        
+        float playbackProgress = clamp(uPlaybackProgress, 0.0, 1.0);
+        float phase1End = 0.05;      // End of beginning phase (5%)
+        float phase2Start = 0.05;    // Start of transition (5%)
+        float phase2End = 0.08;      // End of transition (8%)
+        float phase3Start = 0.08;    // Start of bottom left phase (8%)
+        float phase3End = 0.95;      // End of bottom left phase (95%)
+        
+        float textVisibility = 0.0;
+        
+        if (playbackProgress < phase1End) {
+            // Phase 1: Beginning - fade in, visible, affected by sound/visualization, then fade out
+            float fadeInDuration = 0.01;  // Fade in over 1% (very quick)
+            float fadeOutStart = phase1End - 0.02; // Start fade out 2% before end
+            
+            float fadeIn = smoothstep(0.0, fadeInDuration, playbackProgress);
+            float fadeOut = 1.0 - smoothstep(fadeOutStart, phase1End, playbackProgress);
+            float baseVisibility = min(fadeIn, fadeOut);
+            
+            // Affected by sound/visualization
+            float loudnessFactor = smoothstep(0.1, 0.6, uVolume);
+            float brightnessFactor = smoothstep(0.2, 0.7, textBrightness);
+            float feedFactor = smoothstep(0.3, 0.7, textFeed);
+            float audioVisualFactor = max(loudnessFactor, max(brightnessFactor, feedFactor));
+            
+            textVisibility = baseVisibility * (0.6 + audioVisualFactor * 0.4); // 60% base + up to 40% from audio/visual
+            
+        } else if (playbackProgress >= phase2Start && playbackProgress < phase2End) {
+            // Phase 2: Transition - text hidden during position/scale transition
+            textVisibility = 0.0;
+            
+        } else if (playbackProgress >= phase3Start && playbackProgress < phase3End) {
+            // Phase 3: Bottom left - visible based on loudness, impacted by surrounding pixels, slightly visible
+            float volumeBasedVisibility = smoothstep(0.15, 0.5, uVolume); // Show when volume is present
+            float brightnessBasedVisibility = smoothstep(0.2, 0.6, textBrightness); // Impacted by surrounding pixels
+            float feedBasedVisibility = smoothstep(0.2, 0.5, textFeed); // Show when feed is present
+            
+            // Combine factors - any one can make it visible
+            float combinedVisibility = max(volumeBasedVisibility, max(brightnessBasedVisibility, feedBasedVisibility));
+            
+            // Slightly visible - scale down to make it subtle
+            textVisibility = combinedVisibility * 0.4; // 40% max visibility (slightly visible)
+            
+        } else {
+            // Phase 4: End (95-100%) - can show again if needed
+            float endFadeIn = smoothstep(phase3End, phase3End + 0.02, playbackProgress);
+            float volumeBasedVisibility = smoothstep(0.15, 0.5, uVolume);
+            float brightnessBasedVisibility = smoothstep(0.2, 0.6, textBrightness);
+            textVisibility = endFadeIn * max(volumeBasedVisibility, brightnessBasedVisibility) * 0.5;
+        }
+        
+        textVisibility = clamp(textVisibility, 0.0, 1.0);
+        
+        // Use the SAME color system for text (use visualization color)
+        // Mix between pure white and visualization color (70% viz, 30% white for readability)
+        vec3 titleColorRGB = mix(vec3(1.0), color, 0.7);
+        
+        // Text alpha combines: base alpha, feed-based visibility, and ripple boost
+        float baseAlpha = 0.4;
+        float titleAlpha = titleColor.a * baseAlpha * textVisibility;
+        
+        // Additive blend - text adds to visualization, feels like part of it
+        finalColor = finalColor + titleColorRGB * titleAlpha * 0.5;
+    }
+    
+    gl_FragColor = vec4(finalColor, coverage);
 }

@@ -300,21 +300,37 @@ function cubicBezier(t, curve) {
  * Generates 9 colors from OKLCH-based configuration
  * @param {Object} colorConfig - Color configuration object
  * @param {string} colorConfig.baseHue - Base color (hex)
- * @param {Object} colorConfig.darkest - Darkest color config {lightness, chroma, hueOffset}
- * @param {Object} colorConfig.brightest - Brightest color config {lightness, chroma, hueOffset}
+ * @param {Object} colorConfig.darkest - Darkest color config {lightness, chroma, hueOffset, hue}
+ * @param {Object} colorConfig.brightest - Brightest color config {lightness, chroma, hueOffset, hue}
  * @param {number[]} colorConfig.interpolationCurve - Cubic bezier control points [x1, y1, x2, y2]
  * @returns {Object} Object with color1 through color9 as RGB arrays [0-1]
  */
 export function generateColorsFromOklch(colorConfig) {
     const { baseHue, darkest, brightest, interpolationCurve } = colorConfig;
     
-    // Convert base color to OKLCH to extract hue
-    const baseRgb = hexToRgb(baseHue);
-    const [baseL, baseC, baseH] = rgbToOklch(baseRgb);
+    // Calculate darkest and brightest hues
+    // If direct hue values are provided, use them; otherwise calculate from baseHue + hueOffset
+    let darkestHue, brightestHue;
     
-    // Calculate darkest and brightest hues with offsets
-    const darkestHue = interpolateHue(baseH, baseH + darkest.hueOffset, 1.0);
-    const brightestHue = interpolateHue(baseH, baseH + brightest.hueOffset, 1.0);
+    if (darkest.hue !== undefined) {
+        // Direct hue value provided (0-360)
+        darkestHue = ((darkest.hue % 360) + 360) % 360;
+    } else {
+        // Calculate from baseHue + hueOffset (backward compatibility)
+        const baseRgb = hexToRgb(baseHue);
+        const [baseL, baseC, baseH] = rgbToOklch(baseRgb);
+        darkestHue = interpolateHue(baseH, baseH + (darkest.hueOffset || 0), 1.0);
+    }
+    
+    if (brightest.hue !== undefined) {
+        // Direct hue value provided (0-360)
+        brightestHue = ((brightest.hue % 360) + 360) % 360;
+    } else {
+        // Calculate from baseHue + hueOffset (backward compatibility)
+        const baseRgb = hexToRgb(baseHue);
+        const [baseL, baseC, baseH] = rgbToOklch(baseRgb);
+        brightestHue = interpolateHue(baseH, baseH + (brightest.hueOffset || 0), 1.0);
+    }
     
     // Generate 9 colors (0 = darkest, 8 = brightest)
     const colors = {};

@@ -2,16 +2,15 @@
 // Wires together all modules and initializes the application
 
 import { AudioAnalyzer } from './core/AudioAnalyzer.js';
-import { generateColorsFromOklch, rgbToHex, normalizeColor } from './core/ColorGenerator.js';
+import { generateColorsFromOklch, rgbToHex, normalizeColor, hexToRgb, rgbToOklch, interpolateHue } from './core/ColorGenerator.js';
 import { ShaderManager } from './shaders/ShaderManager.js';
 import backgroundFbmConfig from './shaders/shader-configs/background-fbm.js';
 import { colorPresets } from './config/color-presets.js';
 import { AudioControls } from './ui/AudioControls.js';
 import { ColorPresetSwitcher } from './ui/ColorPresetSwitcher.js';
 import { ShaderParameterPanel } from './ui/ShaderParameterPanel.js';
-import { FullscreenToggle } from './ui/FullscreenToggle.js';
-import { UIToggle } from './ui/UIToggle.js';
 import { DevTools } from './ui/DevTools.js';
+import { TitleTexture } from './core/TitleTexture.js';
 
 class VisualPlayer {
     constructor() {
@@ -22,9 +21,8 @@ class VisualPlayer {
         this.audioControls = null;
         this.colorPresetSwitcher = null;
         this.shaderParameterPanel = null;
-        this.fullscreenToggle = null;
-        this.uiToggle = null;
         this.devTools = null;
+        this.titleTexture = null;
         
         // Color initialization state
         this.isInitializingColors = false;
@@ -61,14 +59,29 @@ class VisualPlayer {
             // 6. Initialize and activate default shader
             await this.shaderManager.setActiveShader('background-fbm');
             
+            // 6.5. Initialize title texture (after shader is active so we have GL context)
+            const activeShader = this.shaderManager.getActiveShader();
+            if (activeShader && activeShader.gl) {
+                this.titleTexture = new TitleTexture(activeShader.gl);
+                activeShader.setTitleTexture(this.titleTexture);
+                
+                // Resize title texture to match canvas size immediately
+                if (activeShader.canvas) {
+                    await this.titleTexture.resize(activeShader.canvas.width, activeShader.canvas.height);
+                }
+                
+                // Ensure texture is ready (fonts loaded) before continuing
+                await this.titleTexture.ensureReady();
+            }
+            
             // 7. Initialize UI components
             this.initUI();
             
             // 8. Initialize dev tools
             this.initDevTools();
             
-            // 9. Initialize loudness controls (if they exist in HTML)
-            this.initLoudnessControls();
+            // 9. Initialize top control buttons
+            this.initTopControls();
             
             // 10. Expose global API for backward compatibility
             this.exposeGlobalAPI();
@@ -116,6 +129,11 @@ class VisualPlayer {
             // Update color swatches
             this.updateColorSwatches();
             
+            // Update color control sliders
+            if (this.colorPresetSwitcher && this.colorPresetSwitcher.updateSlidersFromConfig) {
+                this.colorPresetSwitcher.updateSlidersFromConfig(this.colorConfig);
+            }
+            
             // Update frequency visualizer colors
             if (!skipFrequencyUpdate && window.FrequencyVisualizer && window.FrequencyVisualizer.updateBandColors) {
                 setTimeout(() => {
@@ -132,33 +150,24 @@ class VisualPlayer {
     }
     
     updateColorSwatches() {
-        const swatchContainer = document.getElementById('colorSwatches');
-        if (!swatchContainer) return;
-        
-        swatchContainer.innerHTML = '';
-        
-        // Reverse order: color9 (darkest) to color (brightest)
-        const colorKeys = ['color9', 'color8', 'color7', 'color6', 'color5', 'color4', 'color3', 'color2', 'color'];
-        colorKeys.forEach((key) => {
-            const color = this.colors[key];
-            if (!color || !Array.isArray(color) || color.length !== 3) {
-                return;
-            }
-            
-            const hex = rgbToHex(color);
-            const swatch = document.createElement('div');
-            swatch.style.width = '30px';
-            swatch.style.height = '30px';
-            swatch.style.backgroundColor = hex;
-            swatch.style.borderRadius = '4px';
-            swatch.title = `${key}: ${hex}`;
-            swatchContainer.appendChild(swatch);
-        });
+        // Color swatches removed - no longer needed
+        // This method kept for backward compatibility but does nothing
     }
     
     initUI() {
         // Initialize audio controls
         this.audioControls = new AudioControls(this.audioAnalyzer);
+        
+        // Set title texture on audio controls BEFORE init() completes
+        // This ensures the initial title is set correctly
+        if (this.titleTexture) {
+            this.audioControls.setTitleTexture(this.titleTexture);
+            // Update title with current track (if any)
+            const trackDropdownText = document.getElementById('trackDropdownText');
+            if (trackDropdownText && trackDropdownText.textContent) {
+                this.audioControls.updateTrackTitle(trackDropdownText.textContent);
+            }
+        }
         
         // Initialize color preset switcher
         this.colorPresetSwitcher = new ColorPresetSwitcher(
@@ -171,19 +180,40 @@ class VisualPlayer {
                 if (presetConfig.brightest) Object.assign(this.colorConfig.brightest, presetConfig.brightest);
                 if (presetConfig.interpolationCurve) this.colorConfig.interpolationCurve = presetConfig.interpolationCurve;
                 
+                // Calculate and store actual hue values for sliders
+                if (presetConfig.baseHue && presetConfig.darkest.hueOffset !== undefined) {
+                    const baseRgb = hexToRgb(presetConfig.baseHue);
+                    const [baseL, baseC, baseH] = rgbToOklch(baseRgb);
+                    this.colorConfig.darkest.hue = interpolateHue(baseH, baseH + presetConfig.darkest.hueOffset, 1.0);
+                }
+                if (presetConfig.baseHue && presetConfig.brightest.hueOffset !== undefined) {
+                    const baseRgb = hexToRgb(presetConfig.baseHue);
+                    const [baseL, baseC, baseH] = rgbToOklch(baseRgb);
+                    this.colorConfig.brightest.hue = interpolateHue(baseH, baseH + presetConfig.brightest.hueOffset, 1.0);
+                }
+                
                 // Regenerate colors (this will update shader manager)
                 this.initializeColors();
+            },
+            (property, value, target) => {
+                // Handle individual property changes from sliders
+                if (target === 'darkest' && this.colorConfig.darkest) {
+                    this.colorConfig.darkest[property] = value;
+                } else if (target === 'brightest' && this.colorConfig.brightest) {
+                    this.colorConfig.brightest[property] = value;
+                }
+                
+                // Regenerate colors
+                this.initializeColors();
+            },
+            () => {
+                // Provide current color config when menu opens
+                return this.colorConfig;
             }
         );
         
         // Initialize shader parameter panel
         this.shaderParameterPanel = new ShaderParameterPanel(this.shaderManager);
-        
-        // Initialize fullscreen toggle
-        this.fullscreenToggle = new FullscreenToggle();
-        
-        // Initialize UI toggle
-        this.uiToggle = new UIToggle();
     }
     
     initDevTools() {
@@ -195,32 +225,56 @@ class VisualPlayer {
         }
     }
     
-    initLoudnessControls() {
-        const loudnessToggle = document.getElementById('loudnessAnimationToggle');
-        const thresholdSlider = document.getElementById('loudnessThresholdSlider');
-        const thresholdValue = document.getElementById('loudnessThresholdValue');
-        
-        // Store controls globally for shader access (backward compatibility)
+    initTopControls() {
+        // Initialize default loudness controls state (for backward compatibility)
         window._loudnessControls = {
             loudnessAnimationEnabled: true,
             loudnessThreshold: 0.1
         };
         
-        if (loudnessToggle) {
-            loudnessToggle.checked = window._loudnessControls.loudnessAnimationEnabled;
-            loudnessToggle.addEventListener('change', (e) => {
-                window._loudnessControls.loudnessAnimationEnabled = e.target.checked;
+        // Shader Controls Button
+        const shaderControlsBtn = document.getElementById('shaderControlsBtn');
+        const shaderParameters = document.getElementById('shaderParameters');
+        
+        if (shaderControlsBtn && shaderParameters) {
+            // Ensure it starts hidden
+            shaderParameters.style.display = 'none';
+            
+            let isShaderControlsVisible = false;
+            
+            shaderControlsBtn.addEventListener('click', () => {
+                isShaderControlsVisible = !isShaderControlsVisible;
+                
+                if (isShaderControlsVisible) {
+                    shaderParameters.style.display = 'block';
+                    shaderControlsBtn.classList.add('active');
+                } else {
+                    shaderParameters.style.display = 'none';
+                    shaderControlsBtn.classList.remove('active');
+                }
             });
         }
         
-        if (thresholdSlider && thresholdValue) {
-            thresholdSlider.value = window._loudnessControls.loudnessThreshold;
-            thresholdValue.textContent = window._loudnessControls.loudnessThreshold.toFixed(2);
+        // Frequency Visualizer Button
+        const frequencyVisualizerBtn = document.getElementById('frequencyVisualizerBtn');
+        const frequencyCanvas = document.getElementById('frequencyCanvas');
+        
+        if (frequencyVisualizerBtn && frequencyCanvas) {
+            // Ensure it starts hidden
+            frequencyCanvas.style.display = 'none';
             
-            thresholdSlider.addEventListener('input', (e) => {
-                const value = parseFloat(e.target.value);
-                thresholdValue.textContent = value.toFixed(2);
-                window._loudnessControls.loudnessThreshold = value;
+            let isFrequencyVisible = false;
+            
+            frequencyVisualizerBtn.addEventListener('click', () => {
+                isFrequencyVisible = !isFrequencyVisible;
+                
+                if (isFrequencyVisible) {
+                    frequencyCanvas.style.display = 'block';
+                    frequencyVisualizerBtn.classList.add('active');
+                } else {
+                    frequencyCanvas.style.display = 'none';
+                    frequencyVisualizerBtn.classList.remove('active');
+                }
             });
         }
     }
