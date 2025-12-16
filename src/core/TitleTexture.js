@@ -40,6 +40,11 @@ export class TitleTexture {
         // Hide canvas (used only for texture generation, not visible)
         this.canvas.style.display = 'none';
         
+        // Debouncing for updates
+        this.updateTimeout = null;
+        this.pendingTitle = null;
+        this.debounceDelay = 100; // 100ms debounce delay
+        
         this.createTexture();
         this.fontLoadPromise = this.loadFont();
     }
@@ -110,27 +115,49 @@ export class TitleTexture {
             title = '';
         }
         
-        if (this.currentTitle === title && !this.needsUpdate) {
-            return;
+        // Store pending title for debouncing
+        this.pendingTitle = title;
+        
+        // Clear existing timeout
+        if (this.updateTimeout) {
+            clearTimeout(this.updateTimeout);
         }
         
-        console.log('TitleTexture: Updating title to:', title);
-        this.currentTitle = title;
-        
-        // Wait for fonts to be loaded before rendering
-        if (!this.fontLoaded && this.fontLoadPromise) {
-            await this.fontLoadPromise;
-        }
-        
-        // Ensure fonts are ready
-        if (!this.fontLoaded) {
-            await this.ensureFontReady();
-            this.fontLoaded = true;
-        }
-        
-        // Render with loaded fonts
-        await this.renderTitle(title);
-        this.uploadToTexture();
+        // Debounce the actual update
+        return new Promise((resolve, reject) => {
+            this.updateTimeout = setTimeout(async () => {
+                try {
+                    const titleToUpdate = this.pendingTitle;
+                    this.pendingTitle = null;
+                    
+                    if (this.currentTitle === titleToUpdate && !this.needsUpdate) {
+                        resolve();
+                        return;
+                    }
+                    
+                    console.log('TitleTexture: Updating title to:', titleToUpdate);
+                    this.currentTitle = titleToUpdate;
+                    
+                    // Wait for fonts to be loaded before rendering
+                    if (!this.fontLoaded && this.fontLoadPromise) {
+                        await this.fontLoadPromise;
+                    }
+                    
+                    // Ensure fonts are ready
+                    if (!this.fontLoaded) {
+                        await this.ensureFontReady();
+                        this.fontLoaded = true;
+                    }
+                    
+                    // Render with loaded fonts
+                    await this.renderTitle(titleToUpdate);
+                    this.uploadToTexture();
+                    resolve();
+                } catch (error) {
+                    reject(error);
+                }
+            }, this.debounceDelay);
+        });
     }
     
     /**
@@ -336,14 +363,28 @@ export class TitleTexture {
         this.fontSize = fontSize;
         this.needsUpdate = true;
         
-        // Re-render title if we have one
-        if (this.currentTitle) {
-            if (!this.fontLoaded && this.fontLoadPromise) {
-                await this.fontLoadPromise;
-            }
-            await this.renderTitle(this.currentTitle);
-            this.uploadToTexture();
+        // Debounce the update
+        if (this.updateTimeout) {
+            clearTimeout(this.updateTimeout);
         }
+        
+        return new Promise((resolve, reject) => {
+            this.updateTimeout = setTimeout(async () => {
+                try {
+                    // Re-render title if we have one
+                    if (this.currentTitle) {
+                        if (!this.fontLoaded && this.fontLoadPromise) {
+                            await this.fontLoadPromise;
+                        }
+                        await this.renderTitle(this.currentTitle);
+                        this.uploadToTexture();
+                    }
+                    resolve();
+                } catch (error) {
+                    reject(error);
+                }
+            }, this.debounceDelay);
+        });
     }
     
     async setVerticalPosition(position) {
@@ -353,14 +394,28 @@ export class TitleTexture {
         this.verticalPosition = position;
         this.needsUpdate = true; // Force update
         
-        // Re-render title if we have one
-        if (this.currentTitle) {
-            if (!this.fontLoaded && this.fontLoadPromise) {
-                await this.fontLoadPromise;
-            }
-            await this.renderTitle(this.currentTitle);
-            this.uploadToTexture();
+        // Debounce the update
+        if (this.updateTimeout) {
+            clearTimeout(this.updateTimeout);
         }
+        
+        return new Promise((resolve, reject) => {
+            this.updateTimeout = setTimeout(async () => {
+                try {
+                    // Re-render title if we have one
+                    if (this.currentTitle) {
+                        if (!this.fontLoaded && this.fontLoadPromise) {
+                            await this.fontLoadPromise;
+                        }
+                        await this.renderTitle(this.currentTitle);
+                        this.uploadToTexture();
+                    }
+                    resolve();
+                } catch (error) {
+                    reject(error);
+                }
+            }, this.debounceDelay);
+        });
     }
     
     /**

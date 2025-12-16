@@ -1,5 +1,10 @@
 precision highp float;
 
+// Define FWIDTH macro - will be replaced by JavaScript based on extension availability
+// If extension is available, this will be replaced with actual fwidth() call
+// If not available, this will be replaced with a constant approximation
+#define FWIDTH(x) fwidth(x)
+
 uniform vec3  uColor; // Ultra bright cyan (step 1) - brightest
 uniform vec3  uColor2; // Very bright cyan (step 2)
 uniform vec3  uColor3; // Super bright cyan/blue (step 3)
@@ -106,7 +111,7 @@ float Bayer2(vec2 a) {
 #define Bayer4(a) (Bayer2(.5*(a))*0.25 + Bayer2(a))
 #define Bayer8(a) (Bayer4(.5*(a))*0.25 + Bayer2(a))
 
-#define FBM_OCTAVES     20
+#define FBM_OCTAVES     10
 #define FBM_LACUNARITY  1.25
 #define FBM_GAIN        0.5
 #define FBM_SCALE       1.75          // master scale for uv (smaller = larger spots)
@@ -163,7 +168,7 @@ float maskCircle(vec2 p, float cov) {
     float r = sqrt(cov) * .25;
     float d = length(p - 0.5) - r;
     // cheap analytic AA
-    float aa = 0.5 * fwidth(d);
+    float aa = 0.5 * FWIDTH(d);
     return cov * (1.0 - smoothstep(-aa, aa, d * 2.));
 }
 
@@ -172,7 +177,7 @@ float maskTriangle(vec2 p, vec2 id, float cov) {
     if (flip) p.x = 1.0 - p.x;
     float r = sqrt(cov);
     float d  = p.y - r*(1.0 - p.x);   // signed distance to the edge
-    float aa = fwidth(d);             // analytic pixel width
+    float aa = FWIDTH(d);             // analytic pixel width
     return cov * clamp(0.5 - d/aa, 0.0, 1.0);
 }
 

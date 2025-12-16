@@ -2,6 +2,7 @@
 // Handles WebGL context, program, uniforms, and rendering for one shader
 
 import { loadShader, createProgram, createQuad } from '../core/WebGLUtils.js';
+import Sentry from '../core/SentryInit.js';
 
 export class ShaderInstance {
     constructor(canvasId, config) {
@@ -47,6 +48,17 @@ export class ShaderInstance {
         
         // Title texture
         this.titleTexture = null;
+        
+        // Performance monitoring and adaptive quality
+        this.frameTimes = [];
+        this.performanceMonitorEnabled = true;
+        this.qualityLevel = 1.0; // 1.0 = full quality, 0.5 = reduced quality
+        this.maxResolutionWidth = 2560; // Cap at 1440p equivalent
+        this.maxResolutionHeight = 1440;
+        this.maxDPR = 2.0; // Cap devicePixelRatio at 2x
+        
+        // WebGL fallback state
+        this.webglFallbackActive = false;
     }
     
     async init() {
@@ -60,7 +72,7 @@ export class ShaderInstance {
             throw new Error(`Canvas with id "${this.canvasId}" not found`);
         }
         
-        // Get WebGL context
+        // Get WebGL context with fallback support
         const contextAttributes = {
             alpha: false,
             premultipliedAlpha: false,
@@ -71,26 +83,59 @@ export class ShaderInstance {
             failIfMajorPerformanceCaveat: false
         };
         
-        this.gl = this.canvas.getContext('webgl', contextAttributes) || 
-                  this.canvas.getContext('webgl');
+        // Try WebGL2 first, then WebGL1, then experimental-webgl
+        this.gl = this.canvas.getContext('webgl2', contextAttributes) ||
+                  this.canvas.getContext('webgl', contextAttributes) ||
+                  this.canvas.getContext('experimental-webgl', contextAttributes);
         
         if (!this.gl) {
-            throw new Error('WebGL not supported');
+            // WebGL not supported - show fallback UI
+            console.error('WebGL not supported on this device');
+            this.showWebGLFallback();
+            this.webglFallbackActive = true;
+            return; // Don't continue initialization
+        }
+        
+        // Set WebGL context info as Sentry context
+        if (typeof Sentry !== 'undefined') {
+            Sentry.setContext("webgl", {
+                vendor: this.gl.getParameter(this.gl.VENDOR),
+                renderer: this.gl.getParameter(this.gl.RENDERER),
+                version: this.gl.getParameter(this.gl.VERSION),
+                maxTextureSize: this.gl.getParameter(this.gl.MAX_TEXTURE_SIZE),
+                maxViewportDims: this.gl.getParameter(this.gl.MAX_VIEWPORT_DIMS),
+                maxVertexAttribs: this.gl.getParameter(this.gl.MAX_VERTEX_ATTRIBS),
+                maxVertexTextureImageUnits: this.gl.getParameter(this.gl.MAX_VERTEX_TEXTURE_IMAGE_UNITS),
+                maxTextureImageUnits: this.gl.getParameter(this.gl.MAX_TEXTURE_IMAGE_UNITS),
+                maxFragmentUniformVectors: this.gl.getParameter(this.gl.MAX_FRAGMENT_UNIFORM_VECTORS),
+                maxVertexUniformVectors: this.gl.getParameter(this.gl.MAX_VERTEX_UNIFORM_VECTORS),
+                extensions: this.gl.getSupportedExtensions(),
+            });
         }
         
         // Enable extensions
         this.ext = this.gl.getExtension('OES_standard_derivatives');
-        if (!this.ext) {
-            console.warn('OES_standard_derivatives extension not supported');
-        }
+        const hasDerivatives = !!this.ext;
         
-        // Load and compile shaders
-        const vertexSource = await loadShader(this.config.vertexPath);
-        let fragmentSource = await loadShader(this.config.fragmentPath);
+        // Load and compile shaders with retry
+        const vertexSource = await loadShader(this.config.vertexPath, 3);
+        let fragmentSource = await loadShader(this.config.fragmentPath, 3);
         
-        // Add extension directive if available
-        if (this.ext) {
+        // Replace FWIDTH macro based on extension availability
+        if (hasDerivatives) {
+            // Extension available - enable it and use real fwidth
             fragmentSource = '#extension GL_OES_standard_derivatives : enable\n' + fragmentSource;
+            // Remove the macro definition since fwidth will work directly
+            fragmentSource = fragmentSource.replace(/#define FWIDTH\(x\) fwidth\(x\)/g, '');
+            // Replace all FWIDTH(...) calls with fwidth(...)
+            fragmentSource = fragmentSource.replace(/FWIDTH\(/g, 'fwidth(');
+        } else {
+            // Extension not available - use fallback implementation
+            console.warn('OES_standard_derivatives extension not supported - using fallback');
+            // Replace the macro definition to use a constant instead of fwidth
+            fragmentSource = fragmentSource.replace(/#define FWIDTH\(x\) fwidth\(x\)/g, 
+                '#define FWIDTH(x) 0.01');
+            // FWIDTH(...) calls will now expand to 0.01
         }
         
         // Create program
@@ -245,11 +290,17 @@ export class ShaderInstance {
     resize() {
         if (!this.canvas || !this.gl) return;
         
-        const dpr = window.devicePixelRatio || 1;
-        const viewportWidth = document.documentElement.clientWidth;
-        const viewportHeight = document.documentElement.clientHeight;
-        const newWidth = viewportWidth * dpr;
-        const newHeight = viewportHeight * dpr;
+        // Cap devicePixelRatio for performance
+        const dpr = Math.min(window.devicePixelRatio || 1, this.maxDPR);
+        
+        // Cap viewport dimensions for performance
+        const viewportWidth = Math.min(document.documentElement.clientWidth, this.maxResolutionWidth);
+        const viewportHeight = Math.min(document.documentElement.clientHeight, this.maxResolutionHeight);
+        
+        // Apply quality scaling
+        const scaledDPR = dpr * this.qualityLevel;
+        const newWidth = Math.floor(viewportWidth * scaledDPR);
+        const newHeight = Math.floor(viewportHeight * scaledDPR);
         
         this.canvas.width = newWidth;
         this.canvas.height = newHeight;
@@ -307,13 +358,22 @@ export class ShaderInstance {
             return; // Skip frame to maintain target FPS
         }
         
-        this.lastFrameTime = now;
+        // Create a span for render performance tracking
+        return Sentry.startSpan(
+            {
+                op: "render.frame",
+                name: "Shader Render Frame",
+            },
+            (span) => {
+                // Update lastFrameTime for performance monitoring
+                const previousFrameTime = this.lastFrameTime;
+                this.lastFrameTime = now;
+                
+                const gl = this.gl;
+                const currentTime = (Date.now() - this.startTime) / 1000.0;
         
-        const gl = this.gl;
-        const currentTime = (Date.now() - this.startTime) / 1000.0;
-        
-        // Update time debt system
-        if (audioData && audioData.volume !== undefined) {
+                // Update time debt system
+                if (audioData && audioData.volume !== undefined) {
             const volume = audioData.volume || 0;
             const deltaTime = elapsed / 1000.0;
             
@@ -351,12 +411,12 @@ export class ShaderInstance {
                 this.pixelSizeTriggerTimes.push(currentTimeMs);
             }
             
-            // Update previous volume for next frame
-            this.previousVolume = volume;
-        }
-        
-        // Instant return to normal pixel size after short duration
-        if (this.isPixelSizeAnimating) {
+                    // Update previous volume for next frame
+                    this.previousVolume = volume;
+                }
+                
+                // Instant return to normal pixel size after short duration
+                if (this.isPixelSizeAnimating) {
             const animationElapsed = currentTime - this.pixelSizeAnimationStartTime;
             
             if (animationElapsed >= this.pixelSizeAnimationDuration) {
@@ -364,17 +424,17 @@ export class ShaderInstance {
                 this.pixelSizeMultiplier = 1.0;
                 this.isPixelSizeAnimating = false;
             }
-            // Keep multiplier at 2.0 during the duration (instant doubling, instant return)
-        }
-        
-        gl.clearColor(0.0, 0.0, 0.0, 1.0);
-        gl.clear(gl.COLOR_BUFFER_BIT);
-        
-        gl.useProgram(this.program);
-        gl.viewport(0, 0, this.canvas.width, this.canvas.height);
-        
-        // Set standard uniforms
-        if (this.uniformLocations.uResolution) {
+                    // Keep multiplier at 2.0 during the duration (instant doubling, instant return)
+                }
+                
+                gl.clearColor(0.0, 0.0, 0.0, 1.0);
+                gl.clear(gl.COLOR_BUFFER_BIT);
+                
+                gl.useProgram(this.program);
+                gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+                
+                // Set standard uniforms
+                if (this.uniformLocations.uResolution) {
             gl.uniform2f(this.uniformLocations.uResolution, this.canvas.width, this.canvas.height);
         }
         if (this.uniformLocations.uTime) {
@@ -396,12 +456,12 @@ export class ShaderInstance {
         if (this.uniformLocations.uMouse) {
             gl.uniform4f(this.uniformLocations.uMouse, 0.0, 0.0, 0.0, 0.0);
         }
-        if (this.uniformLocations.uShapeType) {
-            gl.uniform1i(this.uniformLocations.uShapeType, 0);
-        }
-        
-        // Set ripple effect parameters
-        if (this.uniformLocations.uRippleSpeed) {
+                if (this.uniformLocations.uShapeType) {
+                    gl.uniform1i(this.uniformLocations.uShapeType, 0);
+                }
+                
+                // Set ripple effect parameters
+                if (this.uniformLocations.uRippleSpeed) {
             gl.uniform1f(this.uniformLocations.uRippleSpeed, this.parameters.rippleSpeed || 0.5);
         }
         if (this.uniformLocations.uRippleWidth) {
@@ -420,8 +480,8 @@ export class ShaderInstance {
             gl.uniform1f(this.uniformLocations.uRippleIntensity, this.parameters.rippleIntensity !== undefined ? this.parameters.rippleIntensity : 0.4);
         }
         
-        // Set multiple ripple arrays (if available from audioData)
-        if (audioData && audioData.rippleData) {
+                // Set multiple ripple arrays (if available from audioData)
+                if (audioData && audioData.rippleData) {
             const rippleData = audioData.rippleData;
             const maxRipples = 16;
             
@@ -486,10 +546,10 @@ export class ShaderInstance {
             if (this.uniformLocations.uRippleCount) {
                 gl.uniform1i(this.uniformLocations.uRippleCount, rippleData.count || 0);
             }
-        } else {
-            // Set empty arrays if no ripple data
-            const emptyArray = new Float32Array(16).fill(0);
-            if (this.uniformLocations.uRippleCenterX) {
+                } else {
+                    // Set empty arrays if no ripple data
+                    const emptyArray = new Float32Array(16).fill(0);
+                    if (this.uniformLocations.uRippleCenterX) {
                 gl.uniform1fv(this.uniformLocations.uRippleCenterX, emptyArray);
             }
             if (this.uniformLocations.uRippleCenterY) {
@@ -504,13 +564,13 @@ export class ShaderInstance {
             if (this.uniformLocations.uRippleActive) {
                 gl.uniform1fv(this.uniformLocations.uRippleActive, emptyArray);
             }
-            if (this.uniformLocations.uRippleCount) {
-                gl.uniform1i(this.uniformLocations.uRippleCount, 0);
-            }
-        }
-        
-        // Set color uniforms
-        if (colors) {
+                    if (this.uniformLocations.uRippleCount) {
+                        gl.uniform1i(this.uniformLocations.uRippleCount, 0);
+                    }
+                }
+                
+                // Set color uniforms
+                if (colors) {
             const colorUniforms = ['uColor', 'uColor2', 'uColor3', 'uColor4', 'uColor5', 
                                   'uColor6', 'uColor7', 'uColor8', 'uColor9', 'uColor10'];
             const colorKeys = ['color', 'color2', 'color3', 'color4', 'color5', 
@@ -523,11 +583,11 @@ export class ShaderInstance {
                     const color = colors[colorKey];
                     gl.uniform3f(location, color[0], color[1], color[2]);
                 }
-            });
-        }
-        
-        // Set audio uniforms using uniform mapping
-        if (audioData && this.config.uniformMapping) {
+                });
+                }
+                
+                // Set audio uniforms using uniform mapping
+                if (audioData && this.config.uniformMapping) {
             Object.entries(this.config.uniformMapping).forEach(([uniformName, mapper]) => {
                 const location = this.uniformLocations[uniformName];
                 // Set uniform even if location is null (WebGL will ignore it, but ensures all mappers run)
@@ -543,12 +603,12 @@ export class ShaderInstance {
                     } else if (Array.isArray(value) && value.length === 4) {
                         gl.uniform4f(location, value[0], value[1], value[2], value[3]);
                     }
+                    }
+                });
                 }
-            });
-        }
-        
-        // Set title texture if available
-        if (this.titleTexture && this.uniformLocations.uTitleTexture) {
+                
+                // Set title texture if available
+                if (this.titleTexture && this.uniformLocations.uTitleTexture) {
             const textureUnit = this.titleTexture.bindTexture(0);
             gl.uniform1i(this.uniformLocations.uTitleTexture, textureUnit);
             if (this.uniformLocations.uTitleTextureSize) {
@@ -649,38 +709,47 @@ export class ShaderInstance {
                 // Set scale (now always 1.0 since we use font size instead)
                 if (this.uniformLocations.uTitleScaleBottomLeft !== null && this.uniformLocations.uTitleScaleBottomLeft !== undefined) {
                     gl.uniform1f(this.uniformLocations.uTitleScaleBottomLeft, scale);
+                    }
                 }
+            } else if (this.uniformLocations.uTitleTextureSize) {
+                // Set size to 0,0 if no texture to disable sampling
+                gl.uniform2f(this.uniformLocations.uTitleTextureSize, 0.0, 0.0);
             }
-        } else if (this.uniformLocations.uTitleTextureSize) {
-            // Set size to 0,0 if no texture to disable sampling
-            gl.uniform2f(this.uniformLocations.uTitleTextureSize, 0.0, 0.0);
-        }
-        
-        // Always set playback progress even if no texture (for consistency)
-        if (this.uniformLocations.uPlaybackProgress !== null && this.uniformLocations.uPlaybackProgress !== undefined) {
-            const playbackProgress = audioData && audioData.playbackProgress !== undefined 
-                ? audioData.playbackProgress 
-                : 0.0;
-            gl.uniform1f(this.uniformLocations.uPlaybackProgress, playbackProgress);
-        }
-        
-        // Setup quad
-        gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer);
-        const positionLocation = this.uniformLocations.a_position;
-        if (positionLocation !== null && positionLocation !== undefined) {
-            gl.enableVertexAttribArray(positionLocation);
-            gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
-        }
-        
-        gl.disable(gl.BLEND);
-        
-        // Draw
-        gl.drawArrays(gl.TRIANGLES, 0, 6);
-        
-        // Call custom render hook if provided
-        if (this.config.onRender) {
-            this.config.onRender(this, audioData);
-        }
+            
+            // Always set playback progress even if no texture (for consistency)
+            if (this.uniformLocations.uPlaybackProgress !== null && this.uniformLocations.uPlaybackProgress !== undefined) {
+                const playbackProgress = audioData && audioData.playbackProgress !== undefined 
+                    ? audioData.playbackProgress 
+                    : 0.0;
+                gl.uniform1f(this.uniformLocations.uPlaybackProgress, playbackProgress);
+            }
+            
+            // Setup quad
+            gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer);
+            const positionLocation = this.uniformLocations.a_position;
+            if (positionLocation !== null && positionLocation !== undefined) {
+                gl.enableVertexAttribArray(positionLocation);
+                gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
+            }
+            
+            gl.disable(gl.BLEND);
+            
+            // Draw
+            gl.drawArrays(gl.TRIANGLES, 0, 6);
+            
+            // Add performance attributes to span
+            span.setAttribute("fps", (1000 / elapsed).toFixed(1));
+            span.setAttribute("frameTime", elapsed);
+            span.setAttribute("qualityLevel", this.qualityLevel);
+            span.setAttribute("canvasWidth", this.canvas.width);
+            span.setAttribute("canvasHeight", this.canvas.height);
+            span.setAttribute("targetFPS", this.targetFPS);
+            
+            // Call custom render hook if provided
+            if (this.config.onRender) {
+                this.config.onRender(this, audioData);
+            }
+        });
     }
     
     startRenderLoop(audioAnalyzer, colors) {
@@ -694,11 +763,21 @@ export class ShaderInstance {
         this._colors = colors;
         
         const render = () => {
+            if (this.webglFallbackActive) {
+                // Skip rendering if WebGL fallback is active
+                this.renderLoopId = requestAnimationFrame(render);
+                return;
+            }
+            
             if (this._audioAnalyzer) {
                 this._audioAnalyzer.update();
             }
             // Always use current colors reference (may have been updated)
             this.render(this._audioAnalyzer ? this._audioAnalyzer.getData() : null, this._colors);
+            
+            // Measure performance after rendering
+            this.measurePerformance();
+            
             this.renderLoopId = requestAnimationFrame(render);
         };
         
@@ -711,6 +790,131 @@ export class ShaderInstance {
      */
     updateColors(colors) {
         this._colors = colors;
+    }
+    
+    /**
+     * Measure frame time and update performance metrics
+     */
+    measurePerformance() {
+        if (!this.performanceMonitorEnabled) return;
+        
+        const now = Date.now();
+        if (this.lastFrameTime > 0) {
+            const frameTime = now - this.lastFrameTime;
+            this.frameTimes.push(frameTime);
+            
+            // Keep only last 60 frames
+            if (this.frameTimes.length > 60) {
+                this.frameTimes.shift();
+            }
+            
+            // Check performance every 60 frames
+            if (this.frameTimes.length === 60) {
+                const avgFrameTime = this.frameTimes.reduce((a, b) => a + b, 0) / 60;
+                const currentFPS = 1000 / avgFrameTime;
+                const targetFPS = this.targetFPS;
+                
+                // Send performance metrics to Sentry
+                if (typeof Sentry !== 'undefined' && Sentry.metrics) {
+                    Sentry.metrics.distribution('render.fps', currentFPS, {
+                        unit: 'none',
+                        tags: {
+                            qualityLevel: this.qualityLevel.toFixed(2),
+                            canvasWidth: this.canvas.width.toString(),
+                            canvasHeight: this.canvas.height.toString(),
+                            targetFPS: targetFPS.toString(),
+                        },
+                    });
+                    
+                    Sentry.metrics.distribution('render.frameTime', avgFrameTime, {
+                        unit: 'millisecond',
+                        tags: {
+                            qualityLevel: this.qualityLevel.toFixed(2),
+                        },
+                    });
+                }
+                
+                // Auto-adjust quality if FPS is significantly off target
+                const previousQuality = this.qualityLevel;
+                if (currentFPS < targetFPS * 0.8 && this.qualityLevel > 0.5) {
+                    // Reduce quality
+                    this.qualityLevel = Math.max(0.5, this.qualityLevel - 0.1);
+                    console.log(`Performance: Reducing quality to ${(this.qualityLevel * 100).toFixed(0)}% (FPS: ${currentFPS.toFixed(1)})`);
+                    this.resize(); // Recalculate canvas size
+                    
+                    // Track quality change in Sentry
+                    if (typeof Sentry !== 'undefined') {
+                        Sentry.addBreadcrumb({
+                            category: 'performance',
+                            message: 'Quality reduced due to low FPS',
+                            level: 'info',
+                            data: {
+                                fromQuality: previousQuality,
+                                toQuality: this.qualityLevel,
+                                fps: currentFPS,
+                                targetFPS: targetFPS,
+                            },
+                        });
+                    }
+                } else if (currentFPS > targetFPS * 1.2 && this.qualityLevel < 1.0) {
+                    // Increase quality
+                    this.qualityLevel = Math.min(1.0, this.qualityLevel + 0.1);
+                    console.log(`Performance: Increasing quality to ${(this.qualityLevel * 100).toFixed(0)}% (FPS: ${currentFPS.toFixed(1)})`);
+                    this.resize(); // Recalculate canvas size
+                    
+                    // Track quality change in Sentry
+                    if (typeof Sentry !== 'undefined') {
+                        Sentry.addBreadcrumb({
+                            category: 'performance',
+                            message: 'Quality increased due to high FPS',
+                            level: 'info',
+                            data: {
+                                fromQuality: previousQuality,
+                                toQuality: this.qualityLevel,
+                                fps: currentFPS,
+                                targetFPS: targetFPS,
+                            },
+                        });
+                    }
+                }
+            }
+        }
+    }
+    
+    /**
+     * Show fallback UI when WebGL is not supported
+     */
+    showWebGLFallback() {
+        if (!this.canvas) return;
+        
+        const ctx = this.canvas.getContext('2d');
+        if (!ctx) return;
+        
+        // Set canvas size
+        this.canvas.width = window.innerWidth;
+        this.canvas.height = window.innerHeight;
+        this.canvas.style.width = '100%';
+        this.canvas.style.height = '100%';
+        
+        // Draw fallback message
+        ctx.fillStyle = '#1a1a1a';
+        ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '24px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        
+        const message = 'WebGL is not supported on this device.\nPlease use a modern browser with WebGL support.';
+        const lines = message.split('\n');
+        const lineHeight = 32;
+        const startY = this.canvas.height / 2 - (lines.length - 1) * lineHeight / 2;
+        
+        lines.forEach((line, index) => {
+            ctx.fillText(line, this.canvas.width / 2, startY + index * lineHeight);
+        });
+        
+        console.error('WebGL fallback UI displayed');
     }
     
     stopRenderLoop() {

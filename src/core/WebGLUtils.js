@@ -2,11 +2,12 @@
 // Reusable WebGL helpers for shader compilation and setup
 
 /**
- * Loads a shader source file from URL
+ * Loads a shader source file from URL with retry mechanism
  * @param {string} url - Path to shader file
+ * @param {number} retries - Number of retry attempts (default: 3)
  * @returns {Promise<string>} Shader source code
  */
-export async function loadShader(url) {
+export async function loadShader(url, retries = 3) {
     // Get base URL from Vite (handles both dev and production)
     const baseUrl = import.meta.env.BASE_URL || '/';
     
@@ -18,30 +19,51 @@ export async function loadShader(url) {
     // Ensure base URL doesn't have double slashes
     const cleanUrl = absoluteUrl.replace(/([^:]\/)\/+/g, '$1');
     
-    // Add cache-busting query parameter with timestamp and random to prevent browser caching
-    // This ensures each request is unique and bypasses browser cache
-    const cacheBuster = `?v=${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-    const fetchUrl = cleanUrl + cacheBuster;
-    
-    console.log(`Loading shader: ${fetchUrl}`);
-    
-    const response = await fetch(fetchUrl, {
-        cache: 'no-store' // Prevent browser caching
-    });
-    
-    if (!response.ok) {
-        const errorText = await response.text().catch(() => 'Unknown error');
-        throw new Error(`Failed to load shader: ${cleanUrl} (${response.status} ${response.statusText}). Response: ${errorText.substring(0, 100)}`);
+    // Retry logic
+    let lastError = null;
+    for (let attempt = 0; attempt < retries; attempt++) {
+        try {
+            // Add cache-busting query parameter with timestamp and random to prevent browser caching
+            // This ensures each request is unique and bypasses browser cache
+            const cacheBuster = `?v=${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+            const fetchUrl = cleanUrl + cacheBuster;
+            
+            if (attempt > 0) {
+                console.log(`Retrying shader load (attempt ${attempt + 1}/${retries}): ${fetchUrl}`);
+            } else {
+                console.log(`Loading shader: ${fetchUrl}`);
+            }
+            
+            const response = await fetch(fetchUrl, {
+                cache: 'no-store' // Prevent browser caching
+            });
+            
+            if (!response.ok) {
+                const errorText = await response.text().catch(() => 'Unknown error');
+                throw new Error(`Failed to load shader: ${cleanUrl} (${response.status} ${response.statusText}). Response: ${errorText.substring(0, 100)}`);
+            }
+            
+            const text = await response.text();
+            
+            // Check if we got HTML instead of GLSL (common when 404 returns index.html)
+            if (text.trim().startsWith('<!DOCTYPE') || text.trim().startsWith('<html')) {
+                throw new Error(`Shader file returned HTML instead of GLSL. Check that ${cleanUrl} exists and is accessible. Got: ${text.substring(0, 200)}`);
+            }
+            
+            return text;
+        } catch (error) {
+            lastError = error;
+            // Wait before retrying (exponential backoff)
+            if (attempt < retries - 1) {
+                const delay = 1000 * (attempt + 1); // 1s, 2s, 3s...
+                console.warn(`Shader load failed, retrying in ${delay}ms...`, error.message);
+                await new Promise(resolve => setTimeout(resolve, delay));
+            }
+        }
     }
     
-    const text = await response.text();
-    
-    // Check if we got HTML instead of GLSL (common when 404 returns index.html)
-    if (text.trim().startsWith('<!DOCTYPE') || text.trim().startsWith('<html')) {
-        throw new Error(`Shader file returned HTML instead of GLSL. Check that ${cleanUrl} exists and is accessible. Got: ${text.substring(0, 200)}`);
-    }
-    
-    return text;
+    // All retries failed
+    throw new Error(`Failed to load shader after ${retries} attempts: ${cleanUrl}. Last error: ${lastError?.message || 'Unknown error'}`);
 }
 
 /**

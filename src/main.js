@@ -1,6 +1,8 @@
 // Main Application Entry Point
 // Wires together all modules and initializes the application
 
+// Initialize Sentry as early as possible (before other imports)
+import Sentry from './core/SentryInit.js';
 import { AudioAnalyzer } from './core/AudioAnalyzer.js';
 import { generateColorsFromOklch, rgbToHex, normalizeColor, hexToRgb, rgbToOklch, interpolateHue } from './core/ColorGenerator.js';
 import { ShaderManager } from './shaders/ShaderManager.js';
@@ -30,12 +32,24 @@ class VisualPlayer {
     }
     
     async init() {
-        console.log('Initializing Visual Player...');
-        
-        try {
-            // 1. Initialize Audio Analyzer
-            this.audioAnalyzer = new AudioAnalyzer();
-            this.audioAnalyzer.init();
+        // Track initialization as a transaction
+        return Sentry.startSpan(
+            {
+                op: "app.init",
+                name: "Visual Player Initialization",
+            },
+            async (span) => {
+                console.log('Initializing Visual Player...');
+                
+                try {
+                    // 1. Initialize Audio Analyzer
+                    await Sentry.startSpan(
+                        { op: "audio.init", name: "Audio Analyzer Init" },
+                        async () => {
+                            this.audioAnalyzer = new AudioAnalyzer();
+                            this.audioAnalyzer.init();
+                        }
+                    );
             
             // Expose globally for backward compatibility with frequency visualizer
             window.AudioVisualizer = this.audioAnalyzer;
@@ -61,7 +75,7 @@ class VisualPlayer {
             
             // 6.5. Initialize title texture (after shader is active so we have GL context)
             const activeShader = this.shaderManager.getActiveShader();
-            if (activeShader && activeShader.gl) {
+            if (activeShader && activeShader.gl && !activeShader.webglFallbackActive) {
                 this.titleTexture = new TitleTexture(activeShader.gl);
                 activeShader.setTitleTexture(this.titleTexture);
                 
@@ -72,6 +86,8 @@ class VisualPlayer {
                 
                 // Ensure texture is ready (fonts loaded) before continuing
                 await this.titleTexture.ensureReady();
+            } else if (activeShader && activeShader.webglFallbackActive) {
+                console.warn('WebGL fallback active - skipping title texture initialization');
             }
             
             // 7. Initialize UI components
@@ -86,11 +102,62 @@ class VisualPlayer {
             // 10. Expose global API for backward compatibility
             this.exposeGlobalAPI();
             
-            console.log('Visual Player initialized successfully');
-        } catch (error) {
-            console.error('Error initializing Visual Player:', error);
-            throw error;
+                    span.setAttribute("success", true);
+                    console.log('Visual Player initialized successfully');
+                } catch (error) {
+                    span.setAttribute("success", false);
+                    console.error('Error initializing Visual Player:', error);
+                    
+                    // Capture error in Sentry
+                    Sentry.captureException(error);
+                    
+                    // Show user-friendly error message
+                    this.showInitializationError(error);
+                    
+                    // Don't throw - allow app to continue in degraded mode if possible
+                    // throw error;
+                }
+            }
+        );
+    }
+    
+    /**
+     * Show user-friendly error message for initialization failures
+     * @param {Error} error - The error that occurred
+     */
+    showInitializationError(error) {
+        // Create error message element if it doesn't exist
+        let errorElement = document.getElementById('init-error-message');
+        if (!errorElement) {
+            errorElement = document.createElement('div');
+            errorElement.id = 'init-error-message';
+            errorElement.style.cssText = `
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: rgba(0, 0, 0, 0.9);
+                color: white;
+                padding: 30px 40px;
+                border-radius: 12px;
+                z-index: 10000;
+                font-family: sans-serif;
+                font-size: 16px;
+                max-width: 600px;
+                text-align: center;
+                box-shadow: 0 8px 16px rgba(0, 0, 0, 0.5);
+            `;
+            document.body.appendChild(errorElement);
         }
+        
+        const errorMessage = error.message || 'Unknown error occurred';
+        errorElement.innerHTML = `
+            <h2 style="margin: 0 0 15px 0; font-size: 20px;">Initialization Error</h2>
+            <p style="margin: 0 0 20px 0; line-height: 1.5;">${errorMessage}</p>
+            <p style="margin: 0; font-size: 14px; opacity: 0.8;">Please refresh the page or check your browser's WebGL and audio support.</p>
+        `;
+        
+        console.error('Initialization error displayed to user:', error);
     }
     
     initializeColors(skipFrequencyUpdate = false) {

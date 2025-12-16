@@ -112,10 +112,34 @@ export class AudioAnalyzer {
     
     init() {
         try {
-            // Create audio context
-            this.audioContext = new (window.AudioContext || window.webkitAudioContext)({
+            // Create audio context with error handling
+            const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+            if (!AudioContextClass) {
+                throw new Error('AudioContext is not supported in this browser');
+            }
+            
+            this.audioContext = new AudioContextClass({
                 latencyHint: 'interactive'
             });
+            
+            // Handle suspended state (browser autoplay policy)
+            if (this.audioContext.state === 'suspended') {
+                console.warn('AudioContext is suspended. User interaction required to resume.');
+                // Set up resume handler
+                const resumeAudio = async () => {
+                    try {
+                        await this.audioContext.resume();
+                        console.log('AudioContext resumed');
+                        // Remove listeners after first resume
+                        document.removeEventListener('click', resumeAudio);
+                        document.removeEventListener('touchstart', resumeAudio);
+                    } catch (err) {
+                        console.error('Failed to resume AudioContext:', err);
+                    }
+                };
+                document.addEventListener('click', resumeAudio, { once: true });
+                document.addEventListener('touchstart', resumeAudio, { once: true });
+            }
             
             // Create main analyser
             this.analyser = this.audioContext.createAnalyser();
@@ -146,7 +170,49 @@ export class AudioAnalyzer {
             console.log('AudioAnalyzer initialized with stereo support');
         } catch (error) {
             console.error('Error initializing AudioAnalyzer:', error);
+            // Show user-friendly error message
+            this.showAudioError(error);
+            throw error; // Re-throw to allow caller to handle
         }
+    }
+    
+    /**
+     * Show user-friendly error message for audio initialization failures
+     * @param {Error} error - The error that occurred
+     */
+    showAudioError(error) {
+        // Create error message element if it doesn't exist
+        let errorElement = document.getElementById('audio-error-message');
+        if (!errorElement) {
+            errorElement = document.createElement('div');
+            errorElement.id = 'audio-error-message';
+            errorElement.style.cssText = `
+                position: fixed;
+                top: 20px;
+                left: 50%;
+                transform: translateX(-50%);
+                background: rgba(255, 0, 0, 0.9);
+                color: white;
+                padding: 15px 20px;
+                border-radius: 8px;
+                z-index: 10000;
+                font-family: sans-serif;
+                font-size: 14px;
+                max-width: 500px;
+                text-align: center;
+                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+            `;
+            document.body.appendChild(errorElement);
+        }
+        
+        errorElement.textContent = `Audio initialization failed: ${error.message}. Please check your browser's audio settings.`;
+        
+        // Auto-hide after 5 seconds
+        setTimeout(() => {
+            if (errorElement && errorElement.parentNode) {
+                errorElement.parentNode.removeChild(errorElement);
+            }
+        }, 5000);
     }
     
     async loadTrack(filePath) {
