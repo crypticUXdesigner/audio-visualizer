@@ -6,8 +6,8 @@ import { safeCaptureException } from './SentryInit.js';
 import { getTrackIdentifier, saveTrackIdentifier } from '../config/track-registry.js';
 
 /**
- * Get the API token from environment variables
- * @returns {Promise<string>} The API token
+ * Get the API token from environment variables (optional for public endpoints)
+ * @returns {Promise<string|null>} The API token, or null if not set
  */
 async function getToken() {
   let token = import.meta.env.VITE_AUDIOTOOL_API_TOKEN;
@@ -18,15 +18,25 @@ async function getToken() {
     token = 'at_pat_sbhF-KMueYzAEctwFzwQlQ6tHwtsy_zkDlre5iypZDA';
   }
   
-  if (!token) {
-    throw new Error(
-      'VITE_AUDIOTOOL_API_TOKEN is not set. ' +
-      'Please create a .env.local file with: VITE_AUDIOTOOL_API_TOKEN=your_token_here\n' +
-      'Then restart your dev server (npm run dev) for the changes to take effect.'
-    );
+  // Token is optional for public endpoints - return null if not set
+  return token || null;
+}
+
+/**
+ * Get the client ID from environment variables (optional)
+ * @returns {string|null} The client ID if set
+ */
+function getClientId() {
+  // Try environment variable first
+  let clientId = import.meta.env.VITE_AUDIOTOOL_CLIENT_ID;
+  
+  // Only use hardcoded fallback in production builds (not in dev)
+  // In dev, let it work without client ID if not explicitly set
+  if (!clientId && !import.meta.env.DEV && import.meta.env.MODE === 'production') {
+    clientId = '1fe600a2-08f7-4a15-953e-23d0c975ce55';
   }
   
-  return token;
+  return clientId || null;
 }
 
 /**
@@ -38,17 +48,41 @@ async function getToken() {
  */
 async function callTrackService(method, request) {
   const token = await getToken();
+  const clientId = getClientId();
   const baseUrl = 'https://rpc.audiotool.com';
   const serviceName = 'audiotool.track.v1.TrackService';
   // Connect RPC JSON format: add ?encoding=json for JSON encoding
   const url = `${baseUrl}/${serviceName}/${method}?encoding=json`;
   
+  const headers = {
+    'Content-Type': 'application/json',
+  };
+  
+  // Add Authorization header only if token is available
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  
+  // Include client ID in headers only if explicitly set via environment variable
+  // This matches the previous behavior where dev worked without client ID
+  // The hardcoded fallback is only for production builds, but we don't send it as a header
+  // unless explicitly configured, as some APIs don't require/want it
+  if (import.meta.env.VITE_AUDIOTOOL_CLIENT_ID) {
+    headers['X-Client-Id'] = import.meta.env.VITE_AUDIOTOOL_CLIENT_ID;
+  }
+  
+  // Log authentication method being used (for debugging)
+  if (token) {
+    console.log(`🔐 Using Bearer token authentication for ${method}`);
+  } else if (clientId) {
+    console.log(`🔑 Using client ID only for ${method} (public API) - Client ID: ${clientId.substring(0, 8)}...`);
+  } else {
+    console.log(`🌐 Making unauthenticated request for ${method} (public API)`);
+  }
+  
   const response = await fetch(url, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`,
-    },
+    headers: headers,
     body: JSON.stringify(request),
   });
   
@@ -72,6 +106,15 @@ async function callTrackService(method, request) {
     } catch (e) {
       if (errorText) {
         errorMessage += ` - ${errorText}`;
+      }
+    }
+    
+    // Provide helpful error message for authentication issues
+    if (response.status === 401 || response.status === 403) {
+      if (!token && !clientId) {
+        errorMessage += '\n💡 Tip: Public API may require client ID. Set VITE_AUDIOTOOL_CLIENT_ID in your environment.';
+      } else if (!token && clientId) {
+        errorMessage += '\n💡 Tip: This endpoint may require a Bearer token. Set VITE_AUDIOTOOL_API_TOKEN in your environment.';
       }
     }
     

@@ -36,6 +36,7 @@ jobs:
       - name: Build
         env:
           VITE_SENTRY_DSN: ${{ secrets.VITE_SENTRY_DSN || 'https://bfcbd4287d8125d0ff6994ab3f38c82b@o4509351742078976.ingest.de.sentry.io/4510545931141200' }}
+          VITE_AUDIOTOOL_CLIENT_ID: '1fe600a2-08f7-4a15-953e-23d0c975ce55'
         run: npm run build
       
       - name: Setup Pages

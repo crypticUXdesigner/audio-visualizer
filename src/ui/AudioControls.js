@@ -24,7 +24,7 @@ export class AudioControls {
         this.seekUpdateInterval = null;
         this.isDropdownOpen = false;
         this.isLoopEnabled = false;
-        this.isRandomEnabled = false;
+        this.isRandomEnabled = true;
         
         // Auto-hide controls state
         this.mouseMoveTimeout = null;
