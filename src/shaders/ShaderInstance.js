@@ -358,22 +358,17 @@ export class ShaderInstance {
             return; // Skip frame to maintain target FPS
         }
         
-        // Create a span for render performance tracking
-        return Sentry.startSpan(
-            {
-                op: "render.frame",
-                name: "Shader Render Frame",
-            },
-            (span) => {
-                // Update lastFrameTime for performance monitoring
-                const previousFrameTime = this.lastFrameTime;
-                this.lastFrameTime = now;
-                
-                const gl = this.gl;
-                const currentTime = (Date.now() - this.startTime) / 1000.0;
+        // Update lastFrameTime for performance monitoring
+        // Note: We use Sentry metrics (not transactions) for render performance tracking
+        // to avoid creating thousands of transactions per session
+        const previousFrameTime = this.lastFrameTime;
+        this.lastFrameTime = now;
         
-                // Update time debt system
-                if (audioData && audioData.volume !== undefined) {
+        const gl = this.gl;
+        const currentTime = (Date.now() - this.startTime) / 1000.0;
+        
+        // Update time debt system
+        if (audioData && audioData.volume !== undefined) {
             const volume = audioData.volume || 0;
             const deltaTime = elapsed / 1000.0;
             
@@ -411,12 +406,12 @@ export class ShaderInstance {
                 this.pixelSizeTriggerTimes.push(currentTimeMs);
             }
             
-                    // Update previous volume for next frame
-                    this.previousVolume = volume;
-                }
-                
-                // Instant return to normal pixel size after short duration
-                if (this.isPixelSizeAnimating) {
+            // Update previous volume for next frame
+            this.previousVolume = volume;
+        }
+        
+        // Instant return to normal pixel size after short duration
+        if (this.isPixelSizeAnimating) {
             const animationElapsed = currentTime - this.pixelSizeAnimationStartTime;
             
             if (animationElapsed >= this.pixelSizeAnimationDuration) {
@@ -424,17 +419,17 @@ export class ShaderInstance {
                 this.pixelSizeMultiplier = 1.0;
                 this.isPixelSizeAnimating = false;
             }
-                    // Keep multiplier at 2.0 during the duration (instant doubling, instant return)
-                }
-                
-                gl.clearColor(0.0, 0.0, 0.0, 1.0);
-                gl.clear(gl.COLOR_BUFFER_BIT);
-                
-                gl.useProgram(this.program);
-                gl.viewport(0, 0, this.canvas.width, this.canvas.height);
-                
-                // Set standard uniforms
-                if (this.uniformLocations.uResolution) {
+            // Keep multiplier at 2.0 during the duration (instant doubling, instant return)
+        }
+        
+        gl.clearColor(0.0, 0.0, 0.0, 1.0);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        
+        gl.useProgram(this.program);
+        gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+        
+        // Set standard uniforms
+        if (this.uniformLocations.uResolution) {
             gl.uniform2f(this.uniformLocations.uResolution, this.canvas.width, this.canvas.height);
         }
         if (this.uniformLocations.uTime) {
@@ -456,12 +451,12 @@ export class ShaderInstance {
         if (this.uniformLocations.uMouse) {
             gl.uniform4f(this.uniformLocations.uMouse, 0.0, 0.0, 0.0, 0.0);
         }
-                if (this.uniformLocations.uShapeType) {
-                    gl.uniform1i(this.uniformLocations.uShapeType, 0);
-                }
-                
-                // Set ripple effect parameters
-                if (this.uniformLocations.uRippleSpeed) {
+        if (this.uniformLocations.uShapeType) {
+            gl.uniform1i(this.uniformLocations.uShapeType, 0);
+        }
+        
+        // Set ripple effect parameters
+        if (this.uniformLocations.uRippleSpeed) {
             gl.uniform1f(this.uniformLocations.uRippleSpeed, this.parameters.rippleSpeed || 0.5);
         }
         if (this.uniformLocations.uRippleWidth) {
@@ -480,8 +475,8 @@ export class ShaderInstance {
             gl.uniform1f(this.uniformLocations.uRippleIntensity, this.parameters.rippleIntensity !== undefined ? this.parameters.rippleIntensity : 0.4);
         }
         
-                // Set multiple ripple arrays (if available from audioData)
-                if (audioData && audioData.rippleData) {
+        // Set multiple ripple arrays (if available from audioData)
+        if (audioData && audioData.rippleData) {
             const rippleData = audioData.rippleData;
             const maxRipples = 16;
             
@@ -546,10 +541,10 @@ export class ShaderInstance {
             if (this.uniformLocations.uRippleCount) {
                 gl.uniform1i(this.uniformLocations.uRippleCount, rippleData.count || 0);
             }
-                } else {
-                    // Set empty arrays if no ripple data
-                    const emptyArray = new Float32Array(16).fill(0);
-                    if (this.uniformLocations.uRippleCenterX) {
+        } else {
+            // Set empty arrays if no ripple data
+            const emptyArray = new Float32Array(16).fill(0);
+            if (this.uniformLocations.uRippleCenterX) {
                 gl.uniform1fv(this.uniformLocations.uRippleCenterX, emptyArray);
             }
             if (this.uniformLocations.uRippleCenterY) {
@@ -564,13 +559,13 @@ export class ShaderInstance {
             if (this.uniformLocations.uRippleActive) {
                 gl.uniform1fv(this.uniformLocations.uRippleActive, emptyArray);
             }
-                    if (this.uniformLocations.uRippleCount) {
-                        gl.uniform1i(this.uniformLocations.uRippleCount, 0);
-                    }
-                }
-                
-                // Set color uniforms
-                if (colors) {
+            if (this.uniformLocations.uRippleCount) {
+                gl.uniform1i(this.uniformLocations.uRippleCount, 0);
+            }
+        }
+        
+        // Set color uniforms
+        if (colors) {
             const colorUniforms = ['uColor', 'uColor2', 'uColor3', 'uColor4', 'uColor5', 
                                   'uColor6', 'uColor7', 'uColor8', 'uColor9', 'uColor10'];
             const colorKeys = ['color', 'color2', 'color3', 'color4', 'color5', 
@@ -583,11 +578,11 @@ export class ShaderInstance {
                     const color = colors[colorKey];
                     gl.uniform3f(location, color[0], color[1], color[2]);
                 }
-                });
-                }
-                
-                // Set audio uniforms using uniform mapping
-                if (audioData && this.config.uniformMapping) {
+            });
+        }
+        
+        // Set audio uniforms using uniform mapping
+        if (audioData && this.config.uniformMapping) {
             Object.entries(this.config.uniformMapping).forEach(([uniformName, mapper]) => {
                 const location = this.uniformLocations[uniformName];
                 // Set uniform even if location is null (WebGL will ignore it, but ensures all mappers run)
@@ -603,12 +598,12 @@ export class ShaderInstance {
                     } else if (Array.isArray(value) && value.length === 4) {
                         gl.uniform4f(location, value[0], value[1], value[2], value[3]);
                     }
-                    }
-                });
                 }
-                
-                // Set title texture if available
-                if (this.titleTexture && this.uniformLocations.uTitleTexture) {
+            });
+        }
+        
+        // Set title texture if available
+        if (this.titleTexture && this.uniformLocations.uTitleTexture) {
             const textureUnit = this.titleTexture.bindTexture(0);
             gl.uniform1i(this.uniformLocations.uTitleTexture, textureUnit);
             if (this.uniformLocations.uTitleTextureSize) {
@@ -709,47 +704,38 @@ export class ShaderInstance {
                 // Set scale (now always 1.0 since we use font size instead)
                 if (this.uniformLocations.uTitleScaleBottomLeft !== null && this.uniformLocations.uTitleScaleBottomLeft !== undefined) {
                     gl.uniform1f(this.uniformLocations.uTitleScaleBottomLeft, scale);
-                    }
                 }
-            } else if (this.uniformLocations.uTitleTextureSize) {
-                // Set size to 0,0 if no texture to disable sampling
-                gl.uniform2f(this.uniformLocations.uTitleTextureSize, 0.0, 0.0);
             }
-            
-            // Always set playback progress even if no texture (for consistency)
-            if (this.uniformLocations.uPlaybackProgress !== null && this.uniformLocations.uPlaybackProgress !== undefined) {
-                const playbackProgress = audioData && audioData.playbackProgress !== undefined 
-                    ? audioData.playbackProgress 
-                    : 0.0;
-                gl.uniform1f(this.uniformLocations.uPlaybackProgress, playbackProgress);
-            }
-            
-            // Setup quad
-            gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer);
-            const positionLocation = this.uniformLocations.a_position;
-            if (positionLocation !== null && positionLocation !== undefined) {
-                gl.enableVertexAttribArray(positionLocation);
-                gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
-            }
-            
-            gl.disable(gl.BLEND);
-            
-            // Draw
-            gl.drawArrays(gl.TRIANGLES, 0, 6);
-            
-            // Add performance attributes to span
-            span.setAttribute("fps", (1000 / elapsed).toFixed(1));
-            span.setAttribute("frameTime", elapsed);
-            span.setAttribute("qualityLevel", this.qualityLevel);
-            span.setAttribute("canvasWidth", this.canvas.width);
-            span.setAttribute("canvasHeight", this.canvas.height);
-            span.setAttribute("targetFPS", this.targetFPS);
-            
-            // Call custom render hook if provided
-            if (this.config.onRender) {
-                this.config.onRender(this, audioData);
-            }
-        });
+        } else if (this.uniformLocations.uTitleTextureSize) {
+            // Set size to 0,0 if no texture to disable sampling
+            gl.uniform2f(this.uniformLocations.uTitleTextureSize, 0.0, 0.0);
+        }
+        
+        // Always set playback progress even if no texture (for consistency)
+        if (this.uniformLocations.uPlaybackProgress !== null && this.uniformLocations.uPlaybackProgress !== undefined) {
+            const playbackProgress = audioData && audioData.playbackProgress !== undefined 
+                ? audioData.playbackProgress 
+                : 0.0;
+            gl.uniform1f(this.uniformLocations.uPlaybackProgress, playbackProgress);
+        }
+        
+        // Setup quad
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer);
+        const positionLocation = this.uniformLocations.a_position;
+        if (positionLocation !== null && positionLocation !== undefined) {
+            gl.enableVertexAttribArray(positionLocation);
+            gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
+        }
+        
+        gl.disable(gl.BLEND);
+        
+        // Draw
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+        
+        // Call custom render hook if provided
+        if (this.config.onRender) {
+            this.config.onRender(this, audioData);
+        }
     }
     
     startRenderLoop(audioAnalyzer, colors) {
