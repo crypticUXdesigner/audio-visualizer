@@ -7,13 +7,21 @@
  * @returns {Promise<string>} Shader source code
  */
 export async function loadShader(url) {
-    // Ensure URL is absolute (starts with /) for proper resolution
-    const absoluteUrl = url.startsWith('/') ? url : `/${url}`;
+    // Get base URL from Vite (handles both dev and production)
+    const baseUrl = import.meta.env.BASE_URL || '/';
+    
+    // Normalize the URL: if it starts with /, remove it; otherwise use as-is
+    // Then prepend base URL
+    const normalizedUrl = url.startsWith('/') ? url.substring(1) : url;
+    const absoluteUrl = baseUrl + normalizedUrl;
+    
+    // Ensure base URL doesn't have double slashes
+    const cleanUrl = absoluteUrl.replace(/([^:]\/)\/+/g, '$1');
     
     // Add cache-busting query parameter with timestamp and random to prevent browser caching
     // This ensures each request is unique and bypasses browser cache
     const cacheBuster = `?v=${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-    const fetchUrl = absoluteUrl + cacheBuster;
+    const fetchUrl = cleanUrl + cacheBuster;
     
     console.log(`Loading shader: ${fetchUrl}`);
     
@@ -23,14 +31,14 @@ export async function loadShader(url) {
     
     if (!response.ok) {
         const errorText = await response.text().catch(() => 'Unknown error');
-        throw new Error(`Failed to load shader: ${absoluteUrl} (${response.status} ${response.statusText}). Response: ${errorText.substring(0, 100)}`);
+        throw new Error(`Failed to load shader: ${cleanUrl} (${response.status} ${response.statusText}). Response: ${errorText.substring(0, 100)}`);
     }
     
     const text = await response.text();
     
     // Check if we got HTML instead of GLSL (common when 404 returns index.html)
     if (text.trim().startsWith('<!DOCTYPE') || text.trim().startsWith('<html')) {
-        throw new Error(`Shader file returned HTML instead of GLSL. Check that ${absoluteUrl} exists and is accessible. Got: ${text.substring(0, 200)}`);
+        throw new Error(`Shader file returned HTML instead of GLSL. Check that ${cleanUrl} exists and is accessible. Got: ${text.substring(0, 200)}`);
     }
     
     return text;

@@ -164,11 +164,19 @@ export class AudioAnalyzer {
                 }
             }
             
-            // Ensure path is absolute
-            const absolutePath = filePath.startsWith('/') ? filePath : `/${filePath}`;
+            // Get base URL from Vite (handles both dev and production)
+            const baseUrl = import.meta.env.BASE_URL || '/';
+            
+            // Normalize the path: if it starts with /, remove it; otherwise use as-is
+            // Then prepend base URL
+            const normalizedPath = filePath.startsWith('/') ? filePath.substring(1) : filePath;
+            const absolutePath = baseUrl + normalizedPath;
+            
+            // Ensure base URL doesn't have double slashes
+            const cleanPath = absolutePath.replace(/([^:]\/)\/+/g, '$1');
             
             // Create audio element
-            this.audioElement = new Audio(absolutePath);
+            this.audioElement = new Audio(cleanPath);
             this.audioElement.crossOrigin = 'anonymous'; // For CORS when using API later
             
             // Create source node
