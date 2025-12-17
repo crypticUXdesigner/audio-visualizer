@@ -114,7 +114,7 @@ export default {
             hueOffset: 60
         },
         interpolationCurve: {
-            lightness: [0.5, 0.1, 1.0, 0.9],
+            lightness: [0.3, 0.0, 1.0, 0.7],
             chroma: [0.0, 0.25, 1.0, 0.75],
             hue: [0.0, 0.25, 1.0, 0.75]
         }

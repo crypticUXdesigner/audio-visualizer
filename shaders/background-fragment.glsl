@@ -421,66 +421,66 @@ void main() {
     float freq9Active = smoothstep(freq9Min - 0.05, freq9Min + 0.05, uFreq9);
     float freq10Active = smoothstep(freq10Min - 0.05, freq10Min + 0.05, uFreq10);
     
-    // Threshold distribution using INVERSE of OKLCH lightness cubic-bezier curve [0.5, 0.1, 1.0, 0.9]
-    // Effect: More balanced distribution - dark colors still prominent but not overwhelming
-    // Result: Gradual progression from dark to light matching the bezier curve
+    // Threshold distribution using INVERSE of OKLCH lightness cubic-bezier curve [0.3, 0.0, 1.0, 0.7]
+    // Effect: Even more balanced distribution - much less dark, more even progression
+    // Result: Smooth, gradual progression across all brightness levels
     
-    // Brightest (color1): freq1 (11.3k-20k Hz) - occupies 4.3% of feed range
+    // Brightest (color1): freq1 (11.3k-20k Hz) - occupies 2.3% of feed range
     float threshold1Base = 0.9800 + bayer * 0.04;
     float threshold1Reduced = threshold1Base - (uFreq1 * 0.05 * freq1Active);  // Minimal reduction
     float threshold1Min = threshold1Base * 0.70;  // Relative floor: 70% of base (preserves Bayer variation)
     float threshold1 = max(threshold1Reduced, threshold1Min);
     
-    // color2: freq2 (5.7k-11.3k Hz) - occupies 6.3% of feed range
-    float threshold2Base = 0.9371 + bayer * 0.08;
+    // color2: freq2 (5.7k-11.3k Hz) - occupies 5.2% of feed range
+    float threshold2Base = 0.9571 + bayer * 0.08;
     float threshold2Reduced = threshold2Base - (uFreq2 * 0.08 * freq2Active);  // Slight reduction
     float threshold2Min = threshold2Base * 0.70;  // Relative floor: 70% of base
     float threshold2 = max(threshold2Reduced, threshold2Min);
     
-    // color3: freq3 (2.8k-5.7k Hz) - occupies 7.2% of feed range
-    float threshold3Base = 0.8739 + bayer * 0.10;
+    // color3: freq3 (2.8k-5.7k Hz) - occupies 7.0% of feed range
+    float threshold3Base = 0.9054 + bayer * 0.10;
     float threshold3Reduced = threshold3Base - (uFreq3 * 0.12 * freq3Active);  // Light reduction
     float threshold3Min = threshold3Base * 0.70;  // Relative floor: 70% of base
     float threshold3 = max(threshold3Reduced, threshold3Min);
     
-    // color4: freq4 (1.4k-2.8k Hz) - occupies 8.1% of feed range
-    float threshold4Base = 0.8014 + bayer * 0.12;
+    // color4: freq4 (1.4k-2.8k Hz) - occupies 8.3% of feed range
+    float threshold4Base = 0.8359 + bayer * 0.12;
     float threshold4Reduced = threshold4Base - (uFreq4 * 0.20 * freq4Active);  // Moderate reduction
     float threshold4Min = threshold4Base * 0.75;  // Relative floor: 75% of base
     float threshold4 = max(threshold4Reduced, threshold4Min);
     
-    // color5: freq5 (707-1414 Hz) - occupies 9.0% of feed range
-    float threshold5Base = 0.7207 + bayer * 0.14;
+    // color5: freq5 (707-1414 Hz) - occupies 9.5% of feed range
+    float threshold5Base = 0.7528 + bayer * 0.14;
     float threshold5Reduced = threshold5Base - (uFreq5 * 0.30 * freq5Active);  // Medium reduction
     float threshold5Min = threshold5Base * 0.75;  // Relative floor: 75% of base
     float threshold5 = max(threshold5Reduced, threshold5Min);
     
-    // color6: freq6 (354-707 Hz) - occupies 10.1% of feed range
-    float threshold6Base = 0.6307 + bayer * 0.14;
+    // color6: freq6 (354-707 Hz) - occupies 10.8% of feed range
+    float threshold6Base = 0.6577 + bayer * 0.14;
     float threshold6Reduced = threshold6Base - (uFreq6 * 0.35 * freq6Active);  // Medium-strong reduction
     float threshold6Min = threshold6Base * 0.75;  // Relative floor: 75% of base
     float threshold6 = max(threshold6Reduced, threshold6Min);
     
-    // color7: freq7 (177-354 Hz) - occupies 11.8% of feed range
-    float threshold7Base = 0.5295 + bayer * 0.14;
+    // color7: freq7 (177-354 Hz) - occupies 12.3% of feed range
+    float threshold7Base = 0.5499 + bayer * 0.14;
     float threshold7Reduced = threshold7Base - (uFreq7 * 0.40 * freq7Active);  // Strong reduction
     float threshold7Min = threshold7Base * 0.80;  // Relative floor: 80% of base
     float threshold7 = max(threshold7Reduced, threshold7Min);
     
     // color8: freq8 (88-177 Hz) - occupies 14.7% of feed range
-    float threshold8Base = 0.4116 + bayer * 0.12;
+    float threshold8Base = 0.4270 + bayer * 0.12;
     float threshold8Reduced = threshold8Base - (uFreq8 * 0.50 * freq8Active);  // Very strong reduction
     float threshold8Min = threshold8Base * 0.80;  // Relative floor: 80% of base
     float threshold8 = max(threshold8Reduced, threshold8Min);
     
-    // color9: freq9 (44-88 Hz) - occupies 25.5% of feed range
-    float threshold9Base = 0.2648 + bayer * 0.08;
+    // color9: freq9 (44-88 Hz) - occupies 26.6% of feed range
+    float threshold9Base = 0.2800 + bayer * 0.08;
     float threshold9Reduced = threshold9Base - (uFreq9 * 0.60 * freq9Active);  // Aggressive reduction
     float threshold9Min = threshold9Base * 0.80;  // Relative floor: 80% of base
     float threshold9 = max(threshold9Reduced, threshold9Min);
     
-    // Darkest (color10): freq10 (20-44 Hz) - occupies 25.5% of feed range
-    float threshold10Base = 0.0102 + bayer * 0.04;
+    // Darkest (color10): freq10 (20-44 Hz) - occupies 26.6% of feed range
+    float threshold10Base = 0.0138 + bayer * 0.04;
     float threshold10Reduced = threshold10Base - (uFreq10 * 0.70 * freq10Active);  // Maximum reduction
     float threshold10Min = threshold10Base * 0.80;  // Relative floor: 80% of base
     float threshold10 = max(threshold10Reduced, threshold10Min);
