@@ -22,6 +22,10 @@ uniform float uTime;
 uniform float uTimeOffset;  // Time debt offset (accumulates on loudness, decays to catch up)
 uniform float uPixelSize;
 
+// Dithering control uniforms
+uniform float uDitherStrength;     // Global multiplier for dithering intensity (0.0-2.0, default 1.0)
+uniform float uTransitionWidth;    // Smoothness of color transitions (0.005-0.1, default 0.03)
+
 // Audio uniforms (0.0 to 1.0) - defaults to 0.0 if not set
 uniform float uBass;    // Low frequencies (20-250Hz)
 uniform float uMid;     // Mid frequencies (250-2000Hz)
@@ -111,10 +115,10 @@ float Bayer2(vec2 a) {
 #define Bayer4(a) (Bayer2(.5*(a))*0.25 + Bayer2(a))
 #define Bayer8(a) (Bayer4(.5*(a))*0.25 + Bayer2(a))
 
-#define FBM_OCTAVES     10
-#define FBM_LACUNARITY  1.25
-#define FBM_GAIN        0.5
-#define FBM_SCALE       1.75          // master scale for uv (smaller = larger spots)
+#define FBM_OCTAVES     6
+#define FBM_LACUNARITY  1.35
+#define FBM_GAIN        0.65
+#define FBM_SCALE       1.25          // master scale for uv (smaller = larger spots)
 
 // 1-D hash and 3-D value-noise helpers
 float hash11(float n) { return fract(sin(n)*43758.5453); }
@@ -374,7 +378,9 @@ void main() {
     // feed = max(feed, (uBeatIntensityBass + uBeatIntensityMid + uBeatIntensityTreble) * 0.3);
 
     // Multi-step dithering with Bayer matrix
-    float bayer = Bayer8(fragCoordCentered / uPixelSize) - 0.5;
+    // Apply dithering strength multiplier for adjustable intensity
+    float ditherStrength = uDitherStrength > 0.0 ? uDitherStrength : 3.0; // Fallback to 3.0 if not set
+    float bayer = (Bayer8(fragCoordCentered / uPixelSize) - 0.5) * ditherStrength;
     
     // Frequency-based color mapping
     // Each frequency band lowers its threshold to make its color appear
@@ -415,65 +421,67 @@ void main() {
     float freq9Active = smoothstep(freq9Min - 0.05, freq9Min + 0.05, uFreq9);
     float freq10Active = smoothstep(freq10Min - 0.05, freq10Min + 0.05, uFreq10);
     
-    // Brightest (color): freq1 (11.3k-20k Hz) - highest threshold
-    // Only reduce threshold when frequency is active (above loudness threshold)
-    // Use relative floor to preserve Bayer dithering gradients (can't reduce more than 30% from base)
-    float threshold1Base = 0.95 + bayer * 0.08;
-    float threshold1Reduced = threshold1Base - (uFreq1 * 0.8 * freq1Active);  // Reduced multiplier
+    // Threshold distribution using INVERSE of OKLCH lightness cubic-bezier curve [0.5, 0.1, 1.0, 0.9]
+    // Effect: More balanced distribution - dark colors still prominent but not overwhelming
+    // Result: Gradual progression from dark to light matching the bezier curve
+    
+    // Brightest (color1): freq1 (11.3k-20k Hz) - occupies 4.3% of feed range
+    float threshold1Base = 0.9800 + bayer * 0.04;
+    float threshold1Reduced = threshold1Base - (uFreq1 * 0.05 * freq1Active);  // Minimal reduction
     float threshold1Min = threshold1Base * 0.70;  // Relative floor: 70% of base (preserves Bayer variation)
     float threshold1 = max(threshold1Reduced, threshold1Min);
     
-    // color2: freq2 (5.7k-11.3k Hz)
-    float threshold2Base = 0.85 + bayer * 0.12;
-    float threshold2Reduced = threshold2Base - (uFreq2 * 0.6 * freq2Active);  // Reduced multiplier
+    // color2: freq2 (5.7k-11.3k Hz) - occupies 6.3% of feed range
+    float threshold2Base = 0.9371 + bayer * 0.08;
+    float threshold2Reduced = threshold2Base - (uFreq2 * 0.08 * freq2Active);  // Slight reduction
     float threshold2Min = threshold2Base * 0.70;  // Relative floor: 70% of base
     float threshold2 = max(threshold2Reduced, threshold2Min);
     
-    // color3: freq3 (2.8k-5.7k Hz)
-    float threshold3Base = 0.75 + bayer * 0.15;
-    float threshold3Reduced = threshold3Base - (uFreq3 * 0.6 * freq3Active);  // Reduced multiplier
+    // color3: freq3 (2.8k-5.7k Hz) - occupies 7.2% of feed range
+    float threshold3Base = 0.8739 + bayer * 0.10;
+    float threshold3Reduced = threshold3Base - (uFreq3 * 0.12 * freq3Active);  // Light reduction
     float threshold3Min = threshold3Base * 0.70;  // Relative floor: 70% of base
     float threshold3 = max(threshold3Reduced, threshold3Min);
     
-    // color4: freq4 (1.4k-2.8k Hz)
-    float threshold4Base = 0.65 + bayer * 0.18;
-    float threshold4Reduced = threshold4Base - (uFreq4 * 0.5 * freq4Active);  // Reduced multiplier
+    // color4: freq4 (1.4k-2.8k Hz) - occupies 8.1% of feed range
+    float threshold4Base = 0.8014 + bayer * 0.12;
+    float threshold4Reduced = threshold4Base - (uFreq4 * 0.20 * freq4Active);  // Moderate reduction
     float threshold4Min = threshold4Base * 0.75;  // Relative floor: 75% of base
     float threshold4 = max(threshold4Reduced, threshold4Min);
     
-    // color5: freq5 (707-1414 Hz)
-    float threshold5Base = 0.55 + bayer * 0.20;
-    float threshold5Reduced = threshold5Base - (uFreq5 * 0.4 * freq5Active);  // Reduced multiplier
+    // color5: freq5 (707-1414 Hz) - occupies 9.0% of feed range
+    float threshold5Base = 0.7207 + bayer * 0.14;
+    float threshold5Reduced = threshold5Base - (uFreq5 * 0.30 * freq5Active);  // Medium reduction
     float threshold5Min = threshold5Base * 0.75;  // Relative floor: 75% of base
     float threshold5 = max(threshold5Reduced, threshold5Min);
     
-    // color6: freq6 (354-707 Hz)
-    float threshold6Base = 0.45 + bayer * 0.22;
-    float threshold6Reduced = threshold6Base - (uFreq6 * 0.3 * freq6Active);  // Reduced multiplier
+    // color6: freq6 (354-707 Hz) - occupies 10.1% of feed range
+    float threshold6Base = 0.6307 + bayer * 0.14;
+    float threshold6Reduced = threshold6Base - (uFreq6 * 0.35 * freq6Active);  // Medium-strong reduction
     float threshold6Min = threshold6Base * 0.75;  // Relative floor: 75% of base
     float threshold6 = max(threshold6Reduced, threshold6Min);
     
-    // color7: freq7 (177-354 Hz)
-    float threshold7Base = 0.35 + bayer * 0.24;
-    float threshold7Reduced = threshold7Base - (uFreq7 * 0.2 * freq7Active);  // Reduced multiplier
+    // color7: freq7 (177-354 Hz) - occupies 11.8% of feed range
+    float threshold7Base = 0.5295 + bayer * 0.14;
+    float threshold7Reduced = threshold7Base - (uFreq7 * 0.40 * freq7Active);  // Strong reduction
     float threshold7Min = threshold7Base * 0.80;  // Relative floor: 80% of base
     float threshold7 = max(threshold7Reduced, threshold7Min);
     
-    // color8: freq8 (88-177 Hz)
-    float threshold8Base = 0.25 + bayer * 0.26;
-    float threshold8Reduced = threshold8Base - (uFreq8 * 0.1 * freq8Active);  // Reduced multiplier
+    // color8: freq8 (88-177 Hz) - occupies 14.7% of feed range
+    float threshold8Base = 0.4116 + bayer * 0.12;
+    float threshold8Reduced = threshold8Base - (uFreq8 * 0.50 * freq8Active);  // Very strong reduction
     float threshold8Min = threshold8Base * 0.80;  // Relative floor: 80% of base
     float threshold8 = max(threshold8Reduced, threshold8Min);
     
-    // color9: freq9 (44-88 Hz)
-    float threshold9Base = 0.15 + bayer * 0.28;
-    float threshold9Reduced = threshold9Base - (uFreq9 * 0.05 * freq9Active);  // Reduced multiplier
+    // color9: freq9 (44-88 Hz) - occupies 25.5% of feed range
+    float threshold9Base = 0.2648 + bayer * 0.08;
+    float threshold9Reduced = threshold9Base - (uFreq9 * 0.60 * freq9Active);  // Aggressive reduction
     float threshold9Min = threshold9Base * 0.80;  // Relative floor: 80% of base
     float threshold9 = max(threshold9Reduced, threshold9Min);
     
-    // Darkest (color10): freq10 (20-44 Hz)
-    float threshold10Base = 0.05 + bayer * 0.20;
-    float threshold10Reduced = threshold10Base - (uFreq10 * 0.03 * freq10Active);  // Reduced multiplier
+    // Darkest (color10): freq10 (20-44 Hz) - occupies 25.5% of feed range
+    float threshold10Base = 0.0102 + bayer * 0.04;
+    float threshold10Reduced = threshold10Base - (uFreq10 * 0.70 * freq10Active);  // Maximum reduction
     float threshold10Min = threshold10Base * 0.80;  // Relative floor: 80% of base
     float threshold10 = max(threshold10Reduced, threshold10Min);
     
@@ -483,16 +491,22 @@ void main() {
     // CRITICAL: Ensure all color uniforms are always referenced to prevent WebGL optimization
     // Calculate a weighted sum that always evaluates all uniforms (even if weight is 0)
     // This prevents the shader compiler from optimizing them out as unused
-    float w1 = step(threshold1, t);
-    float w2 = step(threshold2, t) * (1.0 - w1);
-    float w3 = step(threshold3, t) * (1.0 - w1 - w2);
-    float w4 = step(threshold4, t) * (1.0 - w1 - w2 - w3);
-    float w5 = step(threshold5, t) * (1.0 - w1 - w2 - w3 - w4);
-    float w6 = step(threshold6, t) * (1.0 - w1 - w2 - w3 - w4 - w5);
-    float w7 = step(threshold7, t) * (1.0 - w1 - w2 - w3 - w4 - w5 - w6);
-    float w8 = step(threshold8, t) * (1.0 - w1 - w2 - w3 - w4 - w5 - w6 - w7);
-    float w9 = step(threshold9, t) * (1.0 - w1 - w2 - w3 - w4 - w5 - w6 - w7 - w8);
-    float w10 = step(threshold10, t) * (1.0 - w1 - w2 - w3 - w4 - w5 - w6 - w7 - w8 - w9);
+    
+    // Transition width control: larger = softer edges, smaller = sharper edges
+    // Use uniform for real-time control (0.005-0.1 range, 0.005 default)
+    float transitionWidth = uTransitionWidth > 0.0 ? uTransitionWidth : 0.005; // Fallback to 0.005
+    
+    // Use smoothstep instead of step for gradual color transitions
+    float w1 = smoothstep(threshold1 - transitionWidth, threshold1 + transitionWidth, t);
+    float w2 = smoothstep(threshold2 - transitionWidth, threshold2 + transitionWidth, t) * (1.0 - w1);
+    float w3 = smoothstep(threshold3 - transitionWidth, threshold3 + transitionWidth, t) * (1.0 - w1 - w2);
+    float w4 = smoothstep(threshold4 - transitionWidth, threshold4 + transitionWidth, t) * (1.0 - w1 - w2 - w3);
+    float w5 = smoothstep(threshold5 - transitionWidth, threshold5 + transitionWidth, t) * (1.0 - w1 - w2 - w3 - w4);
+    float w6 = smoothstep(threshold6 - transitionWidth, threshold6 + transitionWidth, t) * (1.0 - w1 - w2 - w3 - w4 - w5);
+    float w7 = smoothstep(threshold7 - transitionWidth, threshold7 + transitionWidth, t) * (1.0 - w1 - w2 - w3 - w4 - w5 - w6);
+    float w8 = smoothstep(threshold8 - transitionWidth, threshold8 + transitionWidth, t) * (1.0 - w1 - w2 - w3 - w4 - w5 - w6 - w7);
+    float w9 = smoothstep(threshold9 - transitionWidth, threshold9 + transitionWidth, t) * (1.0 - w1 - w2 - w3 - w4 - w5 - w6 - w7 - w8);
+    float w10 = smoothstep(threshold10 - transitionWidth, threshold10 + transitionWidth, t) * (1.0 - w1 - w2 - w3 - w4 - w5 - w6 - w7 - w8 - w9);
     float w0 = 1.0 - w1 - w2 - w3 - w4 - w5 - w6 - w7 - w8 - w9 - w10;
     
     // Always evaluate all uniforms - this prevents optimization

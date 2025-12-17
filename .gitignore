@@ -23,3 +23,8 @@ Thumbs.db
 *.log
 npm-debug.log*
 
+# Test files (API tests, not part of the app)
+test-*.html
+query-*.html
+batch-*.html
+

@@ -302,11 +302,19 @@ function cubicBezier(t, curve) {
  * @param {string} colorConfig.baseHue - Base color (hex)
  * @param {Object} colorConfig.darkest - Darkest color config {lightness, chroma, hueOffset, hue}
  * @param {Object} colorConfig.brightest - Brightest color config {lightness, chroma, hueOffset, hue}
- * @param {number[]} colorConfig.interpolationCurve - Cubic bezier control points [x1, y1, x2, y2]
+ * @param {Object} colorConfig.interpolationCurve - Object with {lightness, chroma, hue} bezier curves
+ * @param {number[]} colorConfig.interpolationCurve.lightness - Lightness bezier curve [x1, y1, x2, y2]
+ * @param {number[]} colorConfig.interpolationCurve.chroma - Chroma bezier curve [x1, y1, x2, y2]
+ * @param {number[]} colorConfig.interpolationCurve.hue - Hue bezier curve [x1, y1, x2, y2]
  * @returns {Object} Object with color1 through color9 as RGB arrays [0-1]
  */
 export function generateColorsFromOklch(colorConfig) {
     const { baseHue, darkest, brightest, interpolationCurve } = colorConfig;
+    
+    // Extract separate curves for each component
+    const lightnessCurve = interpolationCurve.lightness;
+    const chromaCurve = interpolationCurve.chroma;
+    const hueCurve = interpolationCurve.hue;
     
     // Calculate darkest and brightest hues
     // If direct hue values are provided, use them; otherwise calculate from baseHue + hueOffset
@@ -338,13 +346,15 @@ export function generateColorsFromOklch(colorConfig) {
     for (let i = 0; i < 9; i++) {
         const t = i / 8; // 0 to 1
         
-        // Apply cubic bezier easing
-        const tEased = cubicBezier(t, interpolationCurve);
+        // Apply cubic bezier easing separately for each component
+        const tEasedL = cubicBezier(t, lightnessCurve);
+        const tEasedC = cubicBezier(t, chromaCurve);
+        const tEasedH = cubicBezier(t, hueCurve);
         
         // Interpolate in OKLCH space
-        const L = darkest.lightness + (brightest.lightness - darkest.lightness) * tEased;
-        const C = darkest.chroma + (brightest.chroma - darkest.chroma) * tEased;
-        const H = interpolateHue(darkestHue, brightestHue, tEased);
+        const L = darkest.lightness + (brightest.lightness - darkest.lightness) * tEasedL;
+        const C = darkest.chroma + (brightest.chroma - darkest.chroma) * tEasedC;
+        const H = interpolateHue(darkestHue, brightestHue, tEasedH);
         
         // Convert back to RGB
         const oklch = [L, C, H];

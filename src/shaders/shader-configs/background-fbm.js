@@ -81,6 +81,22 @@ export default {
             max: 1,
             step: 0.05,
             label: 'Ripple Intensity'
+        },
+        ditherStrength: {
+            type: 'float',
+            default: 3.0,
+            min: 0,
+            max: 5,
+            step: 0.1,
+            label: 'Dither Strength'
+        },
+        transitionWidth: {
+            type: 'float',
+            default: 0.005,
+            min: 0.005,
+            max: 0.1,
+            step: 0.005,
+            label: 'Transition Smoothness'
         }
     },
     
@@ -97,7 +113,11 @@ export default {
             chroma: 0.2,
             hueOffset: 60
         },
-        interpolationCurve: [0.5, 0.2, 0.6, 0.7]
+        interpolationCurve: {
+            lightness: [0.5, 0.1, 1.0, 0.9],
+            chroma: [0.0, 0.25, 1.0, 0.75],
+            hue: [0.0, 0.25, 1.0, 0.75]
+        }
     },
     
     // Uniform mapping (how audio data maps to shader uniforms)

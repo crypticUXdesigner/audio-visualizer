@@ -3,6 +3,7 @@
 
 import { loadShader, createProgram, createQuad } from '../core/WebGLUtils.js';
 import Sentry, { safeSentryMetric, isSentryAvailable, safeSetContext, safeAddBreadcrumb } from '../core/SentryInit.js';
+import { TempoSmoothingConfig, getTempoRelativeTimeConstant, applyTempoRelativeSmoothing } from '../config/tempo-smoothing-config.js';
 
 export class ShaderInstance {
     constructor(canvasId, config) {
@@ -24,9 +25,31 @@ export class ShaderInstance {
         this.isInitialized = false;
         this.renderLoopId = null;
         this.timeOffset = 0.0;
+        this.smoothedTimeOffset = 0.0;
         this.baseTimeOffsetAccumulationRate = 0.5;
         this.baseTimeOffsetDecayRate = 0.3;
-        this.maxTimeOffset = 10.0;
+        this.maxTimeOffset = 5.0;
+        // Hysteresis thresholds to prevent rapid switching
+        this.timeOffsetAccumulateThreshold = 0.12;  // Start accumulating above this
+        this.timeOffsetDecayThreshold = 0.08;       // Start decaying below this
+        // Cubic-bezier easing parameters for time offset accumulation
+        // Maps trigger signal strength (volume, 0-1) to accumulation rate multiplier (0-1)
+        // Input (x-axis): volume from trigger signal (0 = quiet, 1 = loud)
+        // Output (y-axis): accumulation rate multiplier (0 = no accumulation, 1 = full accumulation)
+        // 
+        // Standard CSS easing curves:
+        // - ease: (0.25, 0.1, 0.25, 1.0)
+        // - ease-in: (0.42, 0.0, 1.0, 1.0) - weak signals have more nuance
+        // - ease-out: (0.0, 0.0, 0.58, 1.0) - strong signals respond quickly
+        // - ease-in-out: (0.42, 0.0, 0.58, 1.0) - balanced
+        // 
+        // Current curve: (0.9, 0.0, 0.8, 1.0) - weak signals have very little effect, strong signals have full effect
+        this.timeOffsetCubicBezier = {
+            x1: 0.9,  // First control point X
+            y1: 0.0,   // First control point Y
+            x2: 0.8,  // Second control point X
+            y2: 1.0    // Second control point Y
+        };
         this.targetFPS = this.parameters.targetFPS || 30;
         this.lastFrameTime = 0;
         
@@ -59,6 +82,96 @@ export class ShaderInstance {
         
         // WebGL fallback state
         this.webglFallbackActive = false;
+        
+        // Object pooling for ripple data arrays (performance optimization)
+        // Reuse Float32Arrays instead of allocating new ones every frame
+        const maxRipples = 12;
+        this._rippleArrays = {
+            centerX: new Float32Array(maxRipples),
+            centerY: new Float32Array(maxRipples),
+            times: new Float32Array(maxRipples),
+            intensities: new Float32Array(maxRipples),
+            widths: new Float32Array(maxRipples),
+            minRadii: new Float32Array(maxRipples),
+            maxRadii: new Float32Array(maxRipples),
+            intensityMultipliers: new Float32Array(maxRipples),
+            active: new Float32Array(maxRipples)
+        };
+        
+        // Uniform update optimization (performance optimization)
+        // Track last values to avoid unnecessary WebGL calls
+        this._lastUniformValues = {};
+    }
+    
+    /**
+     * Cubic-bezier solver: finds t (0-1) for a given x using binary search
+     * @param {number} x - Input value (0-1)
+     * @param {number} x1 - First control point X
+     * @param {number} y1 - First control point Y
+     * @param {number} x2 - Second control point X
+     * @param {number} y2 - Second control point Y
+     * @returns {number} t value (0-1)
+     */
+    cubicBezierSolve(x, x1, y1, x2, y2) {
+        // Cubic bezier formula: B(t) = (1-t)³P₀ + 3(1-t)²tP₁ + 3(1-t)t²P₂ + t³P₃
+        // For x-coordinate: we need to find t such that Bx(t) = x
+        // P₀ = (0,0), P₁ = (x1,y1), P₂ = (x2,y2), P₃ = (1,1)
+        
+        // Binary search for t
+        let t0 = 0;
+        let t1 = 1;
+        const epsilon = 0.0001;
+        const maxIterations = 20;
+        
+        for (let i = 0; i < maxIterations; i++) {
+            const t = (t0 + t1) / 2;
+            
+            // Calculate x-coordinate at t
+            const cx = 3 * (1 - t) * (1 - t) * t * x1 + 3 * (1 - t) * t * t * x2 + t * t * t;
+            
+            if (Math.abs(cx - x) < epsilon) {
+                // Calculate y-coordinate at t
+                const cy = 3 * (1 - t) * (1 - t) * t * y1 + 3 * (1 - t) * t * t * y2 + t * t * t;
+                return cy;
+            }
+            
+            if (cx < x) {
+                t0 = t;
+            } else {
+                t1 = t;
+            }
+        }
+        
+        // Fallback: calculate y at final t
+        const t = (t0 + t1) / 2;
+        const cy = 3 * (1 - t) * (1 - t) * t * y1 + 3 * (1 - t) * t * t * y2 + t * t * t;
+        return cy;
+    }
+    
+    /**
+     * Calculate easing factor for time offset accumulation using cubic-bezier
+     * Maps trigger signal strength (volume) to accumulation rate multiplier
+     * Strong signals → more accumulation (eased), weak signals → less accumulation (with nuance)
+     * @param {number} volume - Trigger signal strength (0-1)
+     * @returns {number} Easing factor (0-1) that multiplies accumulation rate
+     */
+    getTimeOffsetEasingFactor(volume) {
+        // Clamp volume to 0-1 range
+        const clampedVolume = Math.max(0, Math.min(1, volume));
+        
+        // Use cubic-bezier to map volume (0-1) to easing factor (0-1)
+        // The volume is the input x, we get back the y value (easing factor)
+        const easingFactor = this.cubicBezierSolve(
+            clampedVolume,
+            this.timeOffsetCubicBezier.x1,
+            this.timeOffsetCubicBezier.y1,
+            this.timeOffsetCubicBezier.x2,
+            this.timeOffsetCubicBezier.y2
+        );
+        
+        // Return the easing factor directly (0-1)
+        // This will be multiplied by the accumulation rate
+        return easingFactor;
     }
     
     async init() {
@@ -196,6 +309,10 @@ export class ShaderInstance {
             uSteps: gl.getUniformLocation(program, 'uSteps'),
             uMouse: gl.getUniformLocation(program, 'uMouse'),
             uShapeType: gl.getUniformLocation(program, 'uShapeType'),
+            
+            // Dithering controls
+            uDitherStrength: gl.getUniformLocation(program, 'uDitherStrength'),
+            uTransitionWidth: gl.getUniformLocation(program, 'uTransitionWidth'),
             
             // Colors
             uColor: gl.getUniformLocation(program, 'uColor'),
@@ -370,19 +487,73 @@ export class ShaderInstance {
             const volume = audioData.volume || 0;
             const deltaTime = elapsed / 1000.0;
             
+            // #region agent log
+            const timeOffsetBefore = this.timeOffset;
+            const smoothedTimeOffsetBefore = this.smoothedTimeOffset;
+            // #endregion
+            
             // Get loudness controls (backward compatibility)
             const loudnessAnimationEnabled = window._loudnessControls?.loudnessAnimationEnabled ?? true;
             const loudnessThreshold = window._loudnessControls?.loudnessThreshold ?? 0.1;
             
-            if (loudnessAnimationEnabled && volume > loudnessThreshold) {
-                const accumulation = volume * this.baseTimeOffsetAccumulationRate * deltaTime;
-                this.timeOffset = Math.min(this.timeOffset + accumulation, this.maxTimeOffset);
-            } else if (loudnessAnimationEnabled) {
-                this.timeOffset = Math.max(0, this.timeOffset - this.baseTimeOffsetDecayRate * deltaTime);
+            if (loudnessAnimationEnabled) {
+                // Use hysteresis to prevent rapid switching between accumulation and decay
+                // If timeOffset is already accumulated, use lower threshold to start decaying
+                // If timeOffset is near zero, use higher threshold to start accumulating
+                const hysteresisThreshold = this.timeOffset > 0.01 
+                    ? this.timeOffsetDecayThreshold  // If already accumulated, use lower threshold to decay
+                    : this.timeOffsetAccumulateThreshold;  // If at zero, use higher threshold to accumulate
+                
+                if (volume > hysteresisThreshold) {
+                    // Accumulate time offset with easing based on trigger signal strength
+                    // Strong signals → more accumulation (eased), weak signals → less accumulation (with nuance)
+                    // The easing curve maps volume (0-1) to accumulation multiplier (0-1)
+                    const easingFactor = this.getTimeOffsetEasingFactor(volume);
+                    const accumulation = volume * this.baseTimeOffsetAccumulationRate * deltaTime * easingFactor;
+                    this.timeOffset = Math.min(this.timeOffset + accumulation, this.maxTimeOffset);
+                    
+                    // #region agent log
+                    fetch('http://127.0.0.1:7243/ingest/c7d945f3-3c3b-4cf1-9ce2-9916789b23c5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ShaderInstance.js:497',message:'TimeOffset accumulation',data:{timeOffsetBefore,timeOffsetAfter:this.timeOffset,smoothedTimeOffsetBefore,volume,deltaTime,easingFactor,accumulation,hysteresisThreshold,normalized:this.timeOffset/this.maxTimeOffset},timestamp:Date.now(),sessionId:'debug-session',runId:'timeoffset-measurement',hypothesisId:'timeoffset-behavior'})}).catch(()=>{});
+                    // #endregion
+                } else {
+                    // Decay time offset proportionally (slows down as it approaches zero)
+                    const decayAmount = this.timeOffset * this.baseTimeOffsetDecayRate * deltaTime;
+                    this.timeOffset = Math.max(0, this.timeOffset - decayAmount);
+                    
+                    // #region agent log
+                    fetch('http://127.0.0.1:7243/ingest/c7d945f3-3c3b-4cf1-9ce2-9916789b23c5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ShaderInstance.js:502',message:'TimeOffset decay',data:{timeOffsetBefore,timeOffsetAfter:this.timeOffset,smoothedTimeOffsetBefore,volume,deltaTime,decayAmount,hysteresisThreshold,normalized:this.timeOffset/this.maxTimeOffset},timestamp:Date.now(),sessionId:'debug-session',runId:'timeoffset-measurement',hypothesisId:'timeoffset-behavior'})}).catch(()=>{});
+                    // #endregion
+                }
             } else {
-                // Loudness animation disabled: force decay to 0
-                this.timeOffset = Math.max(0, this.timeOffset - this.baseTimeOffsetDecayRate * deltaTime);
+                // Loudness animation disabled: force decay to 0 (proportional)
+                const decayAmount = this.timeOffset * this.baseTimeOffsetDecayRate * deltaTime;
+                this.timeOffset = Math.max(0, this.timeOffset - decayAmount);
             }
+            
+            // Apply tempo-relative asymmetric smoothing to time offset
+            const bpm = audioData.estimatedBPM || 0;
+            const timeOffsetConfig = TempoSmoothingConfig.timeOffset;
+            const attackTimeConstant = getTempoRelativeTimeConstant(
+                timeOffsetConfig.attackNote,
+                bpm,
+                timeOffsetConfig.attackTimeFallback
+            );
+            const releaseTimeConstant = getTempoRelativeTimeConstant(
+                timeOffsetConfig.releaseNote,
+                bpm,
+                timeOffsetConfig.releaseTimeFallback
+            );
+            this.smoothedTimeOffset = applyTempoRelativeSmoothing(
+                this.smoothedTimeOffset,
+                this.timeOffset,
+                deltaTime,
+                attackTimeConstant,
+                releaseTimeConstant
+            );
+            
+            // #region agent log
+            fetch('http://127.0.0.1:7243/ingest/c7d945f3-3c3b-4cf1-9ce2-9916789b23c5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ShaderInstance.js:515',message:'TimeOffset smoothed',data:{timeOffset:this.timeOffset,smoothedTimeOffset:this.smoothedTimeOffset,normalized:this.timeOffset/this.maxTimeOffset,normalizedSmoothed:this.smoothedTimeOffset/this.maxTimeOffset},timestamp:Date.now(),sessionId:'debug-session',runId:'timeoffset-measurement',hypothesisId:'timeoffset-behavior'})}).catch(()=>{});
+            // #endregion
             
             // Detect loud trigger for pixel size animation
             const volumeChange = volume - this.previousVolume;
@@ -406,6 +577,29 @@ export class ShaderInstance {
             
             // Update previous volume for next frame
             this.previousVolume = volume;
+        } else {
+            // No audio data: continue smoothing time offset (will decay if loudness animation is enabled)
+            // This ensures smooth transitions even when audio stops
+            // Use fallback times (BPM = 0) for tempo-relative smoothing
+            const deltaTime = elapsed / 1000.0;
+            const timeOffsetConfig = TempoSmoothingConfig.timeOffset;
+            const attackTimeConstant = getTempoRelativeTimeConstant(
+                timeOffsetConfig.attackNote,
+                0,  // No BPM available
+                timeOffsetConfig.attackTimeFallback
+            );
+            const releaseTimeConstant = getTempoRelativeTimeConstant(
+                timeOffsetConfig.releaseNote,
+                0,  // No BPM available
+                timeOffsetConfig.releaseTimeFallback
+            );
+            this.smoothedTimeOffset = applyTempoRelativeSmoothing(
+                this.smoothedTimeOffset,
+                this.timeOffset,
+                deltaTime,
+                attackTimeConstant,
+                releaseTimeConstant
+            );
         }
         
         // Instant return to normal pixel size after short duration
@@ -426,122 +620,227 @@ export class ShaderInstance {
         gl.useProgram(this.program);
         gl.viewport(0, 0, this.canvas.width, this.canvas.height);
         
-        // Set standard uniforms
-        if (this.uniformLocations.uResolution) {
-            gl.uniform2f(this.uniformLocations.uResolution, this.canvas.width, this.canvas.height);
+        // Set standard uniforms (with optimization: only update when values change)
+        const resolution = [this.canvas.width, this.canvas.height];
+        if (!this._lastUniformValues.uResolution || 
+            this._lastUniformValues.uResolution[0] !== resolution[0] ||
+            this._lastUniformValues.uResolution[1] !== resolution[1]) {
+            if (this.uniformLocations.uResolution) {
+                gl.uniform2f(this.uniformLocations.uResolution, resolution[0], resolution[1]);
+                this._lastUniformValues.uResolution = resolution;
+            }
         }
+        
+        // Time always changes, so always update
         if (this.uniformLocations.uTime) {
             gl.uniform1f(this.uniformLocations.uTime, currentTime);
         }
-        if (this.uniformLocations.uTimeOffset) {
-            gl.uniform1f(this.uniformLocations.uTimeOffset, this.timeOffset);
-        }
-        if (this.uniformLocations.uPixelSize) {
-            const dpr = window.devicePixelRatio || 1;
-            const basePixelSize = this.parameters.pixelSize || 1.0;
-            // Apply animation multiplier to the configured pixel size
-            const scaledPixelSize = basePixelSize * this.pixelSizeMultiplier * dpr;
-            gl.uniform1f(this.uniformLocations.uPixelSize, scaledPixelSize);
-        }
-        if (this.uniformLocations.uSteps) {
-            gl.uniform1f(this.uniformLocations.uSteps, this.parameters.steps || 5.0);
-        }
-        if (this.uniformLocations.uMouse) {
-            gl.uniform4f(this.uniformLocations.uMouse, 0.0, 0.0, 0.0, 0.0);
-        }
-        if (this.uniformLocations.uShapeType) {
-            gl.uniform1i(this.uniformLocations.uShapeType, 0);
+        
+        // TimeOffset - use smoothed value to reduce jitter
+        const newTimeOffset = this.smoothedTimeOffset;
+        if (this._lastUniformValues.uTimeOffset !== newTimeOffset) {
+            if (this.uniformLocations.uTimeOffset) {
+                gl.uniform1f(this.uniformLocations.uTimeOffset, newTimeOffset);
+                this._lastUniformValues.uTimeOffset = newTimeOffset;
+            }
         }
         
-        // Set ripple effect parameters
-        if (this.uniformLocations.uRippleSpeed) {
-            gl.uniform1f(this.uniformLocations.uRippleSpeed, this.parameters.rippleSpeed || 0.5);
+        // PixelSize - only update if changed
+        const dpr = window.devicePixelRatio || 1;
+        const basePixelSize = this.parameters.pixelSize || 1.0;
+        const scaledPixelSize = basePixelSize * this.pixelSizeMultiplier * dpr;
+        if (this._lastUniformValues.uPixelSize !== scaledPixelSize) {
+            if (this.uniformLocations.uPixelSize) {
+                gl.uniform1f(this.uniformLocations.uPixelSize, scaledPixelSize);
+                this._lastUniformValues.uPixelSize = scaledPixelSize;
+            }
         }
-        if (this.uniformLocations.uRippleWidth) {
-            gl.uniform1f(this.uniformLocations.uRippleWidth, this.parameters.rippleWidth || 0.1);
+        
+        // Steps - only update if parameter changed
+        const stepsValue = this.parameters.steps || 5.0;
+        if (this._lastUniformValues.uSteps !== stepsValue) {
+            if (this.uniformLocations.uSteps) {
+                gl.uniform1f(this.uniformLocations.uSteps, stepsValue);
+                this._lastUniformValues.uSteps = stepsValue;
+            }
         }
-        if (this.uniformLocations.uRippleMinRadius) {
-            gl.uniform1f(this.uniformLocations.uRippleMinRadius, this.parameters.rippleMinRadius !== undefined ? this.parameters.rippleMinRadius : 0.0);
+        
+        // Dither strength - only update if parameter changed
+        const ditherStrengthValue = this.parameters.ditherStrength !== undefined ? this.parameters.ditherStrength : 3.0;
+        if (this._lastUniformValues.uDitherStrength !== ditherStrengthValue) {
+            if (this.uniformLocations.uDitherStrength) {
+                gl.uniform1f(this.uniformLocations.uDitherStrength, ditherStrengthValue);
+                this._lastUniformValues.uDitherStrength = ditherStrengthValue;
+            }
         }
-        if (this.uniformLocations.uRippleMaxRadius) {
-            gl.uniform1f(this.uniformLocations.uRippleMaxRadius, this.parameters.rippleMaxRadius !== undefined ? this.parameters.rippleMaxRadius : 1.5);
+        
+        // Transition width - only update if parameter changed
+        const transitionWidthValue = this.parameters.transitionWidth !== undefined ? this.parameters.transitionWidth : 0.005;
+        if (this._lastUniformValues.uTransitionWidth !== transitionWidthValue) {
+            if (this.uniformLocations.uTransitionWidth) {
+                gl.uniform1f(this.uniformLocations.uTransitionWidth, transitionWidthValue);
+                this._lastUniformValues.uTransitionWidth = transitionWidthValue;
+            }
         }
-        if (this.uniformLocations.uRippleIntensityThreshold) {
-            gl.uniform1f(this.uniformLocations.uRippleIntensityThreshold, this.parameters.rippleIntensityThreshold !== undefined ? this.parameters.rippleIntensityThreshold : 0.6);
+        
+        // Mouse - always 0,0,0,0, but check if we need to update
+        if (!this._lastUniformValues.uMouse || 
+            this._lastUniformValues.uMouse[0] !== 0.0 ||
+            this._lastUniformValues.uMouse[1] !== 0.0 ||
+            this._lastUniformValues.uMouse[2] !== 0.0 ||
+            this._lastUniformValues.uMouse[3] !== 0.0) {
+            if (this.uniformLocations.uMouse) {
+                gl.uniform4f(this.uniformLocations.uMouse, 0.0, 0.0, 0.0, 0.0);
+                this._lastUniformValues.uMouse = [0.0, 0.0, 0.0, 0.0];
+            }
         }
-        if (this.uniformLocations.uRippleIntensity) {
-            gl.uniform1f(this.uniformLocations.uRippleIntensity, this.parameters.rippleIntensity !== undefined ? this.parameters.rippleIntensity : 0.4);
+        
+        // ShapeType - always 0, but check if we need to update
+        if (this._lastUniformValues.uShapeType !== 0) {
+            if (this.uniformLocations.uShapeType) {
+                gl.uniform1i(this.uniformLocations.uShapeType, 0);
+                this._lastUniformValues.uShapeType = 0;
+            }
+        }
+        
+        // Set ripple effect parameters (only update when parameters change)
+        const rippleSpeed = this.parameters.rippleSpeed || 0.5;
+        if (this._lastUniformValues.uRippleSpeed !== rippleSpeed) {
+            if (this.uniformLocations.uRippleSpeed) {
+                gl.uniform1f(this.uniformLocations.uRippleSpeed, rippleSpeed);
+                this._lastUniformValues.uRippleSpeed = rippleSpeed;
+            }
+        }
+        
+        const rippleWidth = this.parameters.rippleWidth || 0.1;
+        if (this._lastUniformValues.uRippleWidth !== rippleWidth) {
+            if (this.uniformLocations.uRippleWidth) {
+                gl.uniform1f(this.uniformLocations.uRippleWidth, rippleWidth);
+                this._lastUniformValues.uRippleWidth = rippleWidth;
+            }
+        }
+        
+        const rippleMinRadius = this.parameters.rippleMinRadius !== undefined ? this.parameters.rippleMinRadius : 0.0;
+        if (this._lastUniformValues.uRippleMinRadius !== rippleMinRadius) {
+            if (this.uniformLocations.uRippleMinRadius) {
+                gl.uniform1f(this.uniformLocations.uRippleMinRadius, rippleMinRadius);
+                this._lastUniformValues.uRippleMinRadius = rippleMinRadius;
+            }
+        }
+        
+        const rippleMaxRadius = this.parameters.rippleMaxRadius !== undefined ? this.parameters.rippleMaxRadius : 1.5;
+        if (this._lastUniformValues.uRippleMaxRadius !== rippleMaxRadius) {
+            if (this.uniformLocations.uRippleMaxRadius) {
+                gl.uniform1f(this.uniformLocations.uRippleMaxRadius, rippleMaxRadius);
+                this._lastUniformValues.uRippleMaxRadius = rippleMaxRadius;
+            }
+        }
+        
+        const rippleIntensityThreshold = this.parameters.rippleIntensityThreshold !== undefined ? this.parameters.rippleIntensityThreshold : 0.6;
+        if (this._lastUniformValues.uRippleIntensityThreshold !== rippleIntensityThreshold) {
+            if (this.uniformLocations.uRippleIntensityThreshold) {
+                gl.uniform1f(this.uniformLocations.uRippleIntensityThreshold, rippleIntensityThreshold);
+                this._lastUniformValues.uRippleIntensityThreshold = rippleIntensityThreshold;
+            }
+        }
+        
+        const rippleIntensity = this.parameters.rippleIntensity !== undefined ? this.parameters.rippleIntensity : 0.4;
+        if (this._lastUniformValues.uRippleIntensity !== rippleIntensity) {
+            if (this.uniformLocations.uRippleIntensity) {
+                gl.uniform1f(this.uniformLocations.uRippleIntensity, rippleIntensity);
+                this._lastUniformValues.uRippleIntensity = rippleIntensity;
+            }
         }
         
         // Set multiple ripple arrays (if available from audioData)
+        // Use pooled arrays instead of creating new ones (performance optimization)
         if (audioData && audioData.rippleData) {
             const rippleData = audioData.rippleData;
             const maxRipples = 12;
             
+            // Reuse pooled arrays
+            const centerX = this._rippleArrays.centerX;
+            const centerY = this._rippleArrays.centerY;
+            const times = this._rippleArrays.times;
+            const intensities = this._rippleArrays.intensities;
+            const widths = this._rippleArrays.widths;
+            const minRadii = this._rippleArrays.minRadii;
+            const maxRadii = this._rippleArrays.maxRadii;
+            const intensityMultipliers = this._rippleArrays.intensityMultipliers;
+            const active = this._rippleArrays.active;
+            
+            // Zero out arrays first
+            centerX.fill(0);
+            centerY.fill(0);
+            times.fill(0);
+            intensities.fill(0);
+            widths.fill(0);
+            minRadii.fill(0);
+            maxRadii.fill(0);
+            intensityMultipliers.fill(0);
+            active.fill(0);
+            
             // Split centers array into separate x and y arrays
-            const centerX = new Float32Array(maxRipples);
-            const centerY = new Float32Array(maxRipples);
             for (let i = 0; i < maxRipples; i++) {
-                centerX[i] = rippleData.centers[i * 2] || 0;
-                centerY[i] = rippleData.centers[i * 2 + 1] || 0;
+                const idx = i * 2;
+                centerX[i] = rippleData.centers[idx] || 0;
+                centerY[i] = rippleData.centers[idx + 1] || 0;
             }
             
+            // Fill arrays from ripple data
+            const rippleTimes = rippleData.times || [];
+            const rippleIntensities = rippleData.intensities || [];
+            const rippleWidths = rippleData.widths || [];
+            const rippleMinRadii = rippleData.minRadii || [];
+            const rippleMaxRadii = rippleData.maxRadii || [];
+            const rippleIntensityMultipliers = rippleData.intensityMultipliers || [];
+            const rippleActive = rippleData.active || [];
+            
+            for (let i = 0; i < maxRipples; i++) {
+                times[i] = rippleTimes[i] || 0;
+                intensities[i] = rippleIntensities[i] || 0;
+                widths[i] = rippleWidths[i] || 0;
+                minRadii[i] = rippleMinRadii[i] || 0;
+                maxRadii[i] = rippleMaxRadii[i] || 0;
+                intensityMultipliers[i] = rippleIntensityMultipliers[i] || 0;
+                active[i] = rippleActive[i] || 0;
+            }
+            
+            // Always update ripple arrays (they change every frame)
             if (this.uniformLocations.uRippleCenterX) {
                 gl.uniform1fv(this.uniformLocations.uRippleCenterX, centerX);
             }
             if (this.uniformLocations.uRippleCenterY) {
                 gl.uniform1fv(this.uniformLocations.uRippleCenterY, centerY);
             }
-            
-            // Set times array
             if (this.uniformLocations.uRippleTimes) {
-                const times = new Float32Array(rippleData.times || new Array(maxRipples).fill(0));
                 gl.uniform1fv(this.uniformLocations.uRippleTimes, times);
             }
-            
-            // Set intensities array
             if (this.uniformLocations.uRippleIntensities) {
-                const intensities = new Float32Array(rippleData.intensities || new Array(maxRipples).fill(0));
                 gl.uniform1fv(this.uniformLocations.uRippleIntensities, intensities);
             }
-            
-            // Set widths array
             if (this.uniformLocations.uRippleWidths) {
-                const widths = new Float32Array(rippleData.widths || new Array(maxRipples).fill(0));
                 gl.uniform1fv(this.uniformLocations.uRippleWidths, widths);
             }
-            
-            // Set minRadii array
             if (this.uniformLocations.uRippleMinRadii) {
-                const minRadii = new Float32Array(rippleData.minRadii || new Array(maxRipples).fill(0));
                 gl.uniform1fv(this.uniformLocations.uRippleMinRadii, minRadii);
             }
-            
-            // Set maxRadii array
             if (this.uniformLocations.uRippleMaxRadii) {
-                const maxRadii = new Float32Array(rippleData.maxRadii || new Array(maxRipples).fill(0));
                 gl.uniform1fv(this.uniformLocations.uRippleMaxRadii, maxRadii);
             }
-            
-            // Set intensityMultipliers array
             if (this.uniformLocations.uRippleIntensityMultipliers) {
-                const intensityMultipliers = new Float32Array(rippleData.intensityMultipliers || new Array(maxRipples).fill(0));
                 gl.uniform1fv(this.uniformLocations.uRippleIntensityMultipliers, intensityMultipliers);
             }
-            
-            // Set active array
             if (this.uniformLocations.uRippleActive) {
-                const active = new Float32Array(rippleData.active || new Array(maxRipples).fill(0));
                 gl.uniform1fv(this.uniformLocations.uRippleActive, active);
             }
-            
-            // Set count
             if (this.uniformLocations.uRippleCount) {
                 gl.uniform1i(this.uniformLocations.uRippleCount, rippleData.count || 0);
             }
         } else {
-            // Set empty arrays if no ripple data
-            const emptyArray = new Float32Array(16).fill(0);
+            // Set empty arrays if no ripple data (reuse pooled arrays)
+            const emptyArray = this._rippleArrays.centerX; // Reuse any pooled array
+            emptyArray.fill(0);
             if (this.uniformLocations.uRippleCenterX) {
                 gl.uniform1fv(this.uniformLocations.uRippleCenterX, emptyArray);
             }
@@ -562,7 +861,7 @@ export class ShaderInstance {
             }
         }
         
-        // Set color uniforms
+        // Set color uniforms (only update when colors change)
         if (colors) {
             const colorUniforms = ['uColor', 'uColor2', 'uColor3', 'uColor4', 'uColor5', 
                                   'uColor6', 'uColor7', 'uColor8', 'uColor9', 'uColor10'];
@@ -574,27 +873,55 @@ export class ShaderInstance {
                 const colorKey = colorKeys[index];
                 if (location && colors[colorKey]) {
                     const color = colors[colorKey];
-                    gl.uniform3f(location, color[0], color[1], color[2]);
+                    // Check if color has changed (compare by reference - colors object is replaced when changed)
+                    const lastColor = this._lastUniformValues[uniformName];
+                    if (!lastColor || 
+                        lastColor[0] !== color[0] || 
+                        lastColor[1] !== color[1] || 
+                        lastColor[2] !== color[2]) {
+                        gl.uniform3f(location, color[0], color[1], color[2]);
+                        this._lastUniformValues[uniformName] = [color[0], color[1], color[2]];
+                    }
                 }
             });
         }
         
-        // Set audio uniforms using uniform mapping
+        // Set audio uniforms using uniform mapping (only update when values change)
         if (audioData && this.config.uniformMapping) {
             Object.entries(this.config.uniformMapping).forEach(([uniformName, mapper]) => {
                 const location = this.uniformLocations[uniformName];
-                // Set uniform even if location is null (WebGL will ignore it, but ensures all mappers run)
-                // This is important for ripple effects - they need to be calculated even if uniform doesn't exist
+                // Calculate value (mappers may have side effects, so always call)
                 const value = mapper(audioData, this.parameters);
+                
                 if (location !== null && location !== undefined) {
+                    // Check if value has changed
+                    const lastValue = this._lastUniformValues[uniformName];
+                    let valueChanged = true;
+                    
                     if (typeof value === 'number') {
-                        gl.uniform1f(location, value);
+                        valueChanged = lastValue !== value;
+                        if (valueChanged) {
+                            gl.uniform1f(location, value);
+                            this._lastUniformValues[uniformName] = value;
+                        }
                     } else if (Array.isArray(value) && value.length === 2) {
-                        gl.uniform2f(location, value[0], value[1]);
+                        valueChanged = !lastValue || lastValue[0] !== value[0] || lastValue[1] !== value[1];
+                        if (valueChanged) {
+                            gl.uniform2f(location, value[0], value[1]);
+                            this._lastUniformValues[uniformName] = [value[0], value[1]];
+                        }
                     } else if (Array.isArray(value) && value.length === 3) {
-                        gl.uniform3f(location, value[0], value[1], value[2]);
+                        valueChanged = !lastValue || lastValue[0] !== value[0] || lastValue[1] !== value[1] || lastValue[2] !== value[2];
+                        if (valueChanged) {
+                            gl.uniform3f(location, value[0], value[1], value[2]);
+                            this._lastUniformValues[uniformName] = [value[0], value[1], value[2]];
+                        }
                     } else if (Array.isArray(value) && value.length === 4) {
-                        gl.uniform4f(location, value[0], value[1], value[2], value[3]);
+                        valueChanged = !lastValue || lastValue[0] !== value[0] || lastValue[1] !== value[1] || lastValue[2] !== value[2] || lastValue[3] !== value[3];
+                        if (valueChanged) {
+                            gl.uniform4f(location, value[0], value[1], value[2], value[3]);
+                            this._lastUniformValues[uniformName] = [value[0], value[1], value[2], value[3]];
+                        }
                     }
                 }
             });
@@ -603,26 +930,44 @@ export class ShaderInstance {
         // Set title texture if available
         if (this.titleTexture && this.uniformLocations.uTitleTexture) {
             const textureUnit = this.titleTexture.bindTexture(0);
-            gl.uniform1i(this.uniformLocations.uTitleTexture, textureUnit);
-            if (this.uniformLocations.uTitleTextureSize) {
-                const size = this.titleTexture.getSize();
-                gl.uniform2f(
-                    this.uniformLocations.uTitleTextureSize,
-                    size.width,
-                    size.height
-                );
-            }
-            // Set title scale (1.5 = 50% larger, 2.0 = 2x larger, etc.)
-            if (this.uniformLocations.uTitleScale !== null && this.uniformLocations.uTitleScale !== undefined) {
-                gl.uniform1f(this.uniformLocations.uTitleScale, 1.5); // Default scale: 1.5x larger
+            // Texture unit rarely changes, but check anyway
+            if (this._lastUniformValues.uTitleTexture !== textureUnit) {
+                gl.uniform1i(this.uniformLocations.uTitleTexture, textureUnit);
+                this._lastUniformValues.uTitleTexture = textureUnit;
             }
             
-            // Set playback progress (0.0 = start, 1.0 = end)
+            if (this.uniformLocations.uTitleTextureSize) {
+                const size = this.titleTexture.getSize();
+                const sizeArray = [size.width, size.height];
+                const lastSize = this._lastUniformValues.uTitleTextureSize;
+                if (!lastSize || lastSize[0] !== sizeArray[0] || lastSize[1] !== sizeArray[1]) {
+                    gl.uniform2f(
+                        this.uniformLocations.uTitleTextureSize,
+                        sizeArray[0],
+                        sizeArray[1]
+                    );
+                    this._lastUniformValues.uTitleTextureSize = sizeArray;
+                }
+            }
+            
+            // Set title scale (1.5 = 50% larger, 2.0 = 2x larger, etc.)
+            const titleScale = 1.5; // Default scale: 1.5x larger
+            if (this.uniformLocations.uTitleScale !== null && this.uniformLocations.uTitleScale !== undefined) {
+                if (this._lastUniformValues.uTitleScale !== titleScale) {
+                    gl.uniform1f(this.uniformLocations.uTitleScale, titleScale);
+                    this._lastUniformValues.uTitleScale = titleScale;
+                }
+            }
+            
+            // Set playback progress (0.0 = start, 1.0 = end) - changes every frame, but optimize check
             if (this.uniformLocations.uPlaybackProgress !== null && this.uniformLocations.uPlaybackProgress !== undefined) {
                 const playbackProgress = audioData && audioData.playbackProgress !== undefined 
                     ? audioData.playbackProgress 
                     : 0.0;
-                gl.uniform1f(this.uniformLocations.uPlaybackProgress, playbackProgress);
+                if (this._lastUniformValues.uPlaybackProgress !== playbackProgress) {
+                    gl.uniform1f(this.uniformLocations.uPlaybackProgress, playbackProgress);
+                    this._lastUniformValues.uPlaybackProgress = playbackProgress;
+                }
             }
             
             // Set title position offset and scale based on playback sequence
@@ -696,17 +1041,30 @@ export class ShaderInstance {
                     }
                 }
                 
-                // Pass target screen position (0-1) to shader
-                gl.uniform2f(this.uniformLocations.uTitlePositionOffset, targetX, targetY);
+                // Pass target screen position (0-1) to shader (only update if changed)
+                const positionOffset = [targetX, targetY];
+                const lastPositionOffset = this._lastUniformValues.uTitlePositionOffset;
+                if (!lastPositionOffset || lastPositionOffset[0] !== positionOffset[0] || lastPositionOffset[1] !== positionOffset[1]) {
+                    gl.uniform2f(this.uniformLocations.uTitlePositionOffset, positionOffset[0], positionOffset[1]);
+                    this._lastUniformValues.uTitlePositionOffset = positionOffset;
+                }
                 
                 // Set scale (now always 1.0 since we use font size instead)
                 if (this.uniformLocations.uTitleScaleBottomLeft !== null && this.uniformLocations.uTitleScaleBottomLeft !== undefined) {
-                    gl.uniform1f(this.uniformLocations.uTitleScaleBottomLeft, scale);
+                    if (this._lastUniformValues.uTitleScaleBottomLeft !== scale) {
+                        gl.uniform1f(this.uniformLocations.uTitleScaleBottomLeft, scale);
+                        this._lastUniformValues.uTitleScaleBottomLeft = scale;
+                    }
                 }
             }
         } else if (this.uniformLocations.uTitleTextureSize) {
-            // Set size to 0,0 if no texture to disable sampling
-            gl.uniform2f(this.uniformLocations.uTitleTextureSize, 0.0, 0.0);
+            // Set size to 0,0 if no texture to disable sampling (only update if changed)
+            const zeroSize = [0.0, 0.0];
+            const lastSize = this._lastUniformValues.uTitleTextureSize;
+            if (!lastSize || lastSize[0] !== zeroSize[0] || lastSize[1] !== zeroSize[1]) {
+                gl.uniform2f(this.uniformLocations.uTitleTextureSize, zeroSize[0], zeroSize[1]);
+                this._lastUniformValues.uTitleTextureSize = zeroSize;
+            }
         }
         
         // Always set playback progress even if no texture (for consistency)
@@ -714,7 +1072,10 @@ export class ShaderInstance {
             const playbackProgress = audioData && audioData.playbackProgress !== undefined 
                 ? audioData.playbackProgress 
                 : 0.0;
-            gl.uniform1f(this.uniformLocations.uPlaybackProgress, playbackProgress);
+            if (this._lastUniformValues.uPlaybackProgress !== playbackProgress) {
+                gl.uniform1f(this.uniformLocations.uPlaybackProgress, playbackProgress);
+                this._lastUniformValues.uPlaybackProgress = playbackProgress;
+            }
         }
         
         // Setup quad
@@ -756,8 +1117,21 @@ export class ShaderInstance {
             if (this._audioAnalyzer) {
                 this._audioAnalyzer.update();
             }
+            
+            // Get audio data
+            const audioData = this._audioAnalyzer ? this._audioAnalyzer.getData() : null;
+            
+            // Update dynamic colors if callback is set (called before render)
+            if (audioData && this._shaderManager && this._shaderManager.colorUpdateCallback) {
+                this._shaderManager.colorUpdateCallback(audioData);
+                // Colors may have been updated, refresh reference
+                if (this._shaderManager.colors) {
+                    this._colors = this._shaderManager.colors;
+                }
+            }
+            
             // Always use current colors reference (may have been updated)
-            this.render(this._audioAnalyzer ? this._audioAnalyzer.getData() : null, this._colors);
+            this.render(audioData, this._colors);
             
             // Measure performance after rendering
             this.measurePerformance();

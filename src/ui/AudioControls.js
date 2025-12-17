@@ -6,6 +6,8 @@ export class AudioControls {
         this.audioAnalyzer = audioAnalyzer;
         this.audioFileInput = document.getElementById('audioFileInput');
         this.playControlBtn = document.getElementById('playControlBtn');
+        this.skipLeftBtn = document.getElementById('skipLeftBtn');
+        this.skipRightBtn = document.getElementById('skipRightBtn');
         this.seekBar = document.getElementById('seekBar');
         this.currentTimeDisplay = document.getElementById('currentTime');
         this.totalTimeDisplay = document.getElementById('totalTime');
@@ -33,6 +35,9 @@ export class AudioControls {
         
         // Title texture for shader
         this.titleTexture = null;
+        
+        // Track change callback for external handlers (e.g., random color preset)
+        this.onTrackChange = null;
         
         this.init();
     }
@@ -143,6 +148,7 @@ export class AudioControls {
             
             const fileUrl = URL.createObjectURL(file);
             try {
+                // Load track without BPM metadata (API tracks provide BPM)
                 await this.audioAnalyzer.loadTrack(fileUrl);
                 this.setupAudioElementListeners();
                 this.updateLoopButtonState();
@@ -154,12 +160,16 @@ export class AudioControls {
             }
         });
         
-        // Seek bar handlers
-        this.seekBar.addEventListener('mousedown', () => {
+        // Seek bar handlers - Mouse events
+        this.seekBar.addEventListener('mousedown', (e) => {
+            // Prevent mouse events if touch is being used
+            if (e.pointerType === 'touch') return;
             this.isSeeking = true;
         });
         
-        this.seekBar.addEventListener('mouseup', () => {
+        this.seekBar.addEventListener('mouseup', (e) => {
+            // Prevent mouse events if touch is being used
+            if (e.pointerType === 'touch') return;
             this.isSeeking = false;
             if (this.audioAnalyzer.audioElement && this.audioAnalyzer.audioElement.duration) {
                 const percent = parseFloat(this.seekBar.value);
@@ -167,6 +177,38 @@ export class AudioControls {
             }
         });
         
+        // Seek bar handlers - Touch events for mobile
+        this.seekBar.addEventListener('touchstart', (e) => {
+            this.isSeeking = true;
+            // Keep controls visible during touch interaction
+            this.showControls();
+            if (this.mouseMoveTimeout) {
+                clearTimeout(this.mouseMoveTimeout);
+            }
+            // Prevent mouse events from firing
+            e.preventDefault();
+        }, { passive: false });
+        
+        this.seekBar.addEventListener('touchend', (e) => {
+            this.isSeeking = false;
+            if (this.audioAnalyzer.audioElement && this.audioAnalyzer.audioElement.duration) {
+                const percent = parseFloat(this.seekBar.value);
+                this.audioAnalyzer.audioElement.currentTime = (percent / 100) * this.audioAnalyzer.audioElement.duration;
+            }
+            // Reset auto-hide timer after touch ends
+            this.resetHideTimeout();
+            // Prevent mouse events from firing
+            e.preventDefault();
+        }, { passive: false });
+        
+        // Handle touch cancel (when touch is interrupted)
+        this.seekBar.addEventListener('touchcancel', (e) => {
+            this.isSeeking = false;
+            // Reset auto-hide timer
+            this.resetHideTimeout();
+        });
+        
+        // Update time display during seeking (works for both mouse and touch)
         this.seekBar.addEventListener('input', () => {
             if (this.isSeeking && this.audioAnalyzer.audioElement && this.audioAnalyzer.audioElement.duration) {
                 const percent = parseFloat(this.seekBar.value);
@@ -180,10 +222,24 @@ export class AudioControls {
             await this.handlePlayControl();
         });
         
+        // Skip left button
+        if (this.skipLeftBtn) {
+            this.skipLeftBtn.addEventListener('click', async () => {
+                await this.handleSkipLeft();
+            });
+        }
+        
+        // Skip right button
+        if (this.skipRightBtn) {
+            this.skipRightBtn.addEventListener('click', async () => {
+                await this.handleSkipRight();
+            });
+        }
+        
         // Override loadTrack to setup listeners
         const originalLoadTrack = this.audioAnalyzer.loadTrack.bind(this.audioAnalyzer);
-        this.audioAnalyzer.loadTrack = async (filePath) => {
-            await originalLoadTrack(filePath);
+        this.audioAnalyzer.loadTrack = async (filePath, metadata = {}) => {
+            await originalLoadTrack(filePath, metadata);
             this.setupAudioElementListeners();
             this.updateSeekBar();
         };
@@ -212,9 +268,17 @@ export class AudioControls {
             this.resetHideTimeout();
         });
         
+        // Show controls on touch (for mobile)
+        document.addEventListener('touchstart', () => {
+            this.showControls();
+            this.resetHideTimeout();
+        }, { passive: true });
+        
         // Keep controls visible when hovering over them or interacting
         const controlElements = [
             this.playControlBtn,
+            this.skipLeftBtn,
+            this.skipRightBtn,
             this.scrubberContainer,
             this.trackDropdown,
             this.trackDropdownMenu,
@@ -385,7 +449,7 @@ export class AudioControls {
         }
     }
     
-    async loadTrack(filenameOrUrl) {
+    async loadTrack(filenameOrUrl, metadata = {}) {
         try {
             // Show loading spinner
             this.showLoading();
@@ -406,13 +470,26 @@ export class AudioControls {
                 }
             });
             
+            // If metadata not provided but track option has BPM, use it
+            if (!metadata.bpm && selectedOption && selectedOption.dataset.trackBpm) {
+                const trackBPM = parseFloat(selectedOption.dataset.trackBpm);
+                if (!isNaN(trackBPM) && trackBPM > 0) {
+                    metadata.bpm = trackBPM;
+                }
+            }
+            
             if (selectedOption && this.trackDropdownText) {
                 this.trackDropdownText.textContent = selectedOption.textContent;
                 // Update title texture
                 this.updateTrackTitle(selectedOption.textContent);
             }
             
-            await this.audioAnalyzer.loadTrack(filePath);
+            await this.audioAnalyzer.loadTrack(filePath, metadata);
+            
+            // Trigger track change callback (for random color preset)
+            if (this.onTrackChange) {
+                this.onTrackChange();
+            }
             
             // Apply loop state to new track
             this.updateLoopButtonState();
@@ -485,6 +562,12 @@ export class AudioControls {
                 throw new Error('Track has no audio URL');
             }
             
+            // Extract BPM from track metadata (API provides this)
+            const trackBPM = track.bpm || track.bpm_url || null;
+            const metadataBPM = (typeof trackBPM === 'number' && trackBPM > 0) ? trackBPM : 
+                               (typeof trackBPM === 'string' && !isNaN(parseFloat(trackBPM))) ? parseFloat(trackBPM) : 
+                               null;
+            
             // Check if track already exists
             const existingTrack = Array.from(this.trackOptions).find(
                 option => option.dataset.track === audioUrl || 
@@ -508,6 +591,10 @@ export class AudioControls {
             trackOption.dataset.track = audioUrl; // Store the full URL
             trackOption.dataset.apiTrackId = track.name; // Store API ID for reference
             trackOption.dataset.apiTrack = 'true'; // Mark as API track
+            // Store BPM in dataset for later use when loading track
+            if (metadataBPM) {
+                trackOption.dataset.trackBpm = metadataBPM.toString();
+            }
             
             // Add click handler
             trackOption.addEventListener('click', async (e) => {
@@ -517,8 +604,10 @@ export class AudioControls {
                 // Close dropdown immediately for instant feedback
                 this.closeDropdown();
                 
-                // Load track asynchronously (non-blocking)
-                this.loadTrack(trackUrl).catch(error => {
+                // Load track asynchronously (non-blocking) with BPM metadata
+                // Get BPM from the track data stored in dataset
+                const trackBPM = trackOption.dataset.trackBpm ? parseFloat(trackOption.dataset.trackBpm) : null;
+                this.loadTrack(trackUrl, { bpm: trackBPM }).catch(error => {
                     console.error('Error loading track:', error);
                     // Track loading error is already logged in loadTrack method
                 });
@@ -533,9 +622,9 @@ export class AudioControls {
                 
                 console.log(`✅ Added "${songName || track.description || track.name}" to track selection`);
                 
-                // Auto-load if requested
+                // Auto-load if requested (with BPM metadata)
                 if (autoLoad) {
-                    await this.loadTrack(audioUrl);
+                    await this.loadTrack(audioUrl, { bpm: metadataBPM });
                 }
                 
                 return trackOption;
@@ -563,20 +652,13 @@ export class AudioControls {
         
         try {
             const isPlaying = this.audioAnalyzer.isPlaying();
-            const currentTime = this.audioAnalyzer.audioElement.currentTime;
             
             if (isPlaying) {
                 // Currently playing -> Pause
                 this.audioAnalyzer.pause();
                 this.updatePlayControlButton();
-            } else if (currentTime > 0.1) {
-                // Paused but not at beginning -> Stop (reset to beginning)
-                this.audioAnalyzer.pause();
-                this.audioAnalyzer.audioElement.currentTime = 0;
-                this.updateSeekBar();
-                this.updatePlayControlButton();
             } else {
-                // Stopped/at beginning -> Play
+                // Not playing -> Resume/Play from current position
                 if (this.audioAnalyzer.audioContext.state === 'suspended') {
                     await this.audioAnalyzer.audioContext.resume();
                 }
@@ -776,6 +858,100 @@ export class AudioControls {
         const filename = randomTrack.dataset.track;
         
         await this.loadTrack(filename);
+    }
+    
+    getCurrentTrackIndex() {
+        if (!this.audioAnalyzer.audioElement || !this.trackOptions || this.trackOptions.length === 0) {
+            return -1;
+        }
+        
+        const currentTrack = this.audioAnalyzer.audioElement.src;
+        const tracks = Array.from(this.trackOptions);
+        
+        return tracks.findIndex(track => {
+            const trackPath = track.dataset.track;
+            if (trackPath.startsWith('http')) {
+                return trackPath === currentTrack;
+            } else {
+                // For local files, check if the filename appears in the current track src
+                const filename = trackPath.replace(/\.mp3$/, '');
+                return currentTrack.includes(filename);
+            }
+        });
+    }
+    
+    getPreviousTrack() {
+        if (!this.trackOptions || this.trackOptions.length === 0) {
+            return null;
+        }
+        
+        const tracks = Array.from(this.trackOptions);
+        const currentIndex = this.getCurrentTrackIndex();
+        
+        if (currentIndex === -1) {
+            // No current track, return last track
+            return tracks[tracks.length - 1];
+        }
+        
+        // Get previous track (wrap around to last track if at beginning)
+        const previousIndex = currentIndex === 0 ? tracks.length - 1 : currentIndex - 1;
+        return tracks[previousIndex];
+    }
+    
+    getNextTrack() {
+        if (!this.trackOptions || this.trackOptions.length === 0) {
+            return null;
+        }
+        
+        const tracks = Array.from(this.trackOptions);
+        const currentIndex = this.getCurrentTrackIndex();
+        
+        if (currentIndex === -1) {
+            // No current track, return first track
+            return tracks[0];
+        }
+        
+        // Get next track (wrap around to first track if at end)
+        const nextIndex = currentIndex === tracks.length - 1 ? 0 : currentIndex + 1;
+        return tracks[nextIndex];
+    }
+    
+    async handleSkipLeft() {
+        if (!this.audioAnalyzer.audioElement) {
+            // No track loaded, load first track
+            if (this.trackOptions && this.trackOptions.length > 0) {
+                const firstTrack = this.trackOptions[0];
+                await this.loadTrack(firstTrack.dataset.track);
+            }
+            return;
+        }
+        
+        const currentTime = this.audioAnalyzer.audioElement.currentTime;
+        const skipThreshold = 2; // If within 2 seconds of start, go to previous track
+        
+        if (currentTime <= skipThreshold) {
+            // Already at or very close to the beginning, go to previous track
+            const previousTrack = this.getPreviousTrack();
+            if (previousTrack) {
+                await this.loadTrack(previousTrack.dataset.track);
+            }
+        } else {
+            // Skip to start of current track
+            this.audioAnalyzer.audioElement.currentTime = 0;
+            this.updateSeekBar();
+        }
+    }
+    
+    async handleSkipRight() {
+        // Go to next track
+        const nextTrack = this.getNextTrack();
+        if (nextTrack) {
+            await this.loadTrack(nextTrack.dataset.track);
+        } else if (this.trackOptions && this.trackOptions.length > 0) {
+            // Fallback to first track if no current track
+            const firstTrack = this.trackOptions[0];
+            await this.loadTrack(firstTrack.dataset.track);
+        }
     }
 }
 

@@ -28,7 +28,11 @@ for (let i = 0; i < 10; i++) {
             chroma: 0.20,
             hueOffset: 60
         },
-        interpolationCurve: [0.5, 0.2, 0.6, 0.7]
+        interpolationCurve: {
+            lightness: [0.7, 0.1, 1.0, 1.0],
+            chroma: [0.0, 0.25, 1.0, 0.75],
+            hue: [0.0, 0.25, 1.0, 0.75]
+        }
     };
 }
 

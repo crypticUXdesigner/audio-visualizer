@@ -1,6 +1,8 @@
 // Audio Analysis Module
 // Handles audio context, analysis, and provides structured audio data
 
+import { TempoSmoothingConfig, getTempoRelativeTimeConstant, applyTempoRelativeSmoothing } from '../config/tempo-smoothing-config.js';
+
 export class AudioAnalyzer {
     constructor() {
         this.audioContext = null;
@@ -24,6 +26,11 @@ export class AudioAnalyzer {
         this.mid = 0;
         this.treble = 0;
         this.volume = 0;
+        
+        // Volume smoothing (asymmetric: fast attack, slow release)
+        // Tempo-relative attack/release (musical note values) - adapts to song BPM
+        this.smoothedVolume = 0.0;
+        this.lastUpdateTime = null;  // Track frame time for deltaTime calculation
         
         // Frequency bands for color mapping (0.0 to 1.0)
         // freq1: 5.7k-20k Hz (white)
@@ -66,6 +73,7 @@ export class AudioAnalyzer {
         this.beatIntensity = 0;   // Intensity of last beat (0-1)
         this.lastBeatTime = 0;    // Timestamp of last beat (milliseconds)
         this.estimatedBPM = 0;    // Estimated beats per minute
+        this.metadataBPM = 0;     // BPM from file metadata or API (takes precedence)
         
         // Multi-frequency beat detection
         this.beatTimeBass = 0;
@@ -108,6 +116,19 @@ export class AudioAnalyzer {
         // Stereo emphasis factor (0.0-1.0, lower = more emphasis on differences)
         // 0.7 = moderate emphasis, 0.5 = strong emphasis, 1.0 = no emphasis (linear)
         this.stereoEmphasisExponent = 0.7;
+        
+        // Object pooling for ripple data arrays (performance optimization)
+        // Reuse arrays instead of allocating new ones every frame
+        this._rippleDataCache = {
+            centers: new Array(this.maxRipples * 2),
+            times: new Array(this.maxRipples),
+            intensities: new Array(this.maxRipples),
+            widths: new Array(this.maxRipples),
+            minRadii: new Array(this.maxRipples),
+            maxRadii: new Array(this.maxRipples),
+            intensityMultipliers: new Array(this.maxRipples),
+            active: new Array(this.maxRipples)
+        };
     }
     
     init() {
@@ -215,7 +236,25 @@ export class AudioAnalyzer {
         }, 5000);
     }
     
-    async loadTrack(filePath) {
+    /**
+     * Set BPM from metadata (API or file metadata)
+     * @param {number} bpm - BPM value from metadata
+     */
+    setMetadataBPM(bpm) {
+        if (typeof bpm === 'number' && bpm > 0 && bpm <= 300) {
+            this.metadataBPM = bpm;
+            this.estimatedBPM = bpm;  // Use metadata BPM as initial estimate
+            console.log(`[BPM] Using metadata BPM: ${bpm}`);
+        } else {
+            // Reset if invalid
+            this.metadataBPM = 0;
+            if (bpm !== undefined && bpm !== null) {
+                console.warn(`[BPM] Invalid BPM value from metadata: ${bpm}`);
+            }
+        }
+    }
+    
+    async loadTrack(filePath, metadata = {}) {
         try {
             // Resume audio context if suspended (browser autoplay policy)
             if (this.audioContext.state === 'suspended') {
@@ -228,6 +267,14 @@ export class AudioAnalyzer {
                 if (this.source) {
                     this.source.disconnect();
                 }
+            }
+            
+            // Set BPM from metadata if provided (from API or file metadata extraction)
+            if (metadata.bpm !== undefined) {
+                this.setMetadataBPM(metadata.bpm);
+            } else {
+                // Reset metadata BPM if not provided
+                this.metadataBPM = 0;
             }
             
             // Check if it's a full URL (http/https) - use as-is
@@ -294,6 +341,13 @@ export class AudioAnalyzer {
     
     update() {
         if (!this.analyser) return;
+        
+        // Calculate frame time (deltaTime) for time-based smoothing
+        const currentTime = performance.now();
+        const deltaTime = this.lastUpdateTime !== null 
+            ? (currentTime - this.lastUpdateTime) / 1000.0  // Convert ms to seconds
+            : 0.016;  // Default to ~60fps on first frame
+        this.lastUpdateTime = currentTime;
         
         // Get fresh data
         this.analyser.getByteFrequencyData(this.frequencyData);
@@ -364,19 +418,112 @@ export class AudioAnalyzer {
         // Calculate volume (RMS from time domain)
         this.volume = this.getRMS(this.timeData);
         
-        // Use raw frequency values directly (no smoothing)
-        this.smoothedBass = this.bass;
-        this.smoothedMid = this.mid;
-        this.smoothedTreble = this.treble;
+        // Apply tempo-relative asymmetric smoothing to volume
+        const volumeConfig = TempoSmoothingConfig.volume;
+        const attackTimeConstant = getTempoRelativeTimeConstant(
+            volumeConfig.attackNote,
+            this.estimatedBPM,
+            volumeConfig.attackTimeFallback
+        );
+        const releaseTimeConstant = getTempoRelativeTimeConstant(
+            volumeConfig.releaseNote,
+            this.estimatedBPM,
+            volumeConfig.releaseTimeFallback
+        );
+        this.smoothedVolume = applyTempoRelativeSmoothing(
+            this.smoothedVolume,
+            this.volume,
+            deltaTime,
+            attackTimeConstant,
+            releaseTimeConstant
+        );
         
-        // Use raw frequency band values directly (no smoothing)
-        this.smoothedFreq1 = this.freq1;
-        this.smoothedFreq2 = this.freq2;
-        this.smoothedFreq3 = this.freq3;
-        this.smoothedFreq4 = this.freq4;
-        this.smoothedFreq5 = this.freq5;
-        this.smoothedFreq6 = this.freq6;
-        this.smoothedFreq7 = this.freq7;
+        // Apply tempo-relative smoothing to frequency bands (for color mapping)
+        const freqConfig = TempoSmoothingConfig.frequencyBands;
+        const freqAttackTimeConstant = getTempoRelativeTimeConstant(
+            freqConfig.attackNote,
+            this.estimatedBPM,
+            freqConfig.attackTimeFallback
+        );
+        const freqReleaseTimeConstant = getTempoRelativeTimeConstant(
+            freqConfig.releaseNote,
+            this.estimatedBPM,
+            freqConfig.releaseTimeFallback
+        );
+        
+        // Smooth main frequency bands
+        this.smoothedBass = applyTempoRelativeSmoothing(
+            this.smoothedBass,
+            this.bass,
+            deltaTime,
+            freqAttackTimeConstant,
+            freqReleaseTimeConstant
+        );
+        this.smoothedMid = applyTempoRelativeSmoothing(
+            this.smoothedMid,
+            this.mid,
+            deltaTime,
+            freqAttackTimeConstant,
+            freqReleaseTimeConstant
+        );
+        this.smoothedTreble = applyTempoRelativeSmoothing(
+            this.smoothedTreble,
+            this.treble,
+            deltaTime,
+            freqAttackTimeConstant,
+            freqReleaseTimeConstant
+        );
+        
+        // Smooth frequency bands for color mapping
+        this.smoothedFreq1 = applyTempoRelativeSmoothing(
+            this.smoothedFreq1,
+            this.freq1,
+            deltaTime,
+            freqAttackTimeConstant,
+            freqReleaseTimeConstant
+        );
+        this.smoothedFreq2 = applyTempoRelativeSmoothing(
+            this.smoothedFreq2,
+            this.freq2,
+            deltaTime,
+            freqAttackTimeConstant,
+            freqReleaseTimeConstant
+        );
+        this.smoothedFreq3 = applyTempoRelativeSmoothing(
+            this.smoothedFreq3,
+            this.freq3,
+            deltaTime,
+            freqAttackTimeConstant,
+            freqReleaseTimeConstant
+        );
+        this.smoothedFreq4 = applyTempoRelativeSmoothing(
+            this.smoothedFreq4,
+            this.freq4,
+            deltaTime,
+            freqAttackTimeConstant,
+            freqReleaseTimeConstant
+        );
+        this.smoothedFreq5 = applyTempoRelativeSmoothing(
+            this.smoothedFreq5,
+            this.freq5,
+            deltaTime,
+            freqAttackTimeConstant,
+            freqReleaseTimeConstant
+        );
+        this.smoothedFreq6 = applyTempoRelativeSmoothing(
+            this.smoothedFreq6,
+            this.freq6,
+            deltaTime,
+            freqAttackTimeConstant,
+            freqReleaseTimeConstant
+        );
+        this.smoothedFreq7 = applyTempoRelativeSmoothing(
+            this.smoothedFreq7,
+            this.freq7,
+            deltaTime,
+            freqAttackTimeConstant,
+            freqReleaseTimeConstant
+        );
         
         // Peak detection (decay over time)
         const peakDecay = 0.92;
@@ -511,8 +658,9 @@ export class AudioAnalyzer {
             this.beatIntensity = Math.min(this.bass / 0.8, 1.0);
             this.beatTime = 0;
             
-            // Calculate BPM estimate
-            if (previousBeatTime > 0) {
+            // Calculate BPM estimate (only if metadata BPM is not available)
+            // Metadata BPM takes precedence over detected BPM
+            if (this.metadataBPM === 0 && previousBeatTime > 0) {
                 const beatInterval = (currentTime - previousBeatTime) / 1000.0;
                 if (beatInterval > 0.1 && beatInterval < 2.0) { // Reasonable range (30-600 BPM)
                     const instantBPM = 60.0 / beatInterval;
@@ -643,15 +791,29 @@ export class AudioAnalyzer {
         // Update ripples to remove expired ones
         this.updateRipples(currentTime);
         
-        // Initialize arrays with zeros
-        const centers = new Array(this.maxRipples * 2).fill(0); // x, y pairs
-        const times = new Array(this.maxRipples).fill(0); // Time since start in seconds
-        const intensities = new Array(this.maxRipples).fill(0);
-        const widths = new Array(this.maxRipples).fill(0); // Per-ripple width
-        const minRadii = new Array(this.maxRipples).fill(0); // Per-ripple min radius
-        const maxRadii = new Array(this.maxRipples).fill(0); // Per-ripple max radius
-        const intensityMultipliers = new Array(this.maxRipples).fill(0); // Per-ripple intensity multiplier
-        const active = new Array(this.maxRipples).fill(0);
+        // Reuse cached arrays instead of creating new ones (performance optimization)
+        const centers = this._rippleDataCache.centers;
+        const times = this._rippleDataCache.times;
+        const intensities = this._rippleDataCache.intensities;
+        const widths = this._rippleDataCache.widths;
+        const minRadii = this._rippleDataCache.minRadii;
+        const maxRadii = this._rippleDataCache.maxRadii;
+        const intensityMultipliers = this._rippleDataCache.intensityMultipliers;
+        const active = this._rippleDataCache.active;
+        
+        // Zero out arrays first (faster than fill() for small arrays)
+        for (let i = 0; i < this.maxRipples * 2; i++) {
+            centers[i] = 0;
+        }
+        for (let i = 0; i < this.maxRipples; i++) {
+            times[i] = 0;
+            intensities[i] = 0;
+            widths[i] = 0;
+            minRadii[i] = 0;
+            maxRadii[i] = 0;
+            intensityMultipliers[i] = 0;
+            active[i] = 0;
+        }
         
         // Fill with active ripple data
         this.ripples.forEach((ripple, index) => {
@@ -749,7 +911,7 @@ export class AudioAnalyzer {
             bass: this.bass,
             mid: this.mid,
             treble: this.treble,
-            volume: this.volume,
+            volume: this.smoothedVolume,  // Use smoothed volume to reduce jittery brightness changes
             freq1: this.freq1,
             freq2: this.freq2,
             freq3: this.freq3,

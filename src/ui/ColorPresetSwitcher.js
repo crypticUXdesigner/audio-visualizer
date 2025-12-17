@@ -298,5 +298,49 @@ export class ColorPresetSwitcher {
         updateColorPicker('darkest', colorConfig.darkest.lightness, colorConfig.darkest.chroma, darkestHue);
         updateColorPicker('brightest', colorConfig.brightest.lightness, colorConfig.brightest.chroma, brightestHue);
     }
+    
+    /**
+     * Select and apply a random color preset (excluding current)
+     * @returns {string} Name of the selected preset
+     */
+    selectRandomPreset() {
+        const presetNames = Object.keys(this.colorPresets);
+        
+        // Filter out current preset to avoid selecting the same one
+        const availablePresets = presetNames.filter(name => name !== this.currentPresetName);
+        
+        // If all filtered out (shouldn't happen), use all presets
+        const presetsToChoose = availablePresets.length > 0 ? availablePresets : presetNames;
+        
+        // Pick random preset
+        const randomIndex = Math.floor(Math.random() * presetsToChoose.length);
+        const randomPresetName = presetsToChoose[randomIndex];
+        const randomPreset = this.colorPresets[randomPresetName];
+        
+        // Apply the preset
+        if (this.onPresetChange) {
+            this.onPresetChange(randomPreset);
+        }
+        
+        // Update current preset name and save to localStorage
+        this.currentPresetName = randomPresetName;
+        localStorage.setItem('colorPreset', randomPresetName);
+        
+        // Update active button state
+        document.querySelectorAll('.preset-btn').forEach(btn => {
+            if (btn.dataset.preset === randomPresetName) {
+                btn.classList.add('active');
+            } else {
+                btn.classList.remove('active');
+            }
+        });
+        
+        // Update sliders with new preset values
+        this.updateSlidersFromPreset(randomPreset);
+        
+        console.log('🎨 Random color preset selected:', randomPresetName);
+        
+        return randomPresetName;
+    }
 }
 

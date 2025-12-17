@@ -9,6 +9,15 @@ export class ShaderManager {
         this.activeShader = null;
         this.audioAnalyzer = null;
         this.colors = null;
+        this.colorUpdateCallback = null; // Callback for dynamic color updates
+    }
+    
+    /**
+     * Set callback for dynamic color updates (called from render loop)
+     * @param {Function} callback - Callback function (audioData) => void
+     */
+    setColorUpdateCallback(callback) {
+        this.colorUpdateCallback = callback;
     }
     
     /**
@@ -50,8 +59,12 @@ export class ShaderManager {
         // Create instance if it doesn't exist
         if (!shaderEntry.instance) {
             const instance = new ShaderInstance(shaderEntry.canvasId, shaderEntry.config);
+            instance._shaderManager = this; // Store reference to shader manager
             await instance.init();
             shaderEntry.instance = instance;
+        } else {
+            // Update reference if instance already exists
+            shaderEntry.instance._shaderManager = this;
         }
         
         this.activeShader = shaderEntry.instance;

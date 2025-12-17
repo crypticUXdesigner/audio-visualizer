@@ -107,6 +107,22 @@
   --transition-fast: 0.2s ease;
   --transition-base: 0.4s ease;
   
+  /* Material Design Expressive Motion - Spatial Animations */
+  --spatial-fast-bezier: cubic-bezier(0.42, 1.67, 0.21, 0.90);
+  --spatial-fast: 120ms cubic-bezier(0.42, 1.67, 0.21, 0.90);
+  --spatial-default-bezier: cubic-bezier(0.38, 1.21, 0.22, 1.00);
+  --spatial-default: 350ms cubic-bezier(0.38, 1.21, 0.22, 1.00);
+  --spatial-slow-bezier: cubic-bezier(0.39, 1.29, 0.35, 0.98);
+  --spatial-slow: 650ms cubic-bezier(0.39, 1.29, 0.35, 0.98);
+  
+  /* Material Design Expressive Motion - Effect Animations */
+  --effects-fast-bezier: cubic-bezier(0.31, 0.94, 0.34, 1.00);
+  --effects-fast: 120ms cubic-bezier(0.31, 0.94, 0.34, 1.00);
+  --effects-default-bezier: cubic-bezier(0.34, 0.80, 0.34, 1.00);
+  --effects-default: 350ms cubic-bezier(0.34, 0.80, 0.34, 1.00);
+  --effects-slow-bezier: cubic-bezier(0.34, 0.88, 0.34, 1.00);
+  --effects-slow: 650ms cubic-bezier(0.34, 0.88, 0.34, 1.00);
+  
   /* Effects */
   --blur-sm: blur(10px);
   --blur-md: blur(20px);
@@ -872,12 +888,12 @@
   --play-control-padding: 0;
   --play-control-bottom: var(--pd-xl);
   --play-control-radius: var(--radius-max);
-  --play-control-bg: var(--button-primary-bg);
-  --play-control-bg-hover: var(--button-primary-bg-hover);
-  --play-control-bg-active: var(--button-primary-bg-active);
-  --play-control-color: var(--button-primary-print);
-  --play-control-color-hover: var(--button-primary-print-hover);
-  --play-control-color-active: var(--button-primary-print-active);
+  --play-control-bg: var(--button-inverse-bg);
+  --play-control-bg-hover: var(--button-inverse-bg-hover);
+  --play-control-bg-active: var(--button-inverse-bg-active);
+  --play-control-color: var(--button-inverse-print);
+  --play-control-color-hover: var(--button-inverse-print-hover);
+  --play-control-color-active: var(--button-inverse-print-active);
   --play-control-opacity: 1.0;
   --play-control-opacity-hover: 1.0;
   --play-control-opacity-active: 1.0;

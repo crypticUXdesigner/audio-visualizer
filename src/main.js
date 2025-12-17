@@ -8,6 +8,7 @@ import './styles/app.css';
 import Sentry, { safeCaptureException, safeSentrySpan } from './core/SentryInit.js';
 import { AudioAnalyzer } from './core/AudioAnalyzer.js';
 import { generateColorsFromOklch, rgbToHex, normalizeColor, hexToRgb, rgbToOklch, interpolateHue } from './core/ColorGenerator.js';
+import { ColorModulator } from './core/ColorModulator.js';
 import { ShaderManager } from './shaders/ShaderManager.js';
 import backgroundFbmConfig from './shaders/shader-configs/background-fbm.js';
 import { colorPresets } from './config/color-presets.js';
@@ -23,6 +24,7 @@ class VisualPlayer {
         this.shaderManager = null;
         this.colors = null;
         this.colorConfig = null;
+        this.colorModulator = null;
         this.audioControls = null;
         this.colorPresetSwitcher = null;
         this.shaderParameterPanel = null;
@@ -82,6 +84,9 @@ class VisualPlayer {
             this.colorConfig = { ...backgroundFbmConfig.colorConfig };
             this.initializeColors();
             
+            // 4.5. Initialize color modulator for dynamic hue shifts
+            this.colorModulator = new ColorModulator(this.colorConfig);
+            
             // 5. Set colors in shader manager (before activating shader)
             if (this.colors) {
                 this.shaderManager.setColors(this.colors);
@@ -89,6 +94,11 @@ class VisualPlayer {
             
             // 6. Initialize and activate default shader
             await this.shaderManager.setActiveShader('background-fbm');
+            
+            // 6.25. Set color update callback for dynamic color modulation
+            this.shaderManager.setColorUpdateCallback((audioData) => {
+                this.updateDynamicColors(audioData);
+            });
             
             // 6.5. Initialize title texture (after shader is active so we have GL context)
             const activeShader = this.shaderManager.getActiveShader();
@@ -177,7 +187,7 @@ class VisualPlayer {
         console.error('Initialization error displayed to user:', error);
     }
     
-    initializeColors(skipFrequencyUpdate = false) {
+    initializeColors(skipFrequencyUpdate = false, audioData = null) {
         if (this.isInitializingColors) {
             return;
         }
@@ -185,7 +195,15 @@ class VisualPlayer {
         this.isInitializingColors = true;
         
         try {
-            const generatedColors = generateColorsFromOklch(this.colorConfig);
+            // Get color config (potentially modified by color modulator)
+            let configToUse = this.colorConfig;
+            
+            // If color modulator exists and audio data is provided, get modified config
+            if (this.colorModulator && audioData) {
+                configToUse = this.colorModulator.update(audioData);
+            }
+            
+            const generatedColors = generateColorsFromOklch(configToUse);
             
             // Map color1-color9 to color, color2-color9 format
             // Always create new object to ensure reference changes (important for preset switching)
@@ -238,6 +256,66 @@ class VisualPlayer {
         // This method kept for backward compatibility but does nothing
     }
     
+    /**
+     * Update dynamic colors based on audio data (called from render loop)
+     * @param {Object} audioData - Audio analysis data
+     */
+    updateDynamicColors(audioData) {
+        if (!this.colorModulator || !audioData || !this.colorsInitialized) {
+            return;
+        }
+        
+        // Update color modulator with audio data
+        const modifiedConfig = this.colorModulator.update(audioData);
+        
+        // Check if config actually changed (performance optimization)
+        // We'll regenerate colors - the modulator handles change detection internally
+        // But we need to avoid infinite loops, so we'll use a flag
+        
+        // Generate colors from modified config
+        const generatedColors = generateColorsFromOklch(modifiedConfig);
+        
+        // Map to color format
+        const newColors = {
+            color: normalizeColor(generatedColors.color1),
+            color2: normalizeColor(generatedColors.color2),
+            color3: normalizeColor(generatedColors.color3),
+            color4: normalizeColor(generatedColors.color4),
+            color5: normalizeColor(generatedColors.color5),
+            color6: normalizeColor(generatedColors.color6),
+            color7: normalizeColor(generatedColors.color7),
+            color8: normalizeColor(generatedColors.color8),
+            color9: normalizeColor(generatedColors.color9),
+            color10: normalizeColor(generatedColors.color9)
+        };
+        
+        // Update colors if they changed
+        let colorsChanged = false;
+        if (!this.colors) {
+            colorsChanged = true;
+        } else {
+            // Check if any color changed significantly (increased threshold for smoother updates)
+            for (const key in newColors) {
+                if (!this.colors[key] || 
+                    Math.abs(this.colors[key][0] - newColors[key][0]) > 0.015 ||
+                    Math.abs(this.colors[key][1] - newColors[key][1]) > 0.015 ||
+                    Math.abs(this.colors[key][2] - newColors[key][2]) > 0.015) {
+                    colorsChanged = true;
+                    break;
+                }
+            }
+        }
+        
+        if (colorsChanged) {
+            this.colors = newColors;
+            
+            // Update shader manager with new colors
+            if (this.shaderManager) {
+                this.shaderManager.setColors(this.colors);
+            }
+        }
+    }
+    
     initUI() {
         // Initialize audio controls
         this.audioControls = new AudioControls(this.audioAnalyzer);
@@ -253,6 +331,13 @@ class VisualPlayer {
             }
         }
         
+        // Set up track change callback for random color preset selection
+        this.audioControls.onTrackChange = () => {
+            if (this.colorPresetSwitcher) {
+                this.colorPresetSwitcher.selectRandomPreset();
+            }
+        };
+        
         // Load tracks from TrackService dynamically using batch loading
         // This happens asynchronously so it doesn't block initialization
         setTimeout(async () => {
@@ -263,6 +348,13 @@ class VisualPlayer {
                 
                 // Define all tracks to load
                 const tracksToLoad = [
+                    // Top 5 Most Favorited Tracks (Dec 2025)
+                    { songName: 'u a fan', username: 'audiotool' },
+                    { songName: 'FOR LIFE', username: 'audiotool' },
+                    { songName: 'Honey Lemon', username: 'audiotool' },
+                    { songName: 'the red moon\'s egg', username: 'audiotool' },
+                    { songName: 'stars align', username: 'audiotool' },
+                    // Original tracks
                     { songName: 'Blue Eyes (Trust Fund)', username: 'dquerg' },
                     { songName: 'Beast Within', username: 'dquerg' },
                     { songName: '#BBCHTRN', username: 'dquerg' },
@@ -271,7 +363,42 @@ class VisualPlayer {
                     { songName: 'Five Hundred', username: 'various' },
                     { songName: 'Sackgesicht', username: 'various' },
                     { songName: 'Back To You - Icebox, SIREN & dcln', username: 'various' },
+                    // User-requested tracks (Dec 2025)
+                    { songName: 'Overthinking pt4', username: 'audiotool' },
+                    { songName: 'homeless on I-95 & dock st', username: 'audiotool' },
+                    { songName: 'Overthinking pt3', username: 'audiotool' },
+                    { songName: 'United (EWC - Tekken 8)', username: 'audiotool' },
+                    { songName: 'Rosary - Esport World Cup [Street fighter]', username: 'audiotool' },
+                    { songName: 'Esports World Cup Anthem #7 (Franz Fritz)', username: 'audiotool' },
+                    { songName: 'No timeline', username: 'audiotool' },
+                    { songName: 'BRAE', username: 'audiotool' },
+                    { songName: 'that recital i missed', username: 'audiotool' },
+                    { songName: 'MONOLITH', username: 'audiotool' },
+                    { songName: 'Who told you?', username: 'audiotool' },
+                    { songName: 'skyburst! [ATD2020]', username: 'audiotool' },
+                    { songName: 'Fluid', username: 'audiotool' },
+                    { songName: 'Isomorph', username: 'audiotool' },
+                    { songName: 'Diatoma', username: 'audiotool' },
+                    { songName: 'Sandstorm', username: 'audiotool' },
+                    { songName: 'No Space, No Light (ATD 24 entry)', username: 'audiotool' },
+                    { songName: 'lazy sunday', username: 'audiotool' },
+                    { songName: 'phase', username: 'audiotool' },
+                    { songName: 'frisbee', username: 'audiotool' },
+                    { songName: 'knobs', username: 'audiotool' },
+                    { songName: 'lost', username: 'audiotool' },
+                    { songName: 'legend', username: 'audiotool' },
+                    { songName: 'feels like summer', username: 'audiotool' },
+                    { songName: 'THE WORST - Tim Derry Remix', username: 'audiotool' },
+                    { songName: 'Versatile (Remix)', username: 'audiotool' },
+                    { songName: 'SUNDAY GROOVE', username: 'audiotool' },
+                    { songName: 'cozy', username: 'audiotool' },
+                    { songName: 'Thundyre', username: 'audiotool' },
+                    { songName: 'yōsei', username: 'audiotool' },
+                    { songName: 'Starforge (Vulkronix 4.0)', username: 'audiotool' },
                 ];
+                
+                // Sort tracks alphabetically by song name (case-insensitive)
+                tracksToLoad.sort((a, b) => a.songName.toLowerCase().localeCompare(b.songName.toLowerCase()));
                 
                 // Get track identifiers for tracks that have them
                 const tracksWithIdentifiers = tracksToLoad.map(track => ({
@@ -330,6 +457,9 @@ class VisualPlayer {
                     { songName: 'Back To You - Icebox, SIREN & dcln', username: 'various' },
                 ];
                 
+                // Sort tracks alphabetically by song name (case-insensitive)
+                tracksToLoad.sort((a, b) => a.songName.toLowerCase().localeCompare(b.songName.toLowerCase()));
+                
                 for (const track of tracksToLoad) {
                     this.loadAPITrack(track.songName, track.username).catch(err => {
                         console.warn(`Failed to load API track "${track.songName}" (this is optional):`, err);
@@ -361,6 +491,11 @@ class VisualPlayer {
                     this.colorConfig.brightest.hue = interpolateHue(baseH, baseH + presetConfig.brightest.hueOffset, 1.0);
                 }
                 
+                // Update color modulator with new base config
+                if (this.colorModulator) {
+                    this.colorModulator.setBaseConfig(this.colorConfig);
+                }
+                
                 // Regenerate colors (this will update shader manager)
                 this.initializeColors();
             },
@@ -370,6 +505,11 @@ class VisualPlayer {
                     this.colorConfig.darkest[property] = value;
                 } else if (target === 'brightest' && this.colorConfig.brightest) {
                     this.colorConfig.brightest[property] = value;
+                }
+                
+                // Update color modulator with new base config
+                if (this.colorModulator) {
+                    this.colorModulator.setBaseConfig(this.colorConfig);
                 }
                 
                 // Regenerate colors

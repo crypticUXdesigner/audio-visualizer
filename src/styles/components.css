@@ -1,5 +1,26 @@
 /* Component Styles */
 
+/* Remove all focus styles globally - use active styles instead */
+*:focus,
+*:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Apply active styles when focused for buttons */
+button:focus,
+input[type="button"]:focus,
+input[type="submit"]:focus {
+  outline: none !important;
+}
+
+button:focus:not(:active),
+input[type="button"]:focus:not(:active),
+input[type="submit"]:focus:not(:active) {
+  /* Apply active state appearance when focused but not being clicked */
+  opacity: 1;
+}
+
 /* Top Control Buttons */
 .top-controls {
   position: fixed;
@@ -10,7 +31,7 @@
   display: flex;
   gap: var(--top-controls-gap);
   align-items: center;
-  transition: opacity var(--transition-base), transform var(--transition-base);
+  transition: opacity var(--effects-default), transform var(--spatial-default);
 
   &.ui-hidden {
     opacity: 0;
@@ -212,13 +233,21 @@ html.debug-mode {
   width: 100%;
   gap: var(--audio-controls-container-gap);
   padding-bottom: var(--audio-controls-container-bottom);
-  transition: opacity var(--transition-base), transform var(--transition-base);
+  transition: opacity var(--effects-default), transform var(--spatial-default);
 
   &.ui-hidden {
     opacity: 0;
     transform: translateY(20px);
     pointer-events: none;
   }
+}
+
+/* Playback Controls Container */
+.playback-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-md);
 }
 
 /* Play Control Button */
@@ -234,25 +263,70 @@ html.debug-mode {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition: 
+    background var(--effects-fast),
+    color var(--effects-fast),
+    opacity var(--effects-fast),
+    transform var(--spatial-fast);
   user-select: none;
   opacity: var(--play-control-opacity);
+  transform: scale(1);
 
   &:hover {
     background: var(--play-control-bg-hover);
     color: var(--play-control-color-hover);
     opacity: var(--play-control-opacity-hover);
+    transform: scale(1.05);
   }
 
   &:active {
     background: var(--play-control-bg-active);
     color: var(--play-control-color-active);
     opacity: var(--play-control-opacity-active);
+    transform: scale(0.95);
   }
 
   svg {
     width: var(--play-control-icon-size);
     height: var(--play-control-icon-size);
+  }
+}
+
+/* Skip Control Buttons */
+.skip-control {
+  width: var(--size-xl);
+  height: var(--size-xl);
+  padding: 0;
+  background: var(--button-ghost-bg);
+  border: none;
+  border-radius: var(--play-control-radius);
+  color: var(--button-ghost-print);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: 
+    background var(--effects-fast),
+    color var(--effects-fast),
+    transform var(--spatial-fast);
+  user-select: none;
+  transform: scale(1);
+
+  &:hover {
+    background: var(--button-ghost-bg-hover);
+    color: var(--button-ghost-print-hover);
+    transform: scale(1.05);
+  }
+
+  &:active {
+    background: var(--button-ghost-bg-active);
+    color: var(--button-ghost-print-active);
+    transform: scale(0.95);
+  }
+
+  svg {
+    width: var(--size-md);
+    height: var(--size-md);
   }
 }
 

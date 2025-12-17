@@ -135,7 +135,11 @@ export default {
         baseHue: '#41eee5',
         darkest: { lightness: 0.09, chroma: 0.08, hueOffset: -80 },
         brightest: { lightness: 0.97, chroma: 0.20, hueOffset: 90 },
-        interpolationCurve: [0.5, 0.2, 0.6, 0.7]
+        interpolationCurve: {
+            lightness: [0.5, 0.2, 0.6, 0.7],
+            chroma: [0.5, 0.2, 0.6, 0.7],
+            hue: [0.5, 0.2, 0.6, 0.7]
+        }
     },
     
     uniformMapping: {
