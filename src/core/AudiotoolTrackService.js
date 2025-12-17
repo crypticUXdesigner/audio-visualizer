@@ -84,6 +84,7 @@ async function callTrackService(method, request) {
     method: 'POST',
     headers: headers,
     body: JSON.stringify(request),
+    credentials: 'omit',
   });
   
   if (!response.ok) {
