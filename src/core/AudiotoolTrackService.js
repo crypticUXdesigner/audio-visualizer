@@ -63,14 +63,6 @@ async function callTrackService(method, request) {
     headers['Authorization'] = `Bearer ${token}`;
   }
   
-  // Include client ID in headers only if explicitly set via environment variable
-  // This matches the previous behavior where dev worked without client ID
-  // The hardcoded fallback is only for production builds, but we don't send it as a header
-  // unless explicitly configured, as some APIs don't require/want it
-  if (import.meta.env.VITE_AUDIOTOOL_CLIENT_ID) {
-    headers['X-Client-Id'] = import.meta.env.VITE_AUDIOTOOL_CLIENT_ID;
-  }
-  
   // Log authentication method being used (for debugging)
   if (token) {
     console.log(`🔐 Using Bearer token authentication for ${method}`);

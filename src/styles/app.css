@@ -24,32 +24,6 @@
     display: none !important;
   }
   
-  /* Adjust audio controls for mobile */
-  #audioControls {
-    top: var(--spacing-lg);
-    left: var(--spacing-lg);
-    right: var(--spacing-lg);
-    min-width: auto;
-    padding: var(--spacing-lg);
-    max-width: calc(100vw - var(--spacing-2xl));
-  }
-  
-  /* Adjust audio controls container for mobile */
-  .audio-controls-container {
-    width: calc(100% - var(--spacing-2xl));
-    max-width: 100%;
-  }
-  
-  /* Adjust track dropdown for mobile */
-  .track-dropdown {
-    max-width: 100%;
-    width: 100%;
-  }
-  
-  /* Adjust scrubber for mobile */
-  .scrubber-container {
-    width: 100%;
-  }
   
   /* Adjust preset buttons grid for mobile */
   .preset-buttons {
