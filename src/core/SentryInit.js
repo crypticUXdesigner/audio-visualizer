@@ -12,8 +12,151 @@ let isSentryBlocked = false;
 // Check if Sentry should be disabled (e.g., for development or if blocked)
 const disableSentry = import.meta.env.VITE_DISABLE_SENTRY === 'true';
 
+/**
+ * Completely disable Sentry client to prevent any further requests
+ */
+function disableSentryClient() {
+  if (typeof Sentry === 'undefined') return;
+  
+  try {
+    const client = Sentry.getClient();
+    if (client) {
+      // Disable the client
+      client.getOptions().enabled = false;
+      // Close the client
+      if (client.close) {
+        client.close();
+      }
+    }
+  } catch (e) {
+    // Ignore errors when disabling
+  }
+}
+
+// Intercept console errors to filter out Sentry blocked request errors
+if (typeof window !== 'undefined' && typeof console !== 'undefined') {
+  const originalError = console.error;
+  const originalWarn = console.warn;
+  const originalLog = console.log;
+  
+  // Helper to check if message is a Sentry blocked request error
+  const isSentryBlockedMessage = (message) => {
+    if (!message || typeof message !== 'string') return false;
+    const lowerMessage = message.toLowerCase();
+    return (
+      (message.includes('sentry.io') || message.includes('ingest.de.sentry.io')) &&
+      (lowerMessage.includes('err_blocked_by_client') || 
+       lowerMessage.includes('blocked') ||
+       lowerMessage.includes('failed to load resource') ||
+       message.includes('net::ERR_BLOCKED_BY_CLIENT'))
+    );
+  };
+  
+  // Filter out Sentry-related blocked request errors from console
+  const filterSentryErrors = (...args) => {
+    const message = args.map(arg => 
+      typeof arg === 'string' ? arg : 
+      arg?.message || arg?.toString() || ''
+    ).join(' ');
+    
+    // Check if this is a Sentry blocked request error
+    if (isSentryBlockedMessage(message)) {
+      isSentryBlocked = true;
+      disableSentryClient();
+      return; // Silently ignore
+    }
+    
+    // Log other errors normally
+    originalError.apply(console, args);
+  };
+  
+  const filterSentryWarnings = (...args) => {
+    const message = args.map(arg => 
+      typeof arg === 'string' ? arg : 
+      arg?.message || arg?.toString() || ''
+    ).join(' ');
+    
+    // Check if this is a Sentry blocked request warning
+    if (isSentryBlockedMessage(message)) {
+      isSentryBlocked = true;
+      disableSentryClient();
+      return; // Silently ignore
+    }
+    
+    // Log other warnings normally
+    originalWarn.apply(console, args);
+  };
+  
+  const filterSentryLogs = (...args) => {
+    const message = args.map(arg => 
+      typeof arg === 'string' ? arg : 
+      arg?.message || arg?.toString() || ''
+    ).join(' ');
+    
+    // Filter out Sentry blocked request logs
+    if (isSentryBlockedMessage(message)) {
+      isSentryBlocked = true;
+      disableSentryClient();
+      return; // Silently ignore
+    }
+    
+    // Log other messages normally
+    originalLog.apply(console, args);
+  };
+  
+  // Override console methods
+  console.error = filterSentryErrors;
+  console.warn = filterSentryWarnings;
+  console.log = filterSentryLogs;
+  
+  // Also intercept network errors via error event listener (capture phase)
+  window.addEventListener('error', (event) => {
+    const message = event.message || '';
+    const source = event.filename || event.target?.src || '';
+    const error = event.error;
+    
+    const errorMessage = error?.message || message || '';
+    
+    if (
+      (message.includes('sentry.io') || source.includes('sentry.io') || errorMessage.includes('sentry.io')) &&
+      (message.includes('ERR_BLOCKED_BY_CLIENT') || 
+       message.includes('blocked') ||
+       errorMessage.includes('ERR_BLOCKED_BY_CLIENT') ||
+       errorMessage.includes('blocked'))
+    ) {
+      isSentryBlocked = true;
+      disableSentryClient();
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      return false;
+    }
+  }, true); // Use capture phase to catch early
+  
+  // Intercept unhandled promise rejections
+  window.addEventListener('unhandledrejection', (event) => {
+    const reason = event.reason;
+    if (reason) {
+      const errorMessage = reason?.message || String(reason) || '';
+      const errorStack = reason?.stack || '';
+      
+      if (
+        (errorMessage.includes('sentry.io') || errorStack.includes('sentry.io')) &&
+        (errorMessage.includes('ERR_BLOCKED_BY_CLIENT') || 
+         errorMessage.includes('blocked'))
+      ) {
+        isSentryBlocked = true;
+        disableSentryClient();
+        event.preventDefault();
+        event.stopPropagation();
+        return false;
+      }
+    }
+  }, true);
+}
+
 // Only initialize if DSN is provided and not disabled
-if (sentryDsn && !disableSentry) {
+if (sentryDsn && !disableSentry && !isSentryBlocked) {
   try {
     Sentry.init({
       dsn: sentryDsn,
@@ -35,13 +178,73 @@ if (sentryDsn && !disableSentry) {
         enableLogs: true,
       },
       
+      // Custom transport that completely prevents requests if blocked
+      transport: (options) => {
+        // If already blocked, return a no-op transport
+        if (isSentryBlocked) {
+          return {
+            send: async () => Promise.resolve({ statusCode: 200 }),
+            flush: async () => Promise.resolve(true),
+          };
+        }
+        
+        const defaultTransport = Sentry.makeFetchTransport(options);
+        
+        return {
+          ...defaultTransport,
+          send: async (request) => {
+            // Check if blocked before sending
+            if (isSentryBlocked) {
+              return Promise.resolve({ statusCode: 200 });
+            }
+            
+            try {
+              return await defaultTransport.send(request);
+            } catch (error) {
+              // Check if error is due to blocked request
+              const errorMessage = error?.message || String(error) || '';
+              const errorName = error?.name || '';
+              const errorStack = error?.stack || '';
+              const errorString = String(error);
+              
+              // Check various forms of blocked request errors
+              const isBlocked = (
+                errorMessage.toLowerCase().includes('blocked') ||
+                errorMessage.toLowerCase().includes('err_blocked_by_client') ||
+                errorName.toLowerCase().includes('blocked') ||
+                errorMessage.includes('net::ERR_BLOCKED_BY_CLIENT') ||
+                errorStack.includes('ERR_BLOCKED_BY_CLIENT') ||
+                errorString.toLowerCase().includes('blocked') ||
+                errorString.includes('ERR_BLOCKED_BY_CLIENT')
+              );
+              
+              if (isBlocked) {
+                // Mark Sentry as blocked and disable it completely
+                isSentryBlocked = true;
+                disableSentryClient();
+                // Return a resolved promise to prevent errors from bubbling up
+                return Promise.resolve({ statusCode: 200 });
+              }
+              // Re-throw other errors
+              throw error;
+            }
+          },
+        };
+      },
+      
       // Handle transport errors gracefully
       beforeSend(event, hint) {
+        // If blocked, don't send anything
+        if (isSentryBlocked) {
+          return null;
+        }
+        
         // Check if error is due to blocked request
         if (hint.originalException && hint.originalException.message) {
           const message = hint.originalException.message.toLowerCase();
           if (message.includes('blocked') || message.includes('err_blocked_by_client')) {
             isSentryBlocked = true;
+            disableSentryClient();
             // Don't send the event if it's just a blocked request
             return null;
           }
@@ -59,6 +262,35 @@ if (sentryDsn && !disableSentry) {
       devicePixelRatio: window.devicePixelRatio || 1,
       hardwareConcurrency: navigator.hardwareConcurrency || 'unknown',
     });
+    
+    // Add global error handler for unhandled promise rejections from Sentry
+    if (typeof window !== 'undefined') {
+      window.addEventListener('unhandledrejection', (event) => {
+        // Check if the rejection is from a Sentry request
+        const reason = event.reason;
+        if (reason) {
+          const errorMessage = reason?.message || String(reason) || '';
+          const errorStack = reason?.stack || '';
+          const errorName = reason?.name || '';
+          
+          // Check if it's a blocked Sentry request
+          if (
+            errorMessage.includes('sentry.io') ||
+            errorMessage.includes('ingest.de.sentry.io') ||
+            errorStack.includes('sentry.io') ||
+            errorMessage.toLowerCase().includes('err_blocked_by_client') ||
+            errorMessage.toLowerCase().includes('blocked')
+          ) {
+            // Mark Sentry as blocked and disable it
+            isSentryBlocked = true;
+            disableSentryClient();
+            event.preventDefault(); // Prevent default error logging
+            event.stopPropagation();
+            return false;
+          }
+        }
+      }, true);
+    }
   } catch (error) {
     // If Sentry initialization fails, mark as blocked
     console.warn('Sentry initialization failed, metrics will be disabled:', error);
@@ -112,10 +344,12 @@ export function safeSentrySpan(options, callback) {
   try {
     return Sentry.startSpan(options, callback);
   } catch (error) {
-    // If span creation fails, mark Sentry as blocked and execute callback without tracking
-    if (error.message && error.message.toLowerCase().includes('blocked')) {
+    // If span creation fails, check if it's a blocked request
+    const errorMessage = error?.message || String(error) || '';
+    if (errorMessage.toLowerCase().includes('blocked') || errorMessage.includes('ERR_BLOCKED_BY_CLIENT')) {
       isSentryBlocked = true;
     }
+    // Execute callback without tracking
     return callback({ setAttribute: () => {}, setData: () => {} });
   }
 }
@@ -131,6 +365,45 @@ export function safeCaptureException(error) {
   
   try {
     Sentry.captureException(error);
+  } catch (e) {
+    // Silently fail if Sentry is blocked
+    if (e.message && e.message.toLowerCase().includes('blocked')) {
+      isSentryBlocked = true;
+    }
+  }
+}
+
+/**
+ * Safely set context in Sentry
+ * @param {string} name - Context name
+ * @param {object} context - Context data
+ */
+export function safeSetContext(name, context) {
+  if (isSentryBlocked || typeof Sentry === 'undefined' || !Sentry.setContext) {
+    return;
+  }
+  
+  try {
+    Sentry.setContext(name, context);
+  } catch (e) {
+    // Silently fail if Sentry is blocked
+    if (e.message && e.message.toLowerCase().includes('blocked')) {
+      isSentryBlocked = true;
+    }
+  }
+}
+
+/**
+ * Safely add breadcrumb to Sentry
+ * @param {object} breadcrumb - Breadcrumb data
+ */
+export function safeAddBreadcrumb(breadcrumb) {
+  if (isSentryBlocked || typeof Sentry === 'undefined' || !Sentry.addBreadcrumb) {
+    return;
+  }
+  
+  try {
+    Sentry.addBreadcrumb(breadcrumb);
   } catch (e) {
     // Silently fail if Sentry is blocked
     if (e.message && e.message.toLowerCase().includes('blocked')) {

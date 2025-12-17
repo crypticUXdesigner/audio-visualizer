@@ -1,8 +1,7 @@
 // Audiotool Track Service Client
 // Uses the TrackService protobuf definitions to access published tracks
 
-import Sentry from './SentryInit.js';
-import { safeCaptureException } from './SentryInit.js';
+import Sentry, { safeCaptureException, safeSentrySpan } from './SentryInit.js';
 import { getTrackIdentifier, saveTrackIdentifier } from '../config/track-registry.js';
 
 /**
@@ -128,7 +127,7 @@ async function callTrackService(method, request) {
  * @returns {Promise<object>} List of tracks
  */
 export async function listTracks(options = {}) {
-  return Sentry.startSpan(
+  return safeSentrySpan(
     {
       op: 'http.client',
       name: 'List Audiotool Tracks',
@@ -178,7 +177,7 @@ export async function listTracks(options = {}) {
  * @returns {Promise<object>} Track information
  */
 export async function getTrack(trackName) {
-  return Sentry.startSpan(
+  return safeSentrySpan(
     {
       op: 'http.client',
       name: 'Get Audiotool Track',
@@ -218,6 +217,168 @@ export async function getTrack(trackName) {
 }
 
 /**
+ * Get multiple tracks by their identifiers in a single API call
+ * @param {string[]} trackNames - Array of track names in format "tracks/{id}" or just "{id}"
+ * @returns {Promise<object>} Object mapping track names to track information
+ */
+export async function getTracks(trackNames) {
+  return safeSentrySpan(
+    {
+      op: 'http.client',
+      name: 'Get Multiple Audiotool Tracks',
+    },
+    async (span) => {
+      try {
+        if (!trackNames || trackNames.length === 0) {
+          return {
+            success: true,
+            tracks: {},
+          };
+        }
+        
+        // Normalize track names to correct format
+        const normalizedNames = trackNames.map(name => 
+          name.startsWith('tracks/') ? name : `tracks/${name}`
+        );
+        
+        // Build CEL filter: track.name == "tracks/123" || track.name == "tracks/456" || ...
+        const filter = normalizedNames
+          .map(name => `track.name == "${name}"`)
+          .join(' || ');
+        
+        console.log(`🎵 Fetching ${normalizedNames.length} tracks in batch`);
+        
+        const result = await listTracks({
+          filter: filter,
+          pageSize: normalizedNames.length,
+          orderBy: 'track.create_time desc',
+        });
+        
+        if (!result.success) {
+          throw new Error('Failed to fetch tracks');
+        }
+        
+        // Create a map of track name -> track object for easy lookup
+        const tracksMap = {};
+        if (result.tracks) {
+          result.tracks.forEach(track => {
+            if (track.name) {
+              tracksMap[track.name] = track;
+            }
+          });
+        }
+        
+        span.setAttribute('tracks.requested', normalizedNames.length);
+        span.setAttribute('tracks.found', Object.keys(tracksMap).length);
+        
+        return {
+          success: true,
+          tracks: tracksMap,
+        };
+      } catch (error) {
+        console.error('❌ Failed to get tracks:', error);
+        safeCaptureException(error);
+        throw error;
+      }
+    }
+  );
+}
+
+/**
+ * Load multiple tracks by their identifiers in a single batch API call
+ * @param {Array<{songName: string, username: string, trackIdentifier: string}>} tracks - Array of track info objects
+ * @returns {Promise<object>} Object mapping (songName|username) keys to track information
+ */
+export async function loadTracks(tracks) {
+  return safeSentrySpan(
+    {
+      op: 'http.client',
+      name: 'Load Multiple Audiotool Tracks',
+    },
+    async (span) => {
+      try {
+        // Separate tracks with identifiers from those without
+        const tracksWithIds = [];
+        const tracksWithoutIds = [];
+        
+        tracks.forEach(track => {
+          const identifier = track.trackIdentifier || getTrackIdentifier(track.songName, track.username);
+          if (identifier) {
+            tracksWithIds.push({
+              ...track,
+              trackIdentifier: identifier,
+            });
+          } else {
+            tracksWithoutIds.push(track);
+          }
+        });
+        
+        const results = {};
+        
+        // Batch load tracks with identifiers
+        if (tracksWithIds.length > 0) {
+          const trackIdentifiers = tracksWithIds.map(t => t.trackIdentifier);
+          const batchResult = await getTracks(trackIdentifiers);
+          
+          if (batchResult.success && batchResult.tracks) {
+            tracksWithIds.forEach(trackInfo => {
+              const track = batchResult.tracks[trackInfo.trackIdentifier];
+              if (track) {
+                const key = `${trackInfo.songName}|${trackInfo.username}`;
+                results[key] = {
+                  success: true,
+                  track: track,
+                };
+              } else {
+                const key = `${trackInfo.songName}|${trackInfo.username}`;
+                results[key] = {
+                  success: false,
+                  track: null,
+                  error: `Track ${trackInfo.trackIdentifier} not found in batch response`,
+                };
+              }
+            });
+          }
+        }
+        
+        // Load tracks without identifiers individually (they need search)
+        for (const trackInfo of tracksWithoutIds) {
+          const key = `${trackInfo.songName}|${trackInfo.username}`;
+          try {
+            const result = await findTrack(trackInfo.songName, trackInfo.username);
+            results[key] = result;
+            
+            // Save identifier if found
+            if (result.success && result.track?.name && trackInfo.username) {
+              saveTrackIdentifier(trackInfo.songName, trackInfo.username, result.track.name);
+            }
+          } catch (error) {
+            results[key] = {
+              success: false,
+              track: null,
+              error: error.message || String(error),
+            };
+          }
+        }
+        
+        span.setAttribute('tracks.total', tracks.length);
+        span.setAttribute('tracks.batched', tracksWithIds.length);
+        span.setAttribute('tracks.individual', tracksWithoutIds.length);
+        
+        return {
+          success: true,
+          results: results,
+        };
+      } catch (error) {
+        console.error('❌ Failed to load tracks:', error);
+        safeCaptureException(error);
+        throw error;
+      }
+    }
+  );
+}
+
+/**
  * Load a track by identifier or search by name only
  * Tries identifier first (fast), falls back to search if not found
  * @param {string} songName - Name of the song
@@ -226,7 +387,7 @@ export async function getTrack(trackName) {
  * @returns {Promise<object>} Track information
  */
 export async function loadTrack(songName, username, trackIdentifier = null) {
-  return Sentry.startSpan(
+  return safeSentrySpan(
     {
       op: 'http.client',
       name: 'Load Audiotool Track',
@@ -293,7 +454,7 @@ export async function loadTrack(songName, username, trackIdentifier = null) {
  * @returns {Promise<object>} Track information
  */
 export async function findTrack(songName, username = null) {
-  return Sentry.startSpan(
+  return safeSentrySpan(
     {
       op: 'http.client',
       name: 'Find Audiotool Track',
@@ -371,7 +532,7 @@ export async function findTrack(songName, username = null) {
  * @param {string} username - Username of the artist
  */
 export async function loadTrackInfo(songName = 'trust fund', username = 'dquerg') {
-  return Sentry.startSpan(
+  return safeSentrySpan(
     {
       op: 'http.client',
       name: 'Load Track Information',
@@ -514,7 +675,9 @@ if (typeof window !== 'undefined') {
   window.AudiotoolTrackService = {
     listTracks: listTracks,
     getTrack: getTrack,
+    getTracks: getTracks,
     loadTrack: loadTrack,
+    loadTracks: loadTracks,
     findTrack: findTrack,
     loadTrackInfo: loadTrackInfo,
   };

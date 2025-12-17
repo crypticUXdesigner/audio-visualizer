@@ -5,7 +5,7 @@
 import './styles/app.css';
 
 // Initialize Sentry as early as possible (before other imports)
-import Sentry from './core/SentryInit.js';
+import Sentry, { safeCaptureException, safeSentrySpan } from './core/SentryInit.js';
 import { AudioAnalyzer } from './core/AudioAnalyzer.js';
 import { generateColorsFromOklch, rgbToHex, normalizeColor, hexToRgb, rgbToOklch, interpolateHue } from './core/ColorGenerator.js';
 import { ShaderManager } from './shaders/ShaderManager.js';
@@ -50,7 +50,7 @@ class VisualPlayer {
         }
         
         // Track initialization as a transaction
-        return Sentry.startSpan(
+        return safeSentrySpan(
             {
                 op: "app.init",
                 name: "Visual Player Initialization",
@@ -60,7 +60,7 @@ class VisualPlayer {
                 
                 try {
                     // 1. Initialize Audio Analyzer
-                    await Sentry.startSpan(
+                    await safeSentrySpan(
                         { op: "audio.init", name: "Audio Analyzer Init" },
                         async () => {
                             this.audioAnalyzer = new AudioAnalyzer();
@@ -126,7 +126,7 @@ class VisualPlayer {
                     console.error('Error initializing Visual Player:', error);
                     
                     // Capture error in Sentry
-                    Sentry.captureException(error);
+                    safeCaptureException(error);
                     
                     // Show user-friendly error message
                     this.showInitializationError(error);
@@ -253,62 +253,89 @@ class VisualPlayer {
             }
         }
         
-        // Load tracks from TrackService dynamically
+        // Load tracks from TrackService dynamically using batch loading
         // This happens asynchronously so it doesn't block initialization
-        setTimeout(() => {
-            // Load "Blue Eyes (Trust Fund)" (has identifier, will use direct lookup)
-            this.loadAPITrack('Blue Eyes (Trust Fund)', 'dquerg').catch(error => {
-                console.warn('Failed to load API track "Blue Eyes (Trust Fund)" (this is optional):', error);
-            });
-            
-            // Load "Beast Within" (has identifier, will use direct lookup)
-            setTimeout(() => {
-                this.loadAPITrack('Beast Within', 'dquerg').catch(error => {
-                    console.warn('Failed to load API track "Beast Within" (this is optional):', error);
-                });
-            }, 300);
-            
-            // Load "#BBCHTRN" (has identifier, will use direct lookup)
-            setTimeout(() => {
-                this.loadAPITrack('#BBCHTRN', 'dquerg').catch(error => {
-                    console.warn('Failed to load API track "#BBCHTRN" (this is optional):', error);
-                });
-            }, 600);
-            
-            // Load "#DFNTLYNABYPK" (has identifier, will use direct lookup)
-            setTimeout(() => {
-                this.loadAPITrack('#DFNTLYNABYPK', 'dquerg').catch(error => {
-                    console.warn('Failed to load API track "#DFNTLYNABYPK" (this is optional):', error);
-                });
-            }, 900);
-            
-            // Load "kitsch (Kepz Remix)" (will search first time, then save identifier)
-            setTimeout(() => {
-                this.loadAPITrack('kitsch (Kepz Remix)', 'various').catch(error => {
-                    console.warn('Failed to load API track "kitsch (Kepz Remix)" (this is optional):', error);
-                });
-            }, 1200);
-            
-            // Load "Five Hundred" (will search first time, then save identifier)
-            setTimeout(() => {
-                this.loadAPITrack('Five Hundred', 'various').catch(error => {
-                    console.warn('Failed to load API track "Five Hundred" (this is optional):', error);
-                });
-            }, 1500);
-            
-            // Load "Sackgesicht" (will search first time, then save identifier)
-            setTimeout(() => {
-                this.loadAPITrack('Sackgesicht', 'various').catch(error => {
-                    console.warn('Failed to load API track "Sackgesicht" (this is optional):', error);
-                });
-            }, 1800);
-            
-            // Load "Back To You - Icebox, SIREN & dcln" (will search first time, then save identifier)
-            setTimeout(() => {
-                this.loadAPITrack('Back To You - Icebox, SIREN & dcln', 'various').catch(error => {
-                    console.warn('Failed to load API track "Back To You - Icebox, SIREN & dcln" (this is optional):', error);
-                });
-            }, 2100);
+        setTimeout(async () => {
+            try {
+                // Import the batch loading function
+                const { loadTracks } = await import('./core/AudiotoolTrackService.js');
+                const { getTrackIdentifier } = await import('./config/track-registry.js');
+                
+                // Define all tracks to load
+                const tracksToLoad = [
+                    { songName: 'Blue Eyes (Trust Fund)', username: 'dquerg' },
+                    { songName: 'Beast Within', username: 'dquerg' },
+                    { songName: '#BBCHTRN', username: 'dquerg' },
+                    { songName: '#DFNTLYNABYPK', username: 'dquerg' },
+                    { songName: 'kitsch (Kepz Remix)', username: 'various' },
+                    { songName: 'Five Hundred', username: 'various' },
+                    { songName: 'Sackgesicht', username: 'various' },
+                    { songName: 'Back To You - Icebox, SIREN & dcln', username: 'various' },
+                ];
+                
+                // Get track identifiers for tracks that have them
+                const tracksWithIdentifiers = tracksToLoad.map(track => ({
+                    ...track,
+                    trackIdentifier: getTrackIdentifier(track.songName, track.username),
+                }));
+                
+                console.log(`📦 Batch loading ${tracksWithIdentifiers.length} tracks from API...`);
+                
+                // Batch load all tracks in a single API call
+                const batchResult = await loadTracks(tracksWithIdentifiers);
+                
+                if (batchResult.success) {
+                    // Process results and add tracks to the UI
+                    for (const trackInfo of tracksWithIdentifiers) {
+                        const key = `${trackInfo.songName}|${trackInfo.username}`;
+                        const result = batchResult.results[key];
+                        
+                        if (result && result.success && result.track) {
+                            // Add track to UI using pre-loaded track data (avoids duplicate API call)
+                            if (this.audioControls) {
+                                await this.audioControls.addTrackFromAPI(
+                                    trackInfo.songName, 
+                                    trackInfo.username, 
+                                    false, 
+                                    result.track // Pass pre-loaded track
+                                );
+                            }
+                        } else {
+                            const errorMsg = result?.error || 'Unknown error';
+                            console.warn(`⚠️  Failed to load API track "${trackInfo.songName}" (this is optional): ${errorMsg}`);
+                        }
+                    }
+                    
+                    console.log(`✅ Batch loaded ${Object.values(batchResult.results).filter(r => r.success).length} tracks successfully`);
+                } else {
+                    console.warn('⚠️  Batch loading failed, falling back to individual loads');
+                    // Fallback to individual loading if batch fails
+                    for (const track of tracksToLoad) {
+                        this.loadAPITrack(track.songName, track.username).catch(error => {
+                            console.warn(`Failed to load API track "${track.songName}" (this is optional):`, error);
+                        });
+                    }
+                }
+            } catch (error) {
+                console.warn('⚠️  Batch loading error, falling back to individual loads:', error);
+                // Fallback to individual loading if batch fails
+                const tracksToLoad = [
+                    { songName: 'Blue Eyes (Trust Fund)', username: 'dquerg' },
+                    { songName: 'Beast Within', username: 'dquerg' },
+                    { songName: '#BBCHTRN', username: 'dquerg' },
+                    { songName: '#DFNTLYNABYPK', username: 'dquerg' },
+                    { songName: 'kitsch (Kepz Remix)', username: 'various' },
+                    { songName: 'Five Hundred', username: 'various' },
+                    { songName: 'Sackgesicht', username: 'various' },
+                    { songName: 'Back To You - Icebox, SIREN & dcln', username: 'various' },
+                ];
+                
+                for (const track of tracksToLoad) {
+                    this.loadAPITrack(track.songName, track.username).catch(err => {
+                        console.warn(`Failed to load API track "${track.songName}" (this is optional):`, err);
+                    });
+                }
+            }
         }, 1000); // Wait 1 second after initialization to load API tracks
         
         // Initialize color preset switcher

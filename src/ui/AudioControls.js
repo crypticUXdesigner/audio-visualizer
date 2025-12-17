@@ -447,23 +447,31 @@ export class AudioControls {
      * @param {string} songName - Name of the song
      * @param {string} username - Username of the artist
      * @param {boolean} autoLoad - Whether to automatically load the track after adding
+     * @param {object} preloadedTrack - Optional pre-loaded track object (skips API call)
      */
-    async addTrackFromAPI(songName, username, autoLoad = false) {
+    async addTrackFromAPI(songName, username, autoLoad = false, preloadedTrack = null) {
         try {
-            // Import the TrackService function dynamically to avoid circular dependencies
-            const { loadTrack } = await import('../core/AudiotoolTrackService.js');
+            let track;
             
-            // Get track information from TrackService (tries identifier first, falls back to search)
-            const result = await loadTrack(songName, username);
-            
-            if (!result.success || !result.track) {
-                // Return gracefully instead of throwing
-                const errorMsg = result.error || 'Failed to load track information from TrackService';
-                console.warn(`⚠️  ${errorMsg}`);
-                return null; // Return null to indicate failure without throwing
+            if (preloadedTrack) {
+                // Use pre-loaded track (from batch loading)
+                track = preloadedTrack;
+            } else {
+                // Import the TrackService function dynamically to avoid circular dependencies
+                const { loadTrack } = await import('../core/AudiotoolTrackService.js');
+                
+                // Get track information from TrackService (tries identifier first, falls back to search)
+                const result = await loadTrack(songName, username);
+                
+                if (!result.success || !result.track) {
+                    // Return gracefully instead of throwing
+                    const errorMsg = result.error || 'Failed to load track information from TrackService';
+                    console.warn(`⚠️  ${errorMsg}`);
+                    return null; // Return null to indicate failure without throwing
+                }
+                
+                track = result.track;
             }
-            
-            const track = result.track;
             
             // Prefer OGG or WAV over MP3 (better quality, less encoding issues)
             // Fallback to MP3 if OGG/WAV not available

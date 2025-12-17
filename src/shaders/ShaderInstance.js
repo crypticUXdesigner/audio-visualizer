@@ -2,7 +2,7 @@
 // Handles WebGL context, program, uniforms, and rendering for one shader
 
 import { loadShader, createProgram, createQuad } from '../core/WebGLUtils.js';
-import Sentry, { safeSentryMetric, isSentryAvailable } from '../core/SentryInit.js';
+import Sentry, { safeSentryMetric, isSentryAvailable, safeSetContext, safeAddBreadcrumb } from '../core/SentryInit.js';
 
 export class ShaderInstance {
     constructor(canvasId, config) {
@@ -97,21 +97,19 @@ export class ShaderInstance {
         }
         
         // Set WebGL context info as Sentry context
-        if (typeof Sentry !== 'undefined') {
-            Sentry.setContext("webgl", {
-                vendor: this.gl.getParameter(this.gl.VENDOR),
-                renderer: this.gl.getParameter(this.gl.RENDERER),
-                version: this.gl.getParameter(this.gl.VERSION),
-                maxTextureSize: this.gl.getParameter(this.gl.MAX_TEXTURE_SIZE),
-                maxViewportDims: this.gl.getParameter(this.gl.MAX_VIEWPORT_DIMS),
-                maxVertexAttribs: this.gl.getParameter(this.gl.MAX_VERTEX_ATTRIBS),
-                maxVertexTextureImageUnits: this.gl.getParameter(this.gl.MAX_VERTEX_TEXTURE_IMAGE_UNITS),
-                maxTextureImageUnits: this.gl.getParameter(this.gl.MAX_TEXTURE_IMAGE_UNITS),
-                maxFragmentUniformVectors: this.gl.getParameter(this.gl.MAX_FRAGMENT_UNIFORM_VECTORS),
-                maxVertexUniformVectors: this.gl.getParameter(this.gl.MAX_VERTEX_UNIFORM_VECTORS),
-                extensions: this.gl.getSupportedExtensions(),
-            });
-        }
+        safeSetContext("webgl", {
+            vendor: this.gl.getParameter(this.gl.VENDOR),
+            renderer: this.gl.getParameter(this.gl.RENDERER),
+            version: this.gl.getParameter(this.gl.VERSION),
+            maxTextureSize: this.gl.getParameter(this.gl.MAX_TEXTURE_SIZE),
+            maxViewportDims: this.gl.getParameter(this.gl.MAX_VIEWPORT_DIMS),
+            maxVertexAttribs: this.gl.getParameter(this.gl.MAX_VERTEX_ATTRIBS),
+            maxVertexTextureImageUnits: this.gl.getParameter(this.gl.MAX_VERTEX_TEXTURE_IMAGE_UNITS),
+            maxTextureImageUnits: this.gl.getParameter(this.gl.MAX_TEXTURE_IMAGE_UNITS),
+            maxFragmentUniformVectors: this.gl.getParameter(this.gl.MAX_FRAGMENT_UNIFORM_VECTORS),
+            maxVertexUniformVectors: this.gl.getParameter(this.gl.MAX_VERTEX_UNIFORM_VECTORS),
+            extensions: this.gl.getSupportedExtensions(),
+        });
         
         // Enable extensions
         this.ext = this.gl.getExtension('OES_standard_derivatives');
@@ -829,19 +827,17 @@ export class ShaderInstance {
                     this.resize(); // Recalculate canvas size
                     
                     // Track quality change in Sentry
-                    if (typeof Sentry !== 'undefined') {
-                        Sentry.addBreadcrumb({
-                            category: 'performance',
-                            message: 'Quality reduced due to low FPS',
-                            level: 'info',
-                            data: {
-                                fromQuality: previousQuality,
-                                toQuality: this.qualityLevel,
-                                fps: currentFPS,
-                                targetFPS: targetFPS,
-                            },
-                        });
-                    }
+                    safeAddBreadcrumb({
+                        category: 'performance',
+                        message: 'Quality reduced due to low FPS',
+                        level: 'info',
+                        data: {
+                            fromQuality: previousQuality,
+                            toQuality: this.qualityLevel,
+                            fps: currentFPS,
+                            targetFPS: targetFPS,
+                        },
+                    });
                 } else if (currentFPS > targetFPS * 1.2 && this.qualityLevel < 1.0) {
                     // Increase quality
                     this.qualityLevel = Math.min(1.0, this.qualityLevel + 0.1);
@@ -849,19 +845,17 @@ export class ShaderInstance {
                     this.resize(); // Recalculate canvas size
                     
                     // Track quality change in Sentry
-                    if (typeof Sentry !== 'undefined') {
-                        Sentry.addBreadcrumb({
-                            category: 'performance',
-                            message: 'Quality increased due to high FPS',
-                            level: 'info',
-                            data: {
-                                fromQuality: previousQuality,
-                                toQuality: this.qualityLevel,
-                                fps: currentFPS,
-                                targetFPS: targetFPS,
-                            },
-                        });
-                    }
+                    safeAddBreadcrumb({
+                        category: 'performance',
+                        message: 'Quality increased due to high FPS',
+                        level: 'info',
+                        data: {
+                            fromQuality: previousQuality,
+                            toQuality: this.qualityLevel,
+                            fps: currentFPS,
+                            targetFPS: targetFPS,
+                        },
+                    });
                 }
             }
         }
