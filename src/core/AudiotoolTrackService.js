@@ -52,7 +52,7 @@ async function callTrackService(method, request) {
   const baseUrl = 'https://rpc.audiotool.com';
   const serviceName = 'audiotool.track.v1.TrackService';
   // Connect RPC JSON format: add ?encoding=json for JSON encoding
-  const url = `${baseUrl}/${serviceName}/${method}?encoding=json`;
+  const url = `${baseUrl}/${serviceName}/${method}`;
   
   const headers = {
     'Content-Type': 'application/json',
