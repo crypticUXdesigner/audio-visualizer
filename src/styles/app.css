@@ -8,10 +8,12 @@
 @import './components.css';
 
 /* Mobile Optimization - Hide elements and adjust layout */
-@media (max-width: 768px) {
-  /* Hide frequency visualizer completely on mobile */
-  #frequencyCanvas {
-    display: none !important;
+body {
+  @media (max-width: 768px) {
+    /* Hide frequency visualizer completely on mobile */
+    #frequencyCanvas {
+      display: none !important;
+    }
   }
 }
 

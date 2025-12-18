@@ -676,9 +676,9 @@
   --input-nudge-print: var(--dec-07-90);
   --input-nudge-print-hover: var(--dec-07-110);
   --input-nudge-print-active: var(--dec-07-130);
-  --input-nudge-border: var(--color-gray-70);
-  --input-nudge-border-hover: var(--color-gray-80);
-  --input-nudge-border-active: var(--dec-07-60);
+  --input-nudge-border: var(--dec-07-50);
+  --input-nudge-border-hover: var(--dec-07-70);
+  --input-nudge-border-active: var(--dec-07-90);
   --input-nudge-print-placeholder: var(--dec-ds-07-70);
   --shortcut-default-bg: var(--dec-07-30);
   --shortcut-default-border: var(--dec-07-100);

@@ -25,3 +25,8 @@ npm-debug.log*
 
 # Test files moved to tools/ directory - no longer need to ignore
 
+# Development planning
+ROADMAP.md
+TODO.md
+NOTES.md
+

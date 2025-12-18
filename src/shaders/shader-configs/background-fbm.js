@@ -28,7 +28,7 @@ export default {
         },
         transitionWidth: {
             type: 'float',
-            default: 0.005,
+            default: 0.003,
             min: 0.005,
             max: 0.1,
             step: 0.005,

@@ -168,7 +168,7 @@ float fbm2(vec2 uv, float t)
     vec3 p   = vec3(uv * FBM_SCALE, t);
     float amp  = 1.;
     float freq = 1.;
-    float sum  = 1.;
+    float sum  = 0.;
 
     for (int i = 0; i < FBM_OCTAVES; ++i)
     {
@@ -328,11 +328,16 @@ void main() {
     
     // Scale feed based on volume - quieter songs stay darker
     // This fixes the white issue: silent songs should be dark, not white
-    float volumeScale = 0.3 + uVolume * 0.7; // Range: 0.3-1.0 for quiet, up to 1.0 for loud
+    float volumeScale = 0.3 + uVolume * 0.7; // Range: 0.5-1.0 (reduced impact to prevent sustained brightness)
     feed = feed * volumeScale;
     
     // Apply stereo brightness modulation (subtle)
     feed *= stereoBrightness;
+    
+    // Soft compression for high values (prevents washout during loud sections)
+    if (feed > 0.7) {
+        feed = 0.7 + (feed - 0.7) * 0.3; // Compress values above 0.7
+    }
     
     // Multiple ripples positioned by stereo field
     // Each ripple is independent and expands/fades on its own timeline
@@ -474,26 +479,26 @@ void main() {
     
     // color7: freq7 (160-320 Hz)
     float threshold7Base = uThreshold7 + bayer * 0.14;
-    float threshold7Reduced = threshold7Base - (uFreq7 * 0.40 * freq7Active);  // Strong reduction
-    float threshold7Min = threshold7Base * 0.80;  // Relative floor: 80% of base
+    float threshold7Reduced = threshold7Base - (uFreq7 * 0.25 * freq7Active);  // Reduced from 0.40
+    float threshold7Min = threshold7Base * 0.85;  // Raised from 0.80
     float threshold7 = max(threshold7Reduced, threshold7Min);
     
     // color8: freq8 (80-160 Hz)
     float threshold8Base = uThreshold8 + bayer * 0.12;
-    float threshold8Reduced = threshold8Base - (uFreq8 * 0.50 * freq8Active);  // Very strong reduction
-    float threshold8Min = threshold8Base * 0.80;  // Relative floor: 80% of base
+    float threshold8Reduced = threshold8Base - (uFreq8 * 0.30 * freq8Active);  // Reduced from 0.50
+    float threshold8Min = threshold8Base * 0.85;  // Raised from 0.80
     float threshold8 = max(threshold8Reduced, threshold8Min);
     
     // color9: freq9 (40-80 Hz)
     float threshold9Base = uThreshold9 + bayer * 0.08;
-    float threshold9Reduced = threshold9Base - (uFreq9 * 0.60 * freq9Active);  // Aggressive reduction
-    float threshold9Min = threshold9Base * 0.80;  // Relative floor: 80% of base
+    float threshold9Reduced = threshold9Base - (uFreq9 * 0.40 * freq9Active);  // Reduced from 0.60
+    float threshold9Min = threshold9Base * 0.85;  // Raised from 0.80
     float threshold9 = max(threshold9Reduced, threshold9Min);
     
     // Darkest (color10): freq10 (20-40 Hz)
     float threshold10Base = uThreshold10 + bayer * 0.04;
-    float threshold10Reduced = threshold10Base - (uFreq10 * 0.70 * freq10Active);  // Maximum reduction
-    float threshold10Min = threshold10Base * 0.80;  // Relative floor: 80% of base
+    float threshold10Reduced = threshold10Base - (uFreq10 * 0.50 * freq10Active);  // Reduced from 0.70
+    float threshold10Min = threshold10Base * 0.85;  // Raised from 0.80
     float threshold10 = max(threshold10Reduced, threshold10Min);
     
     vec3 color;

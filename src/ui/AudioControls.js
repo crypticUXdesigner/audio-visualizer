@@ -16,6 +16,7 @@ export class AudioControls {
         this.trackDropdownBtn = document.getElementById('trackDropdownBtn');
         this.trackDropdownText = document.getElementById('trackDropdownText');
         this.trackDropdownMenu = document.getElementById('trackDropdownMenu');
+        this.trackList = document.getElementById('trackList');
         this.trackOptions = document.querySelectorAll('.track-option');
         this.trackLoadingSpinner = this.trackDropdownBtn?.querySelector('.track-loading-spinner');
         this.scrubberContainer = document.querySelector('.scrubber-container');
@@ -131,9 +132,10 @@ export class AudioControls {
             });
         });
         
-        // Close dropdown when clicking outside
+        // Close dropdown when clicking outside (check both button and menu)
         document.addEventListener('click', (e) => {
-            if (this.trackDropdown && !this.trackDropdown.contains(e.target)) {
+            if (this.trackDropdown && !this.trackDropdown.contains(e.target) &&
+                this.trackDropdownMenu && !this.trackDropdownMenu.contains(e.target)) {
                 this.closeDropdown();
             }
         });
@@ -199,6 +201,9 @@ export class AudioControls {
         
         // Setup keyboard controls
         this.setupKeyboardControls();
+        
+        // Setup track search functionality
+        this.setupTrackSearch();
         
         // Initialize waveform scrubber (replaces seek bar)
         if (this.scrubberContainer) {
@@ -296,6 +301,9 @@ export class AudioControls {
     }
     
     showControls() {
+        // Don't show if menu is open (menu controls visibility)
+        if (this.isDropdownOpen) return;
+        
         if (this.isControlsVisible) return;
         
         this.isControlsVisible = true;
@@ -304,8 +312,7 @@ export class AudioControls {
     }
     
     hideControls() {
-        if (!this.isControlsVisible) return;
-        
+        // Always allow hiding (menu needs to hide controls)
         this.isControlsVisible = false;
         this.audioControlsContainer?.classList.add('ui-hidden');
         this.topControls?.classList.add('ui-hidden');
@@ -391,17 +398,51 @@ export class AudioControls {
     toggleDropdown() {
         this.isDropdownOpen = !this.isDropdownOpen;
         if (this.isDropdownOpen) {
-            this.trackDropdown.classList.add('open');
+            this.openMenu();
         } else {
-            this.trackDropdown.classList.remove('open');
+            this.closeMenu();
         }
     }
     
-    closeDropdown() {
-        this.isDropdownOpen = false;
-        if (this.trackDropdown) {
-            this.trackDropdown.classList.remove('open');
+    openMenu() {
+        this.isDropdownOpen = true;
+        
+        // Step 1: Hide controls (top and bottom)
+        this.hideControls();
+        
+        // Step 2: After controls start animating out, show menu
+        setTimeout(() => {
+            this.trackDropdown?.classList.add('open');
+            if (this.trackDropdownMenu) {
+                // Set display first, then add open class for animation
+                this.trackDropdownMenu.style.display = 'flex';
+                // Force reflow to ensure display is applied
+                this.trackDropdownMenu.offsetHeight;
+                this.trackDropdownMenu.classList.add('open');
+            }
+        }, 100); // Small delay to let controls start animating out
+    }
+    
+    closeMenu() {
+        // Step 1: Hide menu (fade out with downward movement)
+        if (this.trackDropdownMenu) {
+            this.trackDropdownMenu.classList.remove('open');
         }
+        this.trackDropdown?.classList.remove('open');
+        this.isDropdownOpen = false;
+        
+        // Step 2: After menu animation completes, show controls
+        setTimeout(() => {
+            if (this.trackDropdownMenu) {
+                this.trackDropdownMenu.style.display = 'none';
+            }
+            this.showControls();
+        }, 350); // Match the animation duration
+    }
+    
+    closeDropdown() {
+        if (!this.isDropdownOpen) return;
+        this.closeMenu();
     }
     
     showLoading() {
@@ -583,15 +624,30 @@ export class AudioControls {
                 return existingTrack;
             }
             
-            // Create new track option button
+            // Create new track option button with name and artist
             const trackOption = document.createElement('button');
             trackOption.className = 'track-option';
-            // Use the songName parameter (user's search term) as the display name
-            // display_name is actually an identifier, not the human-readable title
-            trackOption.textContent = songName || track.description || track.name;
+            
+            // Create name element
+            const nameElement = document.createElement('div');
+            nameElement.className = 'track-option-name';
+            nameElement.textContent = songName || track.description || track.name;
+            
+            // Create artist element
+            const artistElement = document.createElement('div');
+            artistElement.className = 'track-option-artist';
+            artistElement.textContent = username || 'Unknown Artist';
+            
+            // Append elements
+            trackOption.appendChild(nameElement);
+            trackOption.appendChild(artistElement);
+            
+            // Store data for filtering and playback
             trackOption.dataset.track = audioUrl; // Store the full URL
             trackOption.dataset.apiTrackId = track.name; // Store API ID for reference
             trackOption.dataset.apiTrack = 'true'; // Mark as API track
+            trackOption.dataset.trackName = songName || track.description || track.name;
+            trackOption.dataset.trackArtist = username || 'Unknown Artist';
             // Store BPM in dataset for later use when loading track
             if (metadataBPM) {
                 trackOption.dataset.trackBpm = metadataBPM.toString();
@@ -614,9 +670,9 @@ export class AudioControls {
                 });
             });
             
-            // Add to dropdown menu
-            if (this.trackDropdownMenu) {
-                this.trackDropdownMenu.appendChild(trackOption);
+            // Add to track list
+            if (this.trackList) {
+                this.trackList.appendChild(trackOption);
                 
                 // Update trackOptions reference
                 this.trackOptions = document.querySelectorAll('.track-option');
@@ -628,7 +684,7 @@ export class AudioControls {
                 
                 return trackOption;
             } else {
-                throw new Error('Track dropdown menu not found');
+                throw new Error('Track list not found');
             }
         } catch (error) {
             console.error('Error adding track from API:', error);
@@ -805,6 +861,94 @@ export class AudioControls {
         const newTime = Math.min(duration, this.audioAnalyzer.audioElement.currentTime + seconds);
         this.audioAnalyzer.audioElement.currentTime = newTime;
         this.updateSeekBar();
+    }
+    
+    setupTrackSearch() {
+        const searchInput = document.getElementById('trackSearchInput');
+        const searchClear = document.getElementById('trackSearchClear');
+        const noResultsMsg = document.getElementById('noResultsMsg');
+        
+        if (!searchInput) return;
+        
+        // Handle search input
+        searchInput.addEventListener('input', (e) => {
+            const query = e.target.value.toLowerCase().trim();
+            
+            // Show/hide clear button
+            if (query.length > 0) {
+                searchClear.style.display = 'flex';
+            } else {
+                searchClear.style.display = 'none';
+            }
+            
+            // Filter tracks
+            this.filterTracks(query);
+        });
+        
+        // Handle clear button
+        searchClear.addEventListener('click', () => {
+            searchInput.value = '';
+            searchClear.style.display = 'none';
+            this.filterTracks('');
+            searchInput.focus();
+        });
+        
+        // Clear search when dropdown opens
+        this.trackDropdownBtn.addEventListener('click', () => {
+            searchInput.value = '';
+            searchClear.style.display = 'none';
+            this.filterTracks('');
+        });
+        
+        // Focus search input when dropdown opens (desktop only)
+        const observer = new MutationObserver(() => {
+            if (this.trackDropdown?.classList.contains('open')) {
+                const mediaQuery = window.matchMedia('(min-width: 769px)');
+                if (mediaQuery.matches) {
+                    setTimeout(() => searchInput.focus(), 100);
+                }
+            }
+        });
+        observer.observe(this.trackDropdown, { attributes: true, attributeFilter: ['class'] });
+        
+        // Keyboard navigation
+        searchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                this.closeDropdown();
+            } else if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                const firstVisibleTrack = this.trackList.querySelector('.track-option:not([style*="display: none"])');
+                if (firstVisibleTrack) {
+                    firstVisibleTrack.focus();
+                }
+            }
+        });
+    }
+    
+    filterTracks(query) {
+        const noResultsMsg = document.getElementById('noResultsMsg');
+        const tracks = this.trackList.querySelectorAll('.track-option');
+        
+        let visibleCount = 0;
+        
+        tracks.forEach(track => {
+            const name = track.dataset.trackName?.toLowerCase() || '';
+            const artist = track.dataset.trackArtist?.toLowerCase() || '';
+            
+            if (name.includes(query) || artist.includes(query)) {
+                track.style.display = '';
+                visibleCount++;
+            } else {
+                track.style.display = 'none';
+            }
+        });
+        
+        // Show/hide no results message
+        if (visibleCount === 0 && query.length > 0) {
+            noResultsMsg.style.display = 'block';
+        } else {
+            noResultsMsg.style.display = 'none';
+        }
     }
     
     async playRandomTrack() {

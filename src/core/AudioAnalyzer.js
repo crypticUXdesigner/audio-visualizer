@@ -778,14 +778,14 @@ export class AudioAnalyzer {
             const bassBaseY = -0.15; // 20% down from center
             const bassMaxY = -0.4; // 90% from top (max distance)
             centerY = bassBaseY + (bassMaxY - bassBaseY) * intensity;
-            rippleWidth = 0.3; // Thicker rings
-            intensityMultiplier = 0.75; // Less intensity (60% of normal)
+            rippleWidth = 0.2; // Reduced from 0.3 (narrower rings to prevent large bright areas)
+            intensityMultiplier = 0.65; // Reduced from 0.75 (less bright)
         } else if (bandType === 'treble') {
             centerY = 0.25; // 20% up from center (10% closer than before)
             rippleWidth = 0.07; // Thinner rings
             rippleMinRadius = 0.0; // Smaller min radius
             rippleMaxRadius = 0.5; // Smaller max radius
-            intensityMultiplier = 0.4; // Less intensity (60% of normal)
+            intensityMultiplier = 0.55; // Less intensity (60% of normal)
         }
         // else: mid stays at defaults
         

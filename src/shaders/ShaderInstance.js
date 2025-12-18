@@ -1351,6 +1351,23 @@ export class ShaderInstance {
                     });
                 }
                 
+                // Update FPS display if in debug mode
+                if (document.documentElement.classList.contains('debug-mode')) {
+                    const fpsElement = document.getElementById('currentFps');
+                    if (fpsElement) {
+                        fpsElement.textContent = currentFPS.toFixed(1);
+                        
+                        // Color code based on performance
+                        if (currentFPS < targetFPS * 0.8) {
+                            fpsElement.style.color = '#ff4444'; // Red if low
+                        } else if (currentFPS > targetFPS * 1.1) {
+                            fpsElement.style.color = '#44ff44'; // Green if high
+                        } else {
+                            fpsElement.style.color = '#fff'; // White if on target
+                        }
+                    }
+                }
+                
                 // Auto-adjust quality if FPS is significantly off target
                 const previousQuality = this.qualityLevel;
                 if (currentFPS < targetFPS * 0.8 && this.qualityLevel > 0.5) {
