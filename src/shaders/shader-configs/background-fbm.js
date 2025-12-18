@@ -117,7 +117,9 @@ export default {
             lightness: [0.3, 0.0, 1.0, 0.7],
             chroma: [0.0, 0.25, 1.0, 0.75],
             hue: [0.0, 0.25, 1.0, 0.75]
-        }
+        },
+        // Threshold distribution curve - controls how feed space is allocated to colors
+        thresholdCurve: [0.2, 0.2, 1.0, 0.7]
     },
     
     // Uniform mapping (how audio data maps to shader uniforms)
@@ -136,9 +138,9 @@ export default {
         uFreq5: (data) => data?.smoothedFreq5 || 0,
         uFreq6: (data) => data?.smoothedFreq6 || 0,
         uFreq7: (data) => data?.smoothedFreq7 || 0,
-        uFreq8: (data) => 0, // Not used in current implementation
-        uFreq9: (data) => 0, // Not used in current implementation
-        uFreq10: (data) => 0, // Not used in current implementation
+        uFreq8: (data) => data?.smoothedFreq8 || 0,
+        uFreq9: (data) => data?.smoothedFreq9 || 0,
+        uFreq10: (data) => data?.smoothedFreq10 || 0,
         
         // Stereo uniforms
         uBassStereo: (data) => data?.bassStereo || 0,

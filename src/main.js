@@ -7,7 +7,7 @@ import './styles/app.css';
 // Initialize Sentry as early as possible (before other imports)
 import Sentry, { safeCaptureException, safeSentrySpan } from './core/SentryInit.js';
 import { AudioAnalyzer } from './core/AudioAnalyzer.js';
-import { generateColorsFromOklch, rgbToHex, normalizeColor, hexToRgb, rgbToOklch, interpolateHue } from './core/ColorGenerator.js';
+import { generateColorsFromOklch, rgbToHex, normalizeColor, hexToRgb, rgbToOklch, interpolateHue, calculateThresholds } from './core/ColorGenerator.js';
 import { ColorModulator } from './core/ColorModulator.js';
 import { ShaderManager } from './shaders/ShaderManager.js';
 import backgroundFbmConfig from './shaders/shader-configs/background-fbm.js';
@@ -205,7 +205,7 @@ class VisualPlayer {
             
             const generatedColors = generateColorsFromOklch(configToUse);
             
-            // Map color1-color9 to color, color2-color9 format
+            // Map color1-color10 to color, color2-color10 format
             // Always create new object to ensure reference changes (important for preset switching)
             const newColors = {
                 color: normalizeColor(generatedColors.color1),
@@ -217,15 +217,34 @@ class VisualPlayer {
                 color7: normalizeColor(generatedColors.color7),
                 color8: normalizeColor(generatedColors.color8),
                 color9: normalizeColor(generatedColors.color9),
-                color10: normalizeColor(generatedColors.color9) // color10 same as color9 for now
+                color10: normalizeColor(generatedColors.color10)
             };
             
             this.colors = newColors;
             this.colorsInitialized = true;
             
+            // Calculate thresholds from curve
+            const thresholdCurve = configToUse.thresholdCurve || [0.2, 0.2, 1.0, 0.7];
+            const thresholds = calculateThresholds(thresholdCurve, 10);
+            
             // Update shader manager with colors (this will update render loop with new colors)
             if (this.shaderManager) {
                 this.shaderManager.setColors(this.colors);
+                
+                // Set threshold uniforms
+                if (this.shaderManager.activeShader) {
+                    const shader = this.shaderManager.activeShader;
+                    shader.setUniform('uThreshold1', thresholds[0]);
+                    shader.setUniform('uThreshold2', thresholds[1]);
+                    shader.setUniform('uThreshold3', thresholds[2]);
+                    shader.setUniform('uThreshold4', thresholds[3]);
+                    shader.setUniform('uThreshold5', thresholds[4]);
+                    shader.setUniform('uThreshold6', thresholds[5]);
+                    shader.setUniform('uThreshold7', thresholds[6]);
+                    shader.setUniform('uThreshold8', thresholds[7]);
+                    shader.setUniform('uThreshold9', thresholds[8]);
+                    shader.setUniform('uThreshold10', thresholds[9]);
+                }
             }
             
             // Update color swatches

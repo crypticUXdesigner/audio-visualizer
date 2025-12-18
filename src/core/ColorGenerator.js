@@ -297,7 +297,30 @@ function cubicBezier(t, curve) {
 // ============================================
 
 /**
- * Generates 9 colors from OKLCH-based configuration
+ * Calculate threshold values from a bezier curve
+ * @param {number[]} curve - Bezier curve [x1, y1, x2, y2]
+ * @param {number} numColors - Number of colors (e.g., 10)
+ * @returns {number[]} Array of threshold values in descending order
+ */
+export function calculateThresholds(curve, numColors = 10) {
+    const thresholds = [];
+    
+    // Sample the bezier curve at numColors points
+    for (let i = 0; i < numColors; i++) {
+        const t = i / (numColors - 1); // 0.0 to 1.0
+        const easedValue = cubicBezier(t, curve);
+        thresholds.push(easedValue);
+    }
+    
+    // Reverse array (brightest color gets highest threshold)
+    // thresholds[0] = color1 (brightest), thresholds[9] = color10 (darkest)
+    thresholds.reverse();
+    
+    return thresholds;
+}
+
+/**
+ * Generates 10 colors from OKLCH-based configuration
  * @param {Object} colorConfig - Color configuration object
  * @param {string} colorConfig.baseHue - Base color (hex)
  * @param {Object} colorConfig.darkest - Darkest color config {lightness, chroma, hueOffset, hue}
@@ -306,7 +329,7 @@ function cubicBezier(t, curve) {
  * @param {number[]} colorConfig.interpolationCurve.lightness - Lightness bezier curve [x1, y1, x2, y2]
  * @param {number[]} colorConfig.interpolationCurve.chroma - Chroma bezier curve [x1, y1, x2, y2]
  * @param {number[]} colorConfig.interpolationCurve.hue - Hue bezier curve [x1, y1, x2, y2]
- * @returns {Object} Object with color1 through color9 as RGB arrays [0-1]
+ * @returns {Object} Object with color1 through color10 as RGB arrays [0-1]
  */
 export function generateColorsFromOklch(colorConfig) {
     const { baseHue, darkest, brightest, interpolationCurve } = colorConfig;
@@ -340,11 +363,11 @@ export function generateColorsFromOklch(colorConfig) {
         brightestHue = interpolateHue(baseH, baseH + (brightest.hueOffset || 0), 1.0);
     }
     
-    // Generate 9 colors (0 = darkest, 8 = brightest)
+    // Generate 10 colors (0 = darkest, 9 = brightest)
     const colors = {};
     
-    for (let i = 0; i < 9; i++) {
-        const t = i / 8; // 0 to 1
+    for (let i = 0; i < 10; i++) {
+        const t = i / 9; // 0 to 1
         
         // Apply cubic bezier easing separately for each component
         const tEasedL = cubicBezier(t, lightnessCurve);
@@ -360,9 +383,9 @@ export function generateColorsFromOklch(colorConfig) {
         const oklch = [L, C, H];
         const rgb = oklchToRgb(oklch);
         
-        // Store as color1 (brightest) through color9 (darkest)
-        // Reverse order: i=0 is darkest (color9), i=8 is brightest (color1)
-        const colorKey = `color${9 - i}`;
+        // Store as color1 (brightest) through color10 (darkest)
+        // Reverse order: i=0 is darkest (color10), i=9 is brightest (color1)
+        const colorKey = `color${10 - i}`;
         colors[colorKey] = rgb;
     }
     

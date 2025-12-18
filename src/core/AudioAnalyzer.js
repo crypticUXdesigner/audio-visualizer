@@ -32,14 +32,17 @@ export class AudioAnalyzer {
         this.smoothedVolume = 0.0;
         this.lastUpdateTime = null;  // Track frame time for deltaTime calculation
         
-        // Frequency bands for color mapping (0.0 to 1.0)
-        // freq1: 5.7k-20k Hz (white)
-        // freq2: 1.4k-5.7k Hz (yellow)
-        // freq3: 0.7k-1.4k Hz (violet)
-        // freq4: 354-707 Hz (cyan)
-        // freq5: 177-354 Hz (green)
-        // freq6: 44-88 Hz (dark green)
-        // freq7: 20-44 Hz (darkest)
+        // Frequency bands for color mapping (0.0 to 1.0) - 10 bands, octave-spaced
+        // freq1: 10.24k-20k Hz (brightest - high treble)
+        // freq2: 5.12k-10.24k Hz (upper treble)
+        // freq3: 2.56k-5.12k Hz (treble)
+        // freq4: 1.28k-2.56k Hz (upper mid)
+        // freq5: 640-1280 Hz (mid)
+        // freq6: 320-640 Hz (lower mid)
+        // freq7: 160-320 Hz (upper bass)
+        // freq8: 80-160 Hz (bass)
+        // freq9: 40-80 Hz (sub-bass)
+        // freq10: 20-40 Hz (darkest - deep sub-bass)
         this.freq1 = 0;
         this.freq2 = 0;
         this.freq3 = 0;
@@ -47,8 +50,11 @@ export class AudioAnalyzer {
         this.freq5 = 0;
         this.freq6 = 0;
         this.freq7 = 0;
+        this.freq8 = 0;
+        this.freq9 = 0;
+        this.freq10 = 0;
         
-        // Smoothed frequency bands (currently same as raw values)
+        // Smoothed frequency bands
         this.smoothedFreq1 = 0;
         this.smoothedFreq2 = 0;
         this.smoothedFreq3 = 0;
@@ -56,6 +62,9 @@ export class AudioAnalyzer {
         this.smoothedFreq5 = 0;
         this.smoothedFreq6 = 0;
         this.smoothedFreq7 = 0;
+        this.smoothedFreq8 = 0;
+        this.smoothedFreq9 = 0;
+        this.smoothedFreq10 = 0;
         
         // Stereo balance per frequency band (-1 = left, 0 = center, 1 = right)
         this.bassStereo = 0;
@@ -378,21 +387,27 @@ export class AudioAnalyzer {
         this.mid = this.getAverage(this.frequencyData, hzToBin(600), hzToBin(2000));
         this.treble = this.getAverage(this.frequencyData, hzToBin(3000), hzToBin(6000));
         
-        // Calculate frequency bands:
-        // freq1: 5.7k-20k Hz (white/color1)
-        // freq2: 1.4k-5.7k Hz (yellow/color2)
-        // freq3: 0.7k-1.4k Hz (violet/color3)
-        // freq4: 354-707 Hz (cyan/color4)
-        // freq5: 177-354 Hz (green/color5)
-        // freq6: 44-88 Hz (dark green/color6)
-        // freq7: 20-44 Hz (darkest/color7)
-        this.freq1 = this.getAverage(this.frequencyData, hzToBin(5700), hzToBin(20000));
-        this.freq2 = this.getAverage(this.frequencyData, hzToBin(1400), hzToBin(5700));
-        this.freq3 = this.getAverage(this.frequencyData, hzToBin(700), hzToBin(1400));
-        this.freq4 = this.getAverage(this.frequencyData, hzToBin(354), hzToBin(707));
-        this.freq5 = this.getAverage(this.frequencyData, hzToBin(177), hzToBin(354));
-        this.freq6 = this.getAverage(this.frequencyData, hzToBin(44), hzToBin(88));
-        this.freq7 = this.getAverage(this.frequencyData, hzToBin(20), hzToBin(44));
+        // Calculate frequency bands (10 bands, octave-spaced)
+        // freq1: 10.24k-20k Hz (brightest - high treble)
+        // freq2: 5.12k-10.24k Hz (upper treble)
+        // freq3: 2.56k-5.12k Hz (treble)
+        // freq4: 1.28k-2.56k Hz (upper mid)
+        // freq5: 640-1280 Hz (mid)
+        // freq6: 320-640 Hz (lower mid)
+        // freq7: 160-320 Hz (upper bass)
+        // freq8: 80-160 Hz (bass)
+        // freq9: 40-80 Hz (sub-bass)
+        // freq10: 20-40 Hz (darkest - deep sub-bass)
+        this.freq1 = this.getAverage(this.frequencyData, hzToBin(10240), hzToBin(20000));
+        this.freq2 = this.getAverage(this.frequencyData, hzToBin(5120), hzToBin(10240));
+        this.freq3 = this.getAverage(this.frequencyData, hzToBin(2560), hzToBin(5120));
+        this.freq4 = this.getAverage(this.frequencyData, hzToBin(1280), hzToBin(2560));
+        this.freq5 = this.getAverage(this.frequencyData, hzToBin(640), hzToBin(1280));
+        this.freq6 = this.getAverage(this.frequencyData, hzToBin(320), hzToBin(640));
+        this.freq7 = this.getAverage(this.frequencyData, hzToBin(160), hzToBin(320));
+        this.freq8 = this.getAverage(this.frequencyData, hzToBin(80), hzToBin(160));
+        this.freq9 = this.getAverage(this.frequencyData, hzToBin(40), hzToBin(80));
+        this.freq10 = this.getAverage(this.frequencyData, hzToBin(20), hzToBin(40));
         
         // Calculate stereo balance per frequency band
         // Returns -1 (left) to 1 (right), 0 = center
@@ -520,6 +535,27 @@ export class AudioAnalyzer {
         this.smoothedFreq7 = applyTempoRelativeSmoothing(
             this.smoothedFreq7,
             this.freq7,
+            deltaTime,
+            freqAttackTimeConstant,
+            freqReleaseTimeConstant
+        );
+        this.smoothedFreq8 = applyTempoRelativeSmoothing(
+            this.smoothedFreq8,
+            this.freq8,
+            deltaTime,
+            freqAttackTimeConstant,
+            freqReleaseTimeConstant
+        );
+        this.smoothedFreq9 = applyTempoRelativeSmoothing(
+            this.smoothedFreq9,
+            this.freq9,
+            deltaTime,
+            freqAttackTimeConstant,
+            freqReleaseTimeConstant
+        );
+        this.smoothedFreq10 = applyTempoRelativeSmoothing(
+            this.smoothedFreq10,
+            this.freq10,
             deltaTime,
             freqAttackTimeConstant,
             freqReleaseTimeConstant
@@ -919,6 +955,9 @@ export class AudioAnalyzer {
             freq5: this.freq5,
             freq6: this.freq6,
             freq7: this.freq7,
+            freq8: this.freq8,
+            freq9: this.freq9,
+            freq10: this.freq10,
             smoothedFreq1: this.smoothedFreq1,
             smoothedFreq2: this.smoothedFreq2,
             smoothedFreq3: this.smoothedFreq3,
@@ -926,6 +965,9 @@ export class AudioAnalyzer {
             smoothedFreq5: this.smoothedFreq5,
             smoothedFreq6: this.smoothedFreq6,
             smoothedFreq7: this.smoothedFreq7,
+            smoothedFreq8: this.smoothedFreq8,
+            smoothedFreq9: this.smoothedFreq9,
+            smoothedFreq10: this.smoothedFreq10,
             bassStereo: this.bassStereo,
             midStereo: this.midStereo,
             trebleStereo: this.trebleStereo,

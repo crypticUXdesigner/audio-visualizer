@@ -104,6 +104,32 @@ export class ShaderInstance {
     }
     
     /**
+     * Set a uniform value
+     * @param {string} name - Uniform name
+     * @param {number|number[]} value - Uniform value (float, vec2, vec3, etc.)
+     */
+    setUniform(name, value) {
+        if (!this.gl || !this.program || !this.uniformLocations[name]) {
+            return;
+        }
+        
+        this.gl.useProgram(this.program);
+        const location = this.uniformLocations[name];
+        
+        if (Array.isArray(value)) {
+            if (value.length === 2) {
+                this.gl.uniform2f(location, value[0], value[1]);
+            } else if (value.length === 3) {
+                this.gl.uniform3f(location, value[0], value[1], value[2]);
+            } else if (value.length === 4) {
+                this.gl.uniform4f(location, value[0], value[1], value[2], value[3]);
+            }
+        } else {
+            this.gl.uniform1f(location, value);
+        }
+    }
+    
+    /**
      * Cubic-bezier solver: finds t (0-1) for a given x using binary search
      * @param {number} x - Input value (0-1)
      * @param {number} x1 - First control point X
@@ -397,9 +423,33 @@ export class ShaderInstance {
             uPlaybackProgress: gl.getUniformLocation(program, 'uPlaybackProgress'),
             uTitlePositionOffset: gl.getUniformLocation(program, 'uTitlePositionOffset'),
             
+            // Threshold uniforms (calculated from thresholdCurve bezier)
+            uThreshold1: gl.getUniformLocation(program, 'uThreshold1'),
+            uThreshold2: gl.getUniformLocation(program, 'uThreshold2'),
+            uThreshold3: gl.getUniformLocation(program, 'uThreshold3'),
+            uThreshold4: gl.getUniformLocation(program, 'uThreshold4'),
+            uThreshold5: gl.getUniformLocation(program, 'uThreshold5'),
+            uThreshold6: gl.getUniformLocation(program, 'uThreshold6'),
+            uThreshold7: gl.getUniformLocation(program, 'uThreshold7'),
+            uThreshold8: gl.getUniformLocation(program, 'uThreshold8'),
+            uThreshold9: gl.getUniformLocation(program, 'uThreshold9'),
+            uThreshold10: gl.getUniformLocation(program, 'uThreshold10'),
+            
             // Position attribute
             a_position: gl.getAttribLocation(program, 'a_position')
         };
+        
+        // Set default threshold values (will be overridden when colors are initialized)
+        // Using default curve [0.2, 0.2, 1.0, 0.7]
+        const defaultThresholds = [0.9800, 0.9571, 0.9054, 0.8359, 0.7528, 0.6577, 0.5499, 0.4270, 0.2800, 0.0138];
+        gl.useProgram(program);
+        defaultThresholds.forEach((threshold, index) => {
+            const uniformName = `uThreshold${index + 1}`;
+            const location = this.uniformLocations[uniformName];
+            if (location) {
+                gl.uniform1f(location, threshold);
+            }
+        });
     }
     
     resize() {
@@ -487,11 +537,6 @@ export class ShaderInstance {
             const volume = audioData.volume || 0;
             const deltaTime = elapsed / 1000.0;
             
-            // #region agent log
-            const timeOffsetBefore = this.timeOffset;
-            const smoothedTimeOffsetBefore = this.smoothedTimeOffset;
-            // #endregion
-            
             // Get loudness controls (backward compatibility)
             const loudnessAnimationEnabled = window._loudnessControls?.loudnessAnimationEnabled ?? true;
             const loudnessThreshold = window._loudnessControls?.loudnessThreshold ?? 0.1;
@@ -511,18 +556,10 @@ export class ShaderInstance {
                     const easingFactor = this.getTimeOffsetEasingFactor(volume);
                     const accumulation = volume * this.baseTimeOffsetAccumulationRate * deltaTime * easingFactor;
                     this.timeOffset = Math.min(this.timeOffset + accumulation, this.maxTimeOffset);
-                    
-                    // #region agent log
-                    fetch('http://127.0.0.1:7243/ingest/c7d945f3-3c3b-4cf1-9ce2-9916789b23c5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ShaderInstance.js:497',message:'TimeOffset accumulation',data:{timeOffsetBefore,timeOffsetAfter:this.timeOffset,smoothedTimeOffsetBefore,volume,deltaTime,easingFactor,accumulation,hysteresisThreshold,normalized:this.timeOffset/this.maxTimeOffset},timestamp:Date.now(),sessionId:'debug-session',runId:'timeoffset-measurement',hypothesisId:'timeoffset-behavior'})}).catch(()=>{});
-                    // #endregion
                 } else {
                     // Decay time offset proportionally (slows down as it approaches zero)
                     const decayAmount = this.timeOffset * this.baseTimeOffsetDecayRate * deltaTime;
                     this.timeOffset = Math.max(0, this.timeOffset - decayAmount);
-                    
-                    // #region agent log
-                    fetch('http://127.0.0.1:7243/ingest/c7d945f3-3c3b-4cf1-9ce2-9916789b23c5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ShaderInstance.js:502',message:'TimeOffset decay',data:{timeOffsetBefore,timeOffsetAfter:this.timeOffset,smoothedTimeOffsetBefore,volume,deltaTime,decayAmount,hysteresisThreshold,normalized:this.timeOffset/this.maxTimeOffset},timestamp:Date.now(),sessionId:'debug-session',runId:'timeoffset-measurement',hypothesisId:'timeoffset-behavior'})}).catch(()=>{});
-                    // #endregion
                 }
             } else {
                 // Loudness animation disabled: force decay to 0 (proportional)
@@ -550,10 +587,6 @@ export class ShaderInstance {
                 attackTimeConstant,
                 releaseTimeConstant
             );
-            
-            // #region agent log
-            fetch('http://127.0.0.1:7243/ingest/c7d945f3-3c3b-4cf1-9ce2-9916789b23c5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ShaderInstance.js:515',message:'TimeOffset smoothed',data:{timeOffset:this.timeOffset,smoothedTimeOffset:this.smoothedTimeOffset,normalized:this.timeOffset/this.maxTimeOffset,normalizedSmoothed:this.smoothedTimeOffset/this.maxTimeOffset},timestamp:Date.now(),sessionId:'debug-session',runId:'timeoffset-measurement',hypothesisId:'timeoffset-behavior'})}).catch(()=>{});
-            // #endregion
             
             // Detect loud trigger for pixel size animation
             const volumeChange = volume - this.previousVolume;
