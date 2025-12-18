@@ -50,7 +50,8 @@ export class ShaderInstance {
             x2: 0.8,  // Second control point X
             y2: 1.0    // Second control point Y
         };
-        this.targetFPS = this.parameters.targetFPS || 30;
+        // Hardcoded target FPS (no longer user-configurable)
+        this.targetFPS = 30;
         this.lastFrameTime = 0;
         
         // Pixel size animation for loud triggers
@@ -101,6 +102,22 @@ export class ShaderInstance {
         // Uniform update optimization (performance optimization)
         // Track last values to avoid unnecessary WebGL calls
         this._lastUniformValues = {};
+        
+        // Color transition system for smooth color changes
+        this._colorTransition = {
+            isTransitioning: false,
+            startTime: 0,
+            duration: 2000, // 2 seconds for smooth transition
+            previousColors: null,
+            targetColors: null,
+            currentColors: null
+        };
+        
+        // Colors reference (set by render loop or updateColors)
+        this._colors = null;
+        
+        // Track if we've rendered with colors yet (for first render callback)
+        this._hasRenderedWithColors = false;
     }
     
     /**
@@ -491,10 +508,6 @@ export class ShaderInstance {
     setParameter(name, value) {
         if (this.config.parameters && name in this.config.parameters) {
             this.parameters[name] = value;
-            // Update targetFPS if parameter changed
-            if (name === 'targetFPS') {
-                this.targetFPS = value;
-            }
             return true;
         }
         return false;
@@ -689,8 +702,8 @@ export class ShaderInstance {
             }
         }
         
-        // Steps - only update if parameter changed
-        const stepsValue = this.parameters.steps || 5.0;
+        // Steps - hardcoded (no longer user-configurable)
+        const stepsValue = 5.0;
         if (this._lastUniformValues.uSteps !== stepsValue) {
             if (this.uniformLocations.uSteps) {
                 gl.uniform1f(this.uniformLocations.uSteps, stepsValue);
@@ -736,8 +749,8 @@ export class ShaderInstance {
             }
         }
         
-        // Set ripple effect parameters (only update when parameters change)
-        const rippleSpeed = this.parameters.rippleSpeed || 0.5;
+        // Set ripple effect parameters - hardcoded (no longer user-configurable)
+        const rippleSpeed = 0.3;
         if (this._lastUniformValues.uRippleSpeed !== rippleSpeed) {
             if (this.uniformLocations.uRippleSpeed) {
                 gl.uniform1f(this.uniformLocations.uRippleSpeed, rippleSpeed);
@@ -745,7 +758,7 @@ export class ShaderInstance {
             }
         }
         
-        const rippleWidth = this.parameters.rippleWidth || 0.1;
+        const rippleWidth = 0.1;
         if (this._lastUniformValues.uRippleWidth !== rippleWidth) {
             if (this.uniformLocations.uRippleWidth) {
                 gl.uniform1f(this.uniformLocations.uRippleWidth, rippleWidth);
@@ -753,7 +766,7 @@ export class ShaderInstance {
             }
         }
         
-        const rippleMinRadius = this.parameters.rippleMinRadius !== undefined ? this.parameters.rippleMinRadius : 0.0;
+        const rippleMinRadius = 0.15;
         if (this._lastUniformValues.uRippleMinRadius !== rippleMinRadius) {
             if (this.uniformLocations.uRippleMinRadius) {
                 gl.uniform1f(this.uniformLocations.uRippleMinRadius, rippleMinRadius);
@@ -761,7 +774,7 @@ export class ShaderInstance {
             }
         }
         
-        const rippleMaxRadius = this.parameters.rippleMaxRadius !== undefined ? this.parameters.rippleMaxRadius : 1.5;
+        const rippleMaxRadius = 3.0;
         if (this._lastUniformValues.uRippleMaxRadius !== rippleMaxRadius) {
             if (this.uniformLocations.uRippleMaxRadius) {
                 gl.uniform1f(this.uniformLocations.uRippleMaxRadius, rippleMaxRadius);
@@ -769,7 +782,7 @@ export class ShaderInstance {
             }
         }
         
-        const rippleIntensityThreshold = this.parameters.rippleIntensityThreshold !== undefined ? this.parameters.rippleIntensityThreshold : 0.6;
+        const rippleIntensityThreshold = 0.75;
         if (this._lastUniformValues.uRippleIntensityThreshold !== rippleIntensityThreshold) {
             if (this.uniformLocations.uRippleIntensityThreshold) {
                 gl.uniform1f(this.uniformLocations.uRippleIntensityThreshold, rippleIntensityThreshold);
@@ -777,7 +790,7 @@ export class ShaderInstance {
             }
         }
         
-        const rippleIntensity = this.parameters.rippleIntensity !== undefined ? this.parameters.rippleIntensity : 0.4;
+        const rippleIntensity = 0.25;
         if (this._lastUniformValues.uRippleIntensity !== rippleIntensity) {
             if (this.uniformLocations.uRippleIntensity) {
                 gl.uniform1f(this.uniformLocations.uRippleIntensity, rippleIntensity);
@@ -894,8 +907,11 @@ export class ShaderInstance {
             }
         }
         
-        // Set color uniforms (only update when colors change)
+        // Set color uniforms with smooth transitions
         if (colors) {
+            // Get interpolated colors (handles smooth transitions)
+            const activeColors = this.getInterpolatedColors();
+            
             const colorUniforms = ['uColor', 'uColor2', 'uColor3', 'uColor4', 'uColor5', 
                                   'uColor6', 'uColor7', 'uColor8', 'uColor9', 'uColor10'];
             const colorKeys = ['color', 'color2', 'color3', 'color4', 'color5', 
@@ -904,14 +920,18 @@ export class ShaderInstance {
             colorUniforms.forEach((uniformName, index) => {
                 const location = this.uniformLocations[uniformName];
                 const colorKey = colorKeys[index];
-                if (location && colors[colorKey]) {
-                    const color = colors[colorKey];
-                    // Check if color has changed (compare by reference - colors object is replaced when changed)
+                if (location && activeColors[colorKey]) {
+                    const color = activeColors[colorKey];
+                    // During transition, always update colors (they change every frame)
+                    // When not transitioning, only update if changed
                     const lastColor = this._lastUniformValues[uniformName];
-                    if (!lastColor || 
-                        lastColor[0] !== color[0] || 
-                        lastColor[1] !== color[1] || 
-                        lastColor[2] !== color[2]) {
+                    const shouldUpdate = this._colorTransition.isTransitioning || 
+                                       !lastColor || 
+                                       lastColor[0] !== color[0] || 
+                                       lastColor[1] !== color[1] || 
+                                       lastColor[2] !== color[2];
+                    
+                    if (shouldUpdate) {
                         gl.uniform3f(location, color[0], color[1], color[2]);
                         this._lastUniformValues[uniformName] = [color[0], color[1], color[2]];
                     }
@@ -1124,6 +1144,15 @@ export class ShaderInstance {
         // Draw
         gl.drawArrays(gl.TRIANGLES, 0, 6);
         
+        // Notify on first render with colors
+        if (colors && !this._hasRenderedWithColors) {
+            this._hasRenderedWithColors = true;
+            if (this._shaderManager && this._shaderManager.onFirstColorUpdate) {
+                console.log('First frame rendered with colors - triggering callback');
+                this._shaderManager.onFirstColorUpdate();
+            }
+        }
+        
         // Call custom render hook if provided
         if (this.config.onRender) {
             this.config.onRender(this, audioData);
@@ -1177,10 +1206,107 @@ export class ShaderInstance {
     
     /**
      * Update colors in the render loop without restarting
+     * Starts a smooth transition from current colors to new colors
      * @param {Object} colors - New colors object
      */
     updateColors(colors) {
+        if (!colors) return;
+        
+        const isFirstColorUpdate = !this._colors || !this._colorTransition.currentColors;
+        
+        // If this is the first color update or no audio is playing yet, set immediately
+        if (isFirstColorUpdate) {
+            this._colors = colors;
+            this._colorTransition.currentColors = this.cloneColors(colors);
+            this._colorTransition.previousColors = this.cloneColors(colors);
+            this._colorTransition.targetColors = this.cloneColors(colors);
+            // Note: Callback will fire after first render with colors (see render method)
+            return;
+        }
+        
+        // Start transition from current (possibly interpolated) colors to new colors
+        this._colorTransition.previousColors = this.cloneColors(
+            this._colorTransition.currentColors || this._colors
+        );
+        this._colorTransition.targetColors = this.cloneColors(colors);
+        this._colorTransition.isTransitioning = true;
+        this._colorTransition.startTime = Date.now();
+        
+        // Update reference for cases where transition is disabled
         this._colors = colors;
+    }
+    
+    /**
+     * Clone a colors object for interpolation
+     * @param {Object} colors - Colors to clone
+     * @returns {Object} Cloned colors
+     */
+    cloneColors(colors) {
+        const cloned = {};
+        const colorKeys = ['color', 'color2', 'color3', 'color4', 'color5', 
+                          'color6', 'color7', 'color8', 'color9', 'color10'];
+        colorKeys.forEach(key => {
+            if (colors[key]) {
+                cloned[key] = [colors[key][0], colors[key][1], colors[key][2]];
+            }
+        });
+        return cloned;
+    }
+    
+    /**
+     * Interpolate between two colors
+     * @param {Array} color1 - Start color [r, g, b]
+     * @param {Array} color2 - End color [r, g, b]
+     * @param {number} t - Interpolation factor (0-1)
+     * @returns {Array} Interpolated color [r, g, b]
+     */
+    lerpColor(color1, color2, t) {
+        return [
+            color1[0] + (color2[0] - color1[0]) * t,
+            color1[1] + (color2[1] - color1[1]) * t,
+            color1[2] + (color2[2] - color1[2]) * t
+        ];
+    }
+    
+    /**
+     * Get interpolated colors based on current transition state
+     * @returns {Object} Current colors (possibly interpolated)
+     */
+    getInterpolatedColors() {
+        if (!this._colorTransition.isTransitioning) {
+            return this._colorTransition.currentColors || this._colors;
+        }
+        
+        const elapsed = Date.now() - this._colorTransition.startTime;
+        const t = Math.min(elapsed / this._colorTransition.duration, 1.0);
+        
+        // Use ease-out cubic for smooth deceleration
+        const eased = 1 - Math.pow(1 - t, 3);
+        
+        // End transition if complete
+        if (t >= 1.0) {
+            this._colorTransition.isTransitioning = false;
+            this._colorTransition.currentColors = this.cloneColors(this._colorTransition.targetColors);
+            return this._colorTransition.currentColors;
+        }
+        
+        // Interpolate between previous and target colors
+        const interpolated = {};
+        const colorKeys = ['color', 'color2', 'color3', 'color4', 'color5', 
+                          'color6', 'color7', 'color8', 'color9', 'color10'];
+        
+        colorKeys.forEach(key => {
+            if (this._colorTransition.previousColors[key] && this._colorTransition.targetColors[key]) {
+                interpolated[key] = this.lerpColor(
+                    this._colorTransition.previousColors[key],
+                    this._colorTransition.targetColors[key],
+                    eased
+                );
+            }
+        });
+        
+        this._colorTransition.currentColors = interpolated;
+        return interpolated;
     }
     
     /**

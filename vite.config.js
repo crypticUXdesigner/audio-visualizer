@@ -7,7 +7,7 @@ const copyShadersPlugin = () => {
   return {
     name: 'copy-shaders',
     writeBundle() {
-      const shadersDir = 'shaders';
+      const shadersDir = join('public', 'shaders');
       const distShadersDir = join('dist', 'shaders');
       
       if (existsSync(shadersDir)) {
@@ -26,31 +26,15 @@ const copyShadersPlugin = () => {
   };
 };
 
-// Plugin to copy audio directory to dist/audio
-const copyAudioPlugin = () => {
+// Plugin to create .nojekyll for GitHub Pages
+const githubPagesPlugin = () => {
   return {
-    name: 'copy-audio',
+    name: 'github-pages-setup',
     writeBundle() {
-      const audioDir = 'audio';
-      const distAudioDir = join('dist', 'audio');
-      
-      if (existsSync(audioDir)) {
-        mkdirSync(distAudioDir, { recursive: true });
-        const files = readdirSync(audioDir);
-        files.forEach(file => {
-          const src = join(audioDir, file);
-          const dest = join(distAudioDir, file);
-          const stat = statSync(src);
-          if (stat.isFile() && file.endsWith('.mp3')) {
-            copyFileSync(src, dest);
-            console.log(`Copied ${src} to ${dest}`);
-          }
-        });
-      }
-      
       // Create .nojekyll file for GitHub Pages (prevents Jekyll processing)
       const nojekyllPath = join('dist', '.nojekyll');
       writeFileSync(nojekyllPath, '');
+      console.log('Created .nojekyll file for GitHub Pages');
     }
   };
 };
@@ -65,8 +49,8 @@ export default defineConfig(({ command, mode }) => {
     const tokenSet = !!env.VITE_AUDIOTOOL_API_TOKEN;
     console.log(`[Vite Config] VITE_AUDIOTOOL_API_TOKEN is ${tokenSet ? 'SET' : 'NOT SET'}`);
     if (!tokenSet) {
-      console.warn('[Vite Config] Warning: VITE_AUDIOTOOL_API_TOKEN not found in environment variables');
-      console.warn('[Vite Config] Make sure .env.local exists in the project root and contains: VITE_AUDIOTOOL_API_TOKEN=your_token');
+      console.log('[Vite Config] No API token found - using public API endpoints (this is fine!)');
+      console.log('[Vite Config] To use authenticated endpoints, create .env.local with: VITE_AUDIOTOOL_API_TOKEN=your_token');
     }
   }
   
@@ -87,7 +71,7 @@ export default defineConfig(({ command, mode }) => {
   },
   plugins: [
     copyShadersPlugin(), 
-    copyAudioPlugin(),
+    githubPagesPlugin(),
     // Plugin to serve shaders in dev mode
     {
       name: 'serve-shaders',
@@ -107,7 +91,7 @@ export default defineConfig(({ command, mode }) => {
               // req.url includes the full path like '/shaders/vertex.glsl'
               // Extract just the filename
               const filename = url.split('/').pop();
-              const filePath = join(process.cwd(), 'shaders', filename);
+              const filePath = join(process.cwd(), 'public', 'shaders', filename);
               
               if (!existsSync(filePath)) {
                 console.error(`Shader file not found: ${filePath} (requested: ${req.url})`);
@@ -133,53 +117,6 @@ export default defineConfig(({ command, mode }) => {
               res.end(content);
             } catch (err) {
               console.error(`Error serving shader ${req.url}:`, err);
-              next();
-            }
-          } else {
-            next();
-          }
-        });
-      }
-    },
-    // Plugin to serve audio files in dev mode
-    {
-      name: 'serve-audio',
-      configureServer(server) {
-        server.middlewares.use('/audio', (req, res, next) => {
-          let url = req.url;
-          
-          // Remove query parameters if any
-          if (url.includes('?')) {
-            url = url.split('?')[0];
-          }
-          
-          if (url && (url.endsWith('.mp3') || url.endsWith('.ogg') || url.endsWith('.wav'))) {
-            try {
-              const filename = url.split('/').pop();
-              const filePath = join(process.cwd(), 'audio', filename);
-              
-              if (!existsSync(filePath)) {
-                console.error(`Audio file not found: ${filePath} (requested: ${req.url})`);
-                next();
-                return;
-              }
-              
-              const content = readFileSync(filePath);
-              
-              // Set proper MIME type and cache headers
-              const mimeType = url.endsWith('.mp3') ? 'audio/mpeg' : 
-                              url.endsWith('.ogg') ? 'audio/ogg' : 
-                              url.endsWith('.wav') ? 'audio/wav' : 'audio/mpeg';
-              
-              res.setHeader('Content-Type', mimeType);
-              res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate, max-age=0');
-              res.setHeader('Pragma', 'no-cache');
-              res.setHeader('Expires', '0');
-              res.setHeader('Accept-Ranges', 'bytes');
-              
-              res.end(content);
-            } catch (err) {
-              console.error(`Error serving audio ${req.url}:`, err);
               next();
             }
           } else {

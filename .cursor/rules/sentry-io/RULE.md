@@ -1,7 +1,6 @@
 ---
-alwaysApply: true
+alwaysApply: false
 ---
-
 These examples should be used as guidance when configuring Sentry functionality within a project.
 
 # Error / Exception Tracking

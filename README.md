@@ -1,6 +1,6 @@
-# Visual Player - Music Visualization
+# Visual Player - Audio Visualizer
 
-A modular, fullscreen animated background shader using WebGL with real-time audio analysis. Features a refactored architecture designed to support multiple shader configurations and easy experimentation.
+An immersive WebGL audio visualizer with dynamic color palettes and real-time frequency analysis. Features a modular architecture with shader-based visual effects, 170+ curated Audiotool tracks, and synchronized color modulation.
 
 ## Architecture
 
@@ -19,8 +19,6 @@ The project uses a modular architecture with clear separation of concerns:
 ### UI Modules (`src/ui/`)
 - **AudioControls.js** - Audio playback controls and track selection
 - **ColorPresetSwitcher.js** - Color preset selection UI
-- **ShaderParameterPanel.js** - Dynamic parameter controls for shader experimentation
-- **FullscreenToggle.js** - Fullscreen mode toggle
 - **UIToggle.js** - UI visibility toggle
 - **DevTools.js** - Development tools management
 
@@ -66,18 +64,30 @@ The build output will be in the `dist/` directory, ready for deployment.
 
 ## Deployment
 
-This project is configured for deployment to GitHub Pages.
+This project is configured for automatic deployment to GitHub Pages using GitHub Actions.
 
 ### Automatic Deployment (Recommended)
 
-The project includes a GitHub Actions workflow that automatically deploys to GitHub Pages when you push to the `main` or `master` branch.
+The project includes a GitHub Actions workflow (`.github/workflows/deploy.yml`) that automatically builds and deploys to GitHub Pages when you push to the `main` or `master` branch.
+
+**Setup Steps:**
 
 1. Ensure your repository is set up on GitHub
 2. Go to **Settings → Pages** in your repository
 3. Under **Source**, select **GitHub Actions**
-4. Push your code to the `main` branch - the workflow will automatically build and deploy
+4. Push your code to the `main` or `master` branch
+5. The workflow will automatically build and deploy your changes
 
 Your site will be available at: `https://crypticUXdesigner.github.io/audio-visualizer/`
+
+**Environment Variables (Optional):**
+
+The app works without API tokens (uses public endpoints), but you can optionally add GitHub Secrets for enhanced functionality:
+
+- `AUDIOTOOL_API_TOKEN` - Audiotool API bearer token (optional, falls back to public client ID)
+- `SENTRY_DSN` - Sentry error tracking DSN (optional)
+
+Add these in **Settings → Secrets and variables → Actions → Repository secrets**.
 
 ### Manual Deployment
 
@@ -89,7 +99,13 @@ npm run deploy
 
 This will build the project and push the `dist/` folder to the `gh-pages` branch.
 
-### Local Preview
+### Local Development & Preview
+
+Start the development server with hot module replacement:
+
+```bash
+npm run dev
+```
 
 To preview the production build locally:
 
@@ -98,6 +114,8 @@ npm run build
 npm run preview
 ```
 
+**Important:** The API token is only embedded in development builds. Production builds do not contain hardcoded credentials.
+
 ## Usage
 
 1. Start the development server: `npm run dev`
@@ -105,7 +123,6 @@ npm run preview
 3. Select an audio track from the bottom-left controls
 4. The shader will automatically initialize and run fullscreen
 5. Use color preset buttons to change the color scheme
-6. Adjust shader parameters using the parameter panel
 
 ## Customization
 
@@ -167,7 +184,7 @@ Color presets are defined in `src/config/color-presets.js`. You can:
 
 ### Adjusting Shader Parameters
 
-Shader parameters can be adjusted in real-time through the UI parameter panel, or programmatically:
+Shader parameters can be adjusted programmatically:
 
 ```javascript
 window.BackgroundShader.setParameter('pixelSize', 2.0);
@@ -194,12 +211,42 @@ The main application instance is also exposed as `window.VisualPlayer`.
 
 ## Features
 
-- **Modular Architecture** - Easy to add new shaders and experiment
-- **Real-time Audio Analysis** - Frequency bands, beat detection, stereo processing
-- **Dynamic Color Palettes** - OKLCH-based color generation with smooth interpolation
-- **Shader Parameter Controls** - Real-time parameter adjustment via UI
-- **Multiple Shader Support** - Designed to support multiple background shaders
-- **Development Tools** - Frequency visualizer for testing and debugging
+- **Modular Architecture** - Easy to add new shaders and experiment with visual effects
+- **Real-time Audio Analysis** - Advanced frequency band analysis, beat detection, and stereo processing
+- **Dynamic Color Palettes** - OKLCH-based color generation with smooth interpolation and hue modulation
+- **Curated Track Library** - 170+ validated tracks from Audiotool's community
+- **WebGL Shaders** - Fractional Brownian motion (fBm) noise with multi-step dithering effects
+- **Waveform Scrubber** - Interactive audio navigation with visual waveform display
+- **Development Tools** - Frequency visualizer and debug mode for testing (add `?debug` to URL)
+- **Error Tracking** - Integrated Sentry monitoring with graceful fallbacks
+
+## Security & Environment Variables
+
+### Production Build Security
+
+- **No Credentials in Production**: The production build does NOT contain hardcoded API tokens
+- **Public API Support**: The app uses Audiotool's public API endpoints with a client ID fallback and works without authentication
+- **Environment Variables**: API tokens set in `.env.local` will be embedded in builds (Vite's behavior). For production deployments, DO NOT set `VITE_AUDIOTOOL_API_TOKEN` unless you want it in the public bundle.
+
+### Local Development Setup
+
+For local development with authenticated API access, create a `.env.local` file in the project root:
+
+```bash
+# .env.local (for local development only - never commit this file!)
+VITE_AUDIOTOOL_API_TOKEN=your_token_here
+VITE_SENTRY_DSN=your_sentry_dsn_here  # optional
+```
+
+**Important**: The `.env.local` file is already in `.gitignore` and should NEVER be committed to version control.
+
+### GitHub Actions Deployment
+
+The GitHub Actions workflow builds the app WITHOUT API tokens by default (using public API endpoints). If you need authenticated API access in production:
+
+1. Go to **Settings → Secrets and variables → Actions → Repository secrets**
+2. Add `AUDIOTOOL_API_TOKEN` (note: without `VITE_` prefix to keep it server-side only)
+3. Update the workflow to pass it as `VITE_AUDIOTOOL_API_TOKEN` during build (currently commented out)
 
 ## Notes
 

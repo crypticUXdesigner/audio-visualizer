@@ -14,7 +14,6 @@ import backgroundFbmConfig from './shaders/shader-configs/background-fbm.js';
 import { colorPresets } from './config/color-presets.js';
 import { AudioControls } from './ui/AudioControls.js';
 import { ColorPresetSwitcher } from './ui/ColorPresetSwitcher.js';
-import { ShaderParameterPanel } from './ui/ShaderParameterPanel.js';
 import { DevTools } from './ui/DevTools.js';
 import { TitleTexture } from './core/TitleTexture.js';
 
@@ -27,7 +26,6 @@ class VisualPlayer {
         this.colorModulator = null;
         this.audioControls = null;
         this.colorPresetSwitcher = null;
-        this.shaderParameterPanel = null;
         this.devTools = null;
         this.titleTexture = null;
         
@@ -100,6 +98,11 @@ class VisualPlayer {
                 this.updateDynamicColors(audioData);
             });
             
+            // 6.3. Set callback for when shader receives first color update
+            this.shaderManager.onFirstColorUpdate = () => {
+                this.fadeInCanvas();
+            };
+            
             // 6.5. Initialize title texture (after shader is active so we have GL context)
             const activeShader = this.shaderManager.getActiveShader();
             if (activeShader && activeShader.gl && !activeShader.webglFallbackActive) {
@@ -119,6 +122,11 @@ class VisualPlayer {
             
             // 7. Initialize UI components
             this.initUI();
+            
+            // 7.5 Set initial waveform colors if waveform scrubber is initialized
+            if (this.audioControls && this.audioControls.waveformScrubber && this.colors) {
+                this.audioControls.waveformScrubber.setColors(this.colors);
+            }
             
             // 8. Initialize dev tools
             this.initDevTools();
@@ -149,10 +157,63 @@ class VisualPlayer {
     }
     
     /**
+     * Show loading spinner
+     */
+    showLoader() {
+        const loader = document.getElementById('appLoader');
+        if (loader) {
+            loader.classList.remove('hidden');
+        }
+    }
+    
+    /**
+     * Hide loading spinner
+     */
+    hideLoader() {
+        const loader = document.getElementById('appLoader');
+        if (loader) {
+            loader.classList.add('hidden');
+            // Remove from DOM after transition
+            setTimeout(() => {
+                if (loader.classList.contains('hidden')) {
+                    loader.style.display = 'none';
+                }
+            }, 300);
+        }
+    }
+    
+    /**
+     * Fade in the shader canvas after first color update
+     */
+    fadeInCanvas() {
+        const canvas = document.getElementById('backgroundCanvas');
+        if (!canvas) return;
+        
+        console.log('fadeInCanvas called, opacity:', window.getComputedStyle(canvas).opacity);
+        
+        // First add the 'ready' class to enable transitions
+        canvas.classList.add('ready');
+        
+        // Force a reflow to ensure the ready state is rendered
+        canvas.offsetHeight; // eslint-disable-line no-unused-expressions
+        
+        // Use double RAF to ensure browser has painted
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                canvas.classList.add('visible');
+                console.log('Fading in shader canvas - transition started');
+            });
+        });
+    }
+    
+    /**
      * Show user-friendly error message for initialization failures
      * @param {Error} error - The error that occurred
      */
     showInitializationError(error) {
+        // Hide loader on error
+        this.hideLoader();
+        
         // Create error message element if it doesn't exist
         let errorElement = document.getElementById('init-error-message');
         if (!errorElement) {
@@ -247,12 +308,14 @@ class VisualPlayer {
                 }
             }
             
-            // Update color swatches
-            this.updateColorSwatches();
-            
             // Update color control sliders
             if (this.colorPresetSwitcher && this.colorPresetSwitcher.updateSlidersFromConfig) {
                 this.colorPresetSwitcher.updateSlidersFromConfig(this.colorConfig);
+            }
+            
+            // Update waveform scrubber colors
+            if (this.audioControls && this.audioControls.waveformScrubber) {
+                this.audioControls.waveformScrubber.setColors(this.colors);
             }
             
             // Update frequency visualizer colors
@@ -268,11 +331,6 @@ class VisualPlayer {
         } finally {
             this.isInitializingColors = false;
         }
-    }
-    
-    updateColorSwatches() {
-        // Color swatches removed - no longer needed
-        // This method kept for backward compatibility but does nothing
     }
     
     /**
@@ -332,6 +390,11 @@ class VisualPlayer {
             if (this.shaderManager) {
                 this.shaderManager.setColors(this.colors);
             }
+            
+            // Update waveform scrubber colors
+            if (this.audioControls && this.audioControls.waveformScrubber) {
+                this.audioControls.waveformScrubber.setColors(this.colors);
+            }
         }
     }
     
@@ -363,58 +426,16 @@ class VisualPlayer {
             try {
                 // Import the batch loading function
                 const { loadTracks } = await import('./core/AudiotoolTrackService.js');
-                const { getTrackIdentifier } = await import('./config/track-registry.js');
+                const { getTrackIdentifier, TRACK_REGISTRY } = await import('./config/track-registry.js');
                 
-                // Define all tracks to load
-                const tracksToLoad = [
-                    // Top 5 Most Favorited Tracks (Dec 2025)
-                    { songName: 'u a fan', username: 'audiotool' },
-                    { songName: 'FOR LIFE', username: 'audiotool' },
-                    { songName: 'Honey Lemon', username: 'audiotool' },
-                    { songName: 'the red moon\'s egg', username: 'audiotool' },
-                    { songName: 'stars align', username: 'audiotool' },
-                    // Original tracks
-                    { songName: 'Blue Eyes (Trust Fund)', username: 'dquerg' },
-                    { songName: 'Beast Within', username: 'dquerg' },
-                    { songName: '#BBCHTRN', username: 'dquerg' },
-                    { songName: '#DFNTLYNABYPK', username: 'dquerg' },
-                    { songName: 'kitsch (Kepz Remix)', username: 'various' },
-                    { songName: 'Five Hundred', username: 'various' },
-                    { songName: 'Sackgesicht', username: 'various' },
-                    { songName: 'Back To You - Icebox, SIREN & dcln', username: 'various' },
-                    // User-requested tracks (Dec 2025)
-                    { songName: 'Overthinking pt4', username: 'audiotool' },
-                    { songName: 'homeless on I-95 & dock st', username: 'audiotool' },
-                    { songName: 'Overthinking pt3', username: 'audiotool' },
-                    { songName: 'United (EWC - Tekken 8)', username: 'audiotool' },
-                    { songName: 'Rosary - Esport World Cup [Street fighter]', username: 'audiotool' },
-                    { songName: 'Esports World Cup Anthem #7 (Franz Fritz)', username: 'audiotool' },
-                    { songName: 'No timeline', username: 'audiotool' },
-                    { songName: 'BRAE', username: 'audiotool' },
-                    { songName: 'that recital i missed', username: 'audiotool' },
-                    { songName: 'MONOLITH', username: 'audiotool' },
-                    { songName: 'Who told you?', username: 'audiotool' },
-                    { songName: 'skyburst! [ATD2020]', username: 'audiotool' },
-                    { songName: 'Fluid', username: 'audiotool' },
-                    { songName: 'Isomorph', username: 'audiotool' },
-                    { songName: 'Diatoma', username: 'audiotool' },
-                    { songName: 'Sandstorm', username: 'audiotool' },
-                    { songName: 'No Space, No Light (ATD 24 entry)', username: 'audiotool' },
-                    { songName: 'lazy sunday', username: 'audiotool' },
-                    { songName: 'phase', username: 'audiotool' },
-                    { songName: 'frisbee', username: 'audiotool' },
-                    { songName: 'knobs', username: 'audiotool' },
-                    { songName: 'lost', username: 'audiotool' },
-                    { songName: 'legend', username: 'audiotool' },
-                    { songName: 'feels like summer', username: 'audiotool' },
-                    { songName: 'THE WORST - Tim Derry Remix', username: 'audiotool' },
-                    { songName: 'Versatile (Remix)', username: 'audiotool' },
-                    { songName: 'SUNDAY GROOVE', username: 'audiotool' },
-                    { songName: 'cozy', username: 'audiotool' },
-                    { songName: 'Thundyre', username: 'audiotool' },
-                    { songName: 'yōsei', username: 'audiotool' },
-                    { songName: 'Starforge (Vulkronix 4.0)', username: 'audiotool' },
-                ];
+                // Generate tracks list from the validated registry (170+ tracks)
+                // Registry format: "songName|username": "tracks/identifier"
+                const tracksToLoad = Object.keys(TRACK_REGISTRY).map(key => {
+                    const [songName, username] = key.split('|');
+                    return { songName, username };
+                });
+                
+                console.log(`📦 Loading all ${tracksToLoad.length} validated tracks from registry...`);
                 
                 // Sort tracks alphabetically by song name (case-insensitive)
                 tracksToLoad.sort((a, b) => a.songName.toLowerCase().localeCompare(b.songName.toLowerCase()));
@@ -462,28 +483,13 @@ class VisualPlayer {
                         });
                     }
                 }
+                
+                // Hide loader after API calls complete
+                this.hideLoader();
             } catch (error) {
-                console.warn('⚠️  Batch loading error, falling back to individual loads:', error);
-                // Fallback to individual loading if batch fails
-                const tracksToLoad = [
-                    { songName: 'Blue Eyes (Trust Fund)', username: 'dquerg' },
-                    { songName: 'Beast Within', username: 'dquerg' },
-                    { songName: '#BBCHTRN', username: 'dquerg' },
-                    { songName: '#DFNTLYNABYPK', username: 'dquerg' },
-                    { songName: 'kitsch (Kepz Remix)', username: 'various' },
-                    { songName: 'Five Hundred', username: 'various' },
-                    { songName: 'Sackgesicht', username: 'various' },
-                    { songName: 'Back To You - Icebox, SIREN & dcln', username: 'various' },
-                ];
-                
-                // Sort tracks alphabetically by song name (case-insensitive)
-                tracksToLoad.sort((a, b) => a.songName.toLowerCase().localeCompare(b.songName.toLowerCase()));
-                
-                for (const track of tracksToLoad) {
-                    this.loadAPITrack(track.songName, track.username).catch(err => {
-                        console.warn(`Failed to load API track "${track.songName}" (this is optional):`, err);
-                    });
-                }
+                console.error('❌ Failed to load tracks from registry:', error);
+                // Hide loader even on error
+                this.hideLoader();
             }
         }, 1000); // Wait 1 second after initialization to load API tracks
         
@@ -540,10 +546,7 @@ class VisualPlayer {
             }
         );
         
-        // Initialize shader parameter panel only in debug mode
-        if (this.isDebugMode()) {
-            this.shaderParameterPanel = new ShaderParameterPanel(this.shaderManager);
-        }
+        // Shader parameter panel removed - controls are now hardcoded
     }
     
     initDevTools() {
@@ -563,44 +566,6 @@ class VisualPlayer {
         };
         
         const isDebugMode = this.isDebugMode();
-        
-        // Shader Controls Button
-        const shaderControlsBtn = document.getElementById('shaderControlsBtn');
-        const shaderParameters = document.getElementById('shaderParameters');
-        
-        if (shaderControlsBtn) {
-            // Button visibility is now controlled by CSS (debug-mode class on body)
-            if (isDebugMode) {
-                // Ensure it starts hidden
-                if (shaderParameters) {
-                    shaderParameters.style.display = 'none';
-                }
-                
-                let isShaderControlsVisible = false;
-                
-                shaderControlsBtn.addEventListener('click', () => {
-                    if (!shaderParameters) return;
-                    
-                    isShaderControlsVisible = !isShaderControlsVisible;
-                    
-                    if (isShaderControlsVisible) {
-                        shaderParameters.style.display = 'block';
-                        shaderControlsBtn.classList.add('active');
-                    } else {
-                        shaderParameters.style.display = 'none';
-                        shaderControlsBtn.classList.remove('active');
-                    }
-                });
-            } else {
-                // Also hide the shader parameters panel if it exists
-                if (shaderParameters) {
-                    shaderParameters.style.display = 'none';
-                }
-            }
-        } else if (shaderParameters && !isDebugMode) {
-            // If button doesn't exist but panel does, hide it
-            shaderParameters.style.display = 'none';
-        }
         
         // Frequency Visualizer Button
         const frequencyVisualizerBtn = document.getElementById('frequencyVisualizerBtn');

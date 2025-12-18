@@ -938,14 +938,15 @@
   --dropdown-option-color-active: var(--list-hub-print-active);
   --dropdown-option-font-size: var(--text-md);
 
-  /* Component Tokens - Slider/Seek Bar */
-  --seek-bar-height: var(--scale-3);
-  --seek-bar-radius: 9px;
-  --seek-bar-bg: transparent;
-  --seek-bar-track-bg: rgba(255, 255, 255, 0.02);
-  --seek-bar-thumb-size: var(--scale-3);
-  --seek-bar-thumb-bg: var(--color-white);
-  --seek-bar-thumb-scale-hover: 1.2;
+  /* Waveform Scrubber */
+  --waveform-height: var(--size-2xl);
+  --waveform-radius: var(--radius-xl);
+  --waveform-bg: var(--list-bg);
+  --waveform-wave-color: var(--button-ghost-print);
+  --waveform-progress-color: var(--button-ghost-print-hover);
+  --waveform-cursor-color: var(--button-ghost-print-active);
+  --waveform-padding-x: var(--pd-lg);
+  --waveform-padding-y: var(--pd-md);
   --control-slider-height: 4px;
   --control-slider-radius: 2px;
   --control-slider-bg: var(--bg-glass-hover);
@@ -971,15 +972,15 @@
   --color-control-picker-scale-hover: 1.02;
   --color-control-label-font-size: var(--size-xs);
   --color-control-label-color: var(--text-secondary);
-  --color-control-group-gap: var(--spacing-sm);
-  --color-control-row-gap: var(--spacing-md);
+  --color-control-group-gap: var(--pd-sm);
+  --color-control-row-gap: var(--pd-md);
   --color-control-separator-height: 1px;
   --color-control-separator-bg: var(--border-transparent);
-  --color-control-margin-top: var(--spacing-lg);
-  --color-control-padding-top: var(--spacing-lg);
+  --color-control-margin-top: var(--pd-lg);
+  --color-control-padding-top: var(--pd-lg);
 
   /* Component Tokens - Preset Buttons */
-  --preset-btn-min-height: var(--size-3xl);
+  --preset-btn-min-height: var(--size-sm);
   --preset-btn-radius: var(--radius-md);
   --preset-btn-bg: var(--bg-glass);
   --preset-btn-bg-hover: var(--bg-glass-hover);
@@ -987,18 +988,17 @@
   --preset-btn-border-hover: var(--border-light);
   --preset-btn-border-active: var(--border-medium);
   --preset-btn-border-width-active: 2px;
-  --preset-btn-shadow-active: 0 0 0 1px rgba(255, 255, 255, 0.3);
-  --preset-btn-grid-columns: repeat(5, 1fr);
-  --preset-btn-grid-gap: var(--spacing-sm);
+  --preset-btn-grid-columns: repeat(4, 1fr);
+  --preset-btn-grid-gap: var(--pd-sm);
   --preset-swatch-radius: var(--radius-sm);
 
   /* Component Tokens - Shader Parameter Panel */
-  --shader-panel-top: var(--spacing-xl);
-  --shader-panel-right: var(--spacing-xl);
+  --shader-panel-top: var(--pd-xl);
+  --shader-panel-right: var(--pd-xl);
   --shader-panel-bg: var(--bg-overlay);
   --shader-panel-border: var(--border-transparent);
   --shader-panel-radius: var(--radius-lg);
-  --shader-panel-padding: var(--spacing-xl);
+  --shader-panel-padding: var(--pd-xl);
   --shader-panel-min-width: 240px;
   --shader-panel-max-height: 80vh;
 

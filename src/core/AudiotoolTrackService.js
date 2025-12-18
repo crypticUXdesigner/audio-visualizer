@@ -1,41 +1,41 @@
-// Audiotool Track Service Client
+// Audiotool Track Service Client - REGISTRY-ONLY MODE
 // Uses the TrackService protobuf definitions to access published tracks
+// 
+// ⛔ SEARCH DISABLED: Only the 170+ validated tracks in the registry can be loaded
+// This ensures all tracks have been validated and prevents random API searches
 
 import Sentry, { safeCaptureException, safeSentrySpan } from './SentryInit.js';
-import { getTrackIdentifier, saveTrackIdentifier } from '../config/track-registry.js';
+import { getTrackIdentifier } from '../config/track-registry.js';
 
 /**
  * Get the API token from environment variables (optional for public endpoints)
+ * Token is NOT required - the app works with public endpoints using client ID.
+ * For development, create a .env.local file with: VITE_AUDIOTOOL_API_TOKEN=your_token
  * @returns {Promise<string|null>} The API token, or null if not set
  */
 async function getToken() {
-  let token = import.meta.env.VITE_AUDIOTOOL_API_TOKEN;
-  
-  // Hardcoded fallback for development (remove in production!)
-  if (!token && (import.meta.env.DEV || import.meta.env.MODE === 'development')) {
-    console.warn('⚠️  Using hardcoded token fallback (env var not loaded). This should only happen in development.');
-    token = 'at_pat_sbhF-KMueYzAEctwFzwQlQ6tHwtsy_zkDlre5iypZDA';
-  }
-  
-  // Token is optional for public endpoints - return null if not set
+  const token = import.meta.env.VITE_AUDIOTOOL_API_TOKEN;
   return token || null;
 }
 
 /**
  * Get the client ID from environment variables (optional)
+ * In production, uses a public client ID. In development, uses environment variable or null.
  * @returns {string|null} The client ID if set
  */
 function getClientId() {
-  // Try environment variable first
-  let clientId = import.meta.env.VITE_AUDIOTOOL_CLIENT_ID;
+  const clientId = import.meta.env.VITE_AUDIOTOOL_CLIENT_ID;
   
-  // Only use hardcoded fallback in production builds (not in dev)
-  // In dev, let it work without client ID if not explicitly set
-  if (!clientId && !import.meta.env.DEV && import.meta.env.MODE === 'production') {
-    clientId = '1fe600a2-08f7-4a15-953e-23d0c975ce55';
+  if (clientId) {
+    return clientId;
   }
   
-  return clientId || null;
+  // Production fallback - public client ID for API access
+  if (!import.meta.env.DEV) {
+    return '1fe600a2-08f7-4a15-953e-23d0c975ce55';
+  }
+  
+  return null;
 }
 
 /**
@@ -118,40 +118,27 @@ async function callTrackService(method, request) {
 }
 
 /**
- * Search for tracks
- * @param {object} options - Search options
- * @param {string} options.filter - CEL filter (e.g., 'track.display_name == "trust fund"')
- * @param {string} options.contributorName - Filter by contributor (e.g., 'users/dquerg')
+ * List tracks with a filter - RESTRICTED TO EXACT TRACK ID FILTERS ONLY
+ * Only allows filters that specify exact track IDs (no open-ended search)
+ * @param {object} options - List options
+ * @param {string} options.filter - CEL filter with exact track names only
  * @param {number} options.pageSize - Number of results per page
- * @param {string} options.orderBy - Sort order
  * @returns {Promise<object>} List of tracks
  */
-export async function listTracks(options = {}) {
+async function listTracksByIds(options = {}) {
   return safeSentrySpan(
     {
       op: 'http.client',
-      name: 'List Audiotool Tracks',
+      name: 'List Audiotool Tracks By IDs',
     },
     async (span) => {
       try {
-        // Build filter
-        let filter = options.filter || '';
-        
-        // If contributorName is provided, add it to the filter
-        // CEL syntax for checking membership in repeated field: "value" in field
-        if (options.contributorName && !filter.includes('contributor_names')) {
-          const contributorFilter = `"${options.contributorName}" in track.contributor_names`;
-          filter = filter ? `${filter} && ${contributorFilter}` : contributorFilter;
-        }
-        
         const request = {
-          filter: filter,
+          filter: options.filter || '',
           page_size: options.pageSize || 50,
           page_token: options.pageToken || '',
-          order_by: options.orderBy || 'track.create_time desc',
+          order_by: 'track.create_time desc',
         };
-        
-        console.log('🔍 Searching tracks with filter:', filter);
         
         const result = await callTrackService('ListTracks', request);
         
@@ -193,8 +180,6 @@ export async function getTrack(trackName) {
           name: normalizedName,
         };
         
-        console.log(`🎵 Fetching track: ${normalizedName}`);
-        
         const result = await callTrackService('GetTrack', request);
         
         if (result.track) {
@@ -217,7 +202,7 @@ export async function getTrack(trackName) {
 }
 
 /**
- * Get multiple tracks by their identifiers in a single API call
+ * Get multiple tracks by their identifiers - uses batch loading with ListTracks
  * @param {string[]} trackNames - Array of track names in format "tracks/{id}" or just "{id}"
  * @returns {Promise<object>} Object mapping track names to track information
  */
@@ -241,35 +226,43 @@ export async function getTracks(trackNames) {
           name.startsWith('tracks/') ? name : `tracks/${name}`
         );
         
-        // Build CEL filter: track.name == "tracks/123" || track.name == "tracks/456" || ...
-        const filter = normalizedNames
-          .map(name => `track.name == "${name}"`)
-          .join(' || ');
-        
-        console.log(`🎵 Fetching ${normalizedNames.length} tracks in batch`);
-        
-        const result = await listTracks({
-          filter: filter,
-          pageSize: normalizedNames.length,
-          orderBy: 'track.create_time desc',
-        });
-        
-        if (!result.success) {
-          throw new Error('Failed to fetch tracks');
-        }
-        
-        // Create a map of track name -> track object for easy lookup
         const tracksMap = {};
-        if (result.tracks) {
-          result.tracks.forEach(track => {
-            if (track.name) {
-              tracksMap[track.name] = track;
-            }
+        const batchSize = 50; // API page size limit
+        const totalBatches = Math.ceil(normalizedNames.length / batchSize);
+        
+        console.log(`🎵 Batch loading ${normalizedNames.length} tracks from API (${totalBatches} ${totalBatches === 1 ? 'batch' : 'batches'})`);
+        
+        // Process in batches to avoid filter size limits
+        for (let i = 0; i < normalizedNames.length; i += batchSize) {
+          const batch = normalizedNames.slice(i, i + batchSize);
+          
+          // Build CEL filter: track.name == "tracks/123" || track.name == "tracks/456" || ...
+          const filter = batch
+            .map(name => `track.name == "${name}"`)
+            .join(' || ');
+          
+          const result = await listTracksByIds({
+            filter: filter,
+            pageSize: batchSize,
           });
+          
+          if (result.success && result.tracks) {
+            result.tracks.forEach(track => {
+              if (track.name) {
+                tracksMap[track.name] = track;
+              }
+            });
+          }
         }
+        
+        const fetchedCount = Object.keys(tracksMap).length;
+        const notFoundCount = normalizedNames.length - fetchedCount;
+        
+        console.log(`✅ Loaded ${fetchedCount}/${normalizedNames.length} tracks from API${notFoundCount > 0 ? ` (${notFoundCount} not found)` : ''}`);
         
         span.setAttribute('tracks.requested', normalizedNames.length);
-        span.setAttribute('tracks.found', Object.keys(tracksMap).length);
+        span.setAttribute('tracks.found', fetchedCount);
+        span.setAttribute('batches', Math.ceil(normalizedNames.length / batchSize));
         
         return {
           success: true,
@@ -285,7 +278,7 @@ export async function getTracks(trackNames) {
 }
 
 /**
- * Load multiple tracks by their identifiers in a single batch API call
+ * Load multiple tracks by their identifiers - REGISTRY ONLY MODE
  * @param {Array<{songName: string, username: string, trackIdentifier: string}>} tracks - Array of track info objects
  * @returns {Promise<object>} Object mapping (songName|username) keys to track information
  */
@@ -297,10 +290,11 @@ export async function loadTracks(tracks) {
     },
     async (span) => {
       try {
-        // Separate tracks with identifiers from those without
+        const results = {};
         const tracksWithIds = [];
         const tracksWithoutIds = [];
         
+        // Separate tracks into those with registry IDs and those without
         tracks.forEach(track => {
           const identifier = track.trackIdentifier || getTrackIdentifier(track.songName, track.username);
           if (identifier) {
@@ -313,9 +307,7 @@ export async function loadTracks(tracks) {
           }
         });
         
-        const results = {};
-        
-        // Batch load tracks with identifiers
+        // Load tracks with identifiers
         if (tracksWithIds.length > 0) {
           const trackIdentifiers = tracksWithIds.map(t => t.trackIdentifier);
           const batchResult = await getTracks(trackIdentifiers);
@@ -323,47 +315,43 @@ export async function loadTracks(tracks) {
           if (batchResult.success && batchResult.tracks) {
             tracksWithIds.forEach(trackInfo => {
               const track = batchResult.tracks[trackInfo.trackIdentifier];
+              const key = `${trackInfo.songName}|${trackInfo.username}`;
               if (track) {
-                const key = `${trackInfo.songName}|${trackInfo.username}`;
                 results[key] = {
                   success: true,
                   track: track,
                 };
               } else {
-                const key = `${trackInfo.songName}|${trackInfo.username}`;
                 results[key] = {
                   success: false,
                   track: null,
-                  error: `Track ${trackInfo.trackIdentifier} not found in batch response`,
+                  error: `Track ${trackInfo.trackIdentifier} not found`,
                 };
               }
             });
           }
         }
         
-        // Load tracks without identifiers individually (they need search)
+        // ⛔ REGISTRY-ONLY MODE: Tracks not in registry are rejected
         for (const trackInfo of tracksWithoutIds) {
           const key = `${trackInfo.songName}|${trackInfo.username}`;
-          try {
-            const result = await findTrack(trackInfo.songName, trackInfo.username);
-            results[key] = result;
-            
-            // Save identifier if found
-            if (result.success && result.track?.name && trackInfo.username) {
-              saveTrackIdentifier(trackInfo.songName, trackInfo.username, result.track.name);
-            }
-          } catch (error) {
-            results[key] = {
-              success: false,
-              track: null,
-              error: error.message || String(error),
-            };
-          }
+          results[key] = {
+          success: false,
+          track: null,
+          error: `Track "${trackInfo.songName}" by ${trackInfo.username} not found in registry. Only 170+ validated tracks can be loaded.`,
+          };
+        }
+        
+        const successCount = tracksWithIds.length;
+        const notFoundCount = tracksWithoutIds.length;
+        
+        if (notFoundCount > 0) {
+          console.log(`📦 Registry lookup: ${successCount} found, ${notFoundCount} not in registry`);
         }
         
         span.setAttribute('tracks.total', tracks.length);
-        span.setAttribute('tracks.batched', tracksWithIds.length);
-        span.setAttribute('tracks.individual', tracksWithoutIds.length);
+        span.setAttribute('tracks.found', tracksWithIds.length);
+        span.setAttribute('tracks.not_in_registry', tracksWithoutIds.length);
         
         return {
           success: true,
@@ -379,10 +367,10 @@ export async function loadTracks(tracks) {
 }
 
 /**
- * Load a track by identifier or search by name only
- * Tries identifier first (fast), falls back to search if not found
+ * Load a track by identifier - REGISTRY ONLY MODE
+ * Only loads tracks that exist in the registry (170+ validated tracks)
  * @param {string} songName - Name of the song
- * @param {string} username - Username of the artist (used for registry key only, not for search)
+ * @param {string} username - Username of the artist
  * @param {string|null} trackIdentifier - Optional track identifier to use directly
  * @returns {Promise<object>} Track information
  */
@@ -399,123 +387,24 @@ export async function loadTrack(songName, username, trackIdentifier = null) {
           trackIdentifier = getTrackIdentifier(songName, username);
         }
         
-        if (trackIdentifier) {
-          // Use direct lookup by identifier (faster, no search)
-          console.log(`🎵 Loading "${songName}" using stored identifier: ${trackIdentifier}`);
-          span.setAttribute('method', 'direct');
-          return await getTrack(trackIdentifier);
-        } else {
-          // Fall back to search by name only (no artist filter in API, but will filter results by username if provided)
-          console.log(`🎵 Loading "${songName}" from Audiotool TrackService (searching by name only...)`);
-          span.setAttribute('method', 'search');
-          const searchResult = await findTrack(songName, username);
-          
-          // Save identifier to registry if search was successful and username is provided
-          if (searchResult.success && searchResult.track?.name && username) {
-            saveTrackIdentifier(songName, username, searchResult.track.name);
-          }
-          
-          return searchResult;
-        }
-      } catch (error) {
-        // If direct lookup fails, try search as fallback
-        if (trackIdentifier) {
-          console.warn(`⚠️  Direct lookup failed for ${trackIdentifier}, falling back to search...`);
-          span.setAttribute('method', 'search_fallback');
-          const searchResult = await findTrack(songName, username);
-          
-          // Save identifier to registry if search was successful and username is provided
-          if (searchResult.success && searchResult.track?.name && username) {
-            saveTrackIdentifier(songName, username, searchResult.track.name);
-          }
-          
-          // If search also fails, return gracefully
-          if (!searchResult.success) {
-            return searchResult;
-          }
-          return searchResult;
-        }
-        // If no identifier and error occurred, return gracefully
-        console.warn(`⚠️  Failed to load track "${songName}":`, error.message || error);
-        return {
-          success: false,
-          track: null,
-          error: error.message || String(error),
-        };
-      }
-    }
-  );
-}
-
-/**
- * Search for a track by name only (no artist filter in API, but can filter results by username)
- * @param {string} songName - Name of the song
- * @param {string} username - Optional username to filter results (checks contributor_names)
- * @returns {Promise<object>} Track information
- */
-export async function findTrack(songName, username = null) {
-  return safeSentrySpan(
-    {
-      op: 'http.client',
-      name: 'Find Audiotool Track',
-    },
-    async (span) => {
-      try {
-        console.log(`🎵 Searching for "${songName}"...`);
-        
-        // Search by display name only (no contributor filter)
-        const result = await listTracks({
-          filter: `track.display_name == "${songName}"`,
-          pageSize: 20,
-          orderBy: 'track.create_time desc',
-        });
-        
-        if (!result.success || !result.tracks || result.tracks.length === 0) {
-          // Return a graceful failure instead of throwing
-          console.warn(`⚠️  Track "${songName}" not found`);
+        // ⛔ REGISTRY-ONLY MODE: Only load tracks from registry
+        if (!trackIdentifier) {
+          const errorMsg = `Track "${songName}" by ${username} not found in registry. Only 170+ validated tracks can be loaded.`;
+          console.warn(`⚠️  ${errorMsg}`);
+          span.setAttribute('method', 'registry_only');
+          span.setAttribute('found_in_registry', false);
           return {
             success: false,
             track: null,
-            error: `Track "${songName}" not found`,
+            error: errorMsg,
           };
         }
         
-        // If multiple tracks found and username provided, try to find one matching the username
-        let track = result.tracks[0];
-        
-        if (username && result.tracks.length > 1) {
-          // Try to find track by matching contributor
-          const usernameLower = username.toLowerCase();
-          const matchingTrack = result.tracks.find(t => 
-            t.contributor_names?.some(name => 
-              name.toLowerCase().includes(usernameLower) || 
-              name.toLowerCase().includes('tomderry') ||
-              name.toLowerCase().includes('timderry')
-            )
-          );
-          
-          if (matchingTrack) {
-            track = matchingTrack;
-            console.log(`✅ Found track by ${username} among ${result.tracks.length} results`);
-          } else {
-            console.log(`⚠️  No track found by ${username}, using first result (${result.tracks.length} total)`);
-          }
-        }
-        
-        // Note: We can't save identifier here because we don't have username
-        // The identifier will be saved in loadTrack if username is provided
-        
-        span.setAttribute('track.id', track.name);
-        span.setAttribute('track.name', track.display_name);
-        
-        return {
-          success: true,
-          track: track,
-        };
+        // Use direct lookup by identifier
+        span.setAttribute('method', 'registry');
+        span.setAttribute('found_in_registry', true);
+        return await getTrack(trackIdentifier);
       } catch (error) {
-        // Log error but return gracefully instead of throwing
-        console.warn(`⚠️  Failed to find track "${songName}":`, error.message || error);
-        safeCaptureException(error);
         return {
           success: false,
           track: null,
@@ -526,160 +415,117 @@ export async function findTrack(songName, username = null) {
   );
 }
 
+// ⛔ findTrack() - REMOVED - Search functionality disabled (registry-only mode)
+// ⛔ loadTrackInfo() - REMOVED - Search functionality disabled (registry-only mode)
+
 /**
- * Load and log information for a specific track
- * @param {string} songName - Name of the song
- * @param {string} username - Username of the artist
+ * Call the AudiographService using Connect RPC format
+ * @param {string} method - The RPC method name (e.g., "GetAudiographs")
+ * @param {object} request - The request payload
+ * @returns {Promise<object>} The response
  */
-export async function loadTrackInfo(songName = 'trust fund', username = 'dquerg') {
+async function callAudiographService(method, request) {
+  const token = await getToken();
+  const baseUrl = 'https://rpc.audiotool.com';
+  const serviceName = 'audiotool.audiograph.v1.AudiographService';
+  const url = `${baseUrl}/${serviceName}/${method}`;
+  
+  const headers = {
+    'Content-Type': 'application/json',
+  };
+  
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  
+  console.log(`🎨 Calling AudiographService.${method}`);
+  
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: headers,
+    body: JSON.stringify(request),
+    credentials: 'omit',
+  });
+  
+  if (!response.ok) {
+    let errorText = '';
+    try {
+      errorText = await response.text();
+    } catch (e) {
+      errorText = response.statusText;
+    }
+    
+    const errorMessage = `AudiographService.${method} failed: ${response.status} ${errorText}`;
+    throw new Error(errorMessage);
+  }
+  
+  return await response.json();
+}
+
+/**
+ * Get audiograph waveform data for tracks
+ * @param {string|string[]} trackNames - Track name(s) in format "tracks/{id}"
+ * @param {number} resolution - Resolution (120, 240, 480, 960, 1920, 3840)
+ * @param {boolean} stereo - Whether to get stereo (true) or mono (false)
+ * @returns {Promise<object>} Audiograph data with RMS values
+ */
+export async function getAudiographs(trackNames, resolution = 1920, stereo = false) {
   return safeSentrySpan(
     {
       op: 'http.client',
-      name: 'Load Track Information',
+      name: 'Get Audiographs',
     },
     async (span) => {
       try {
-        const result = await findTrack(songName, username);
+        // Normalize to array
+        const names = Array.isArray(trackNames) ? trackNames : [trackNames];
         
-        if (!result.success || !result.track) {
-          throw new Error('Failed to find track');
-        }
+        // Ensure track names are in correct format
+        const normalizedNames = names.map(name => 
+          name.startsWith('tracks/') ? name : `tracks/${name}`
+        );
         
-        const track = result.track;
-        
-        // Log all the information
-        console.log('\n' + '='.repeat(60));
-        console.log(`🎵 TRACK INFORMATION: "${track.display_name}"`);
-        console.log('='.repeat(60));
-        
-        const duration = track.play_duration 
-          ? `${Math.floor(track.play_duration.seconds || 0)}s` 
-          : 'unknown';
-        
-        const info = {
-          // Basic Info
-          id: track.name,
-          name: track.name,
-          displayName: track.display_name,
-          description: track.description || '(no description)',
-          
-          // Artist Info
-          contributors: track.contributor_names || [],
-          
-          // Audio Info
-          bpm: track.bpm || 'unknown',
-          duration: duration,
-          genre: track.genre_name || '',
-          
-          // Audio URLs
-          mp3Url: track.mp3_url,
-          oggUrl: track.ogg_url,
-          wavUrl: track.wav_url,
-          hlsUrl: track.hls_url,
-          
-          // Metadata
-          tags: track.tags || [],
-          license: track.license || 'UNSPECIFIED',
-          downloadAllowed: track.download_allowed || false,
-          remixAllowed: track.remix_allowed || false,
-          
-          // Stats
-          numFavorites: track.num_favorites || 0,
-          numPlays: track.num_plays || 0,
-          numDownloads: track.num_downloads || 0,
-          numComments: track.num_comments || 0,
-          favoritedByUser: track.favorited_by_user || false,
-          
-          // URLs
-          coverUrl: track.cover_url,
-          snapshotUrl: track.snapshot_url,
-          
-          // Timestamps
-          createdAt: track.create_time ? new Date(track.create_time.seconds * 1000).toISOString() : 'unknown',
-          updatedAt: track.update_time ? new Date(track.update_time.seconds * 1000).toISOString() : 'unknown',
+        const request = {
+          resource_names: normalizedNames,
+          resolution: resolution,
+          channels: stereo ? 2 : 1, // 2 = STEREO, 1 = MONO
         };
         
-        // Log formatted information
-        console.log('\n📋 BASIC INFORMATION:');
-        console.log(`   ID: ${info.id}`);
-        console.log(`   Name: ${info.displayName}`);
-        console.log(`   Description: ${info.description}`);
+        console.log(`📊 Fetching audiographs for ${normalizedNames.length} track(s) at ${resolution}px resolution`);
         
-        console.log('\n👤 ARTISTS:');
-        console.log(`   Contributors: ${info.contributors.length > 0 ? info.contributors.join(', ') : '(none)'}`);
+        const result = await callAudiographService('GetAudiographs', request);
         
-        console.log('\n🎼 AUDIO PROPERTIES:');
-        console.log(`   BPM: ${info.bpm}`);
-        console.log(`   Duration: ${info.duration}`);
-        console.log(`   Genre: ${info.genre || '(none)'}`);
-        
-        console.log('\n🔗 AUDIO URLs:');
-        if (info.mp3Url) console.log(`   MP3: ${info.mp3Url}`);
-        if (info.oggUrl) console.log(`   OGG: ${info.oggUrl}`);
-        if (info.wavUrl) console.log(`   WAV: ${info.wavUrl}`);
-        if (info.hlsUrl) console.log(`   HLS: ${info.hlsUrl}`);
-        
-        console.log('\n🏷️  METADATA:');
-        console.log(`   Tags: ${info.tags.length > 0 ? info.tags.join(', ') : '(no tags)'}`);
-        console.log(`   License: ${info.license}`);
-        console.log(`   Download Allowed: ${info.downloadAllowed ? 'Yes' : 'No'}`);
-        console.log(`   Remix Allowed: ${info.remixAllowed ? 'Yes' : 'No'}`);
-        
-        console.log('\n📊 STATISTICS:');
-        console.log(`   Plays: ${info.numPlays}`);
-        console.log(`   Favorites: ${info.numFavorites}`);
-        console.log(`   Downloads: ${info.numDownloads}`);
-        console.log(`   Comments: ${info.numComments}`);
-        console.log(`   Favorited by you: ${info.favoritedByUser ? 'Yes' : 'No'}`);
-        
-        console.log('\n🖼️  MEDIA:');
-        if (info.coverUrl) console.log(`   Cover: ${info.coverUrl}`);
-        if (info.snapshotUrl) console.log(`   Snapshot: ${info.snapshotUrl}`);
-        
-        console.log('\n📅 TIMESTAMPS:');
-        console.log(`   Created: ${info.createdAt}`);
-        console.log(`   Updated: ${info.updatedAt}`);
-        
-        console.log('\n' + '='.repeat(60));
-        console.log('✅ Track information loaded successfully!');
-        console.log('='.repeat(60) + '\n');
-        
-        // Set span attributes
-        span.setAttribute('track.id', info.id);
-        span.setAttribute('track.name', info.displayName);
-        span.setAttribute('track.contributors', info.contributors.join(', '));
-        span.setAttribute('track.bpm', info.bpm);
+        span.setAttribute('audiographs.count', result.audiographs?.length || 0);
+        span.setAttribute('audiographs.resolution', resolution);
+        span.setAttribute('audiographs.stereo', stereo);
         
         return {
           success: true,
-          track: info,
-          rawTrack: track,
+          audiographs: result.audiographs || [],
         };
       } catch (error) {
-        console.error('❌ Failed to load track information:', error);
-        
-        if (error.message && error.message.includes('403')) {
-          console.error('💡 Tip: Your API token may need to be refreshed or you may need different permissions.');
-          console.error('💡 Check your token at: https://beta.audiotool.com/');
-        }
-        
+        console.error('❌ Failed to get audiographs:', error);
         safeCaptureException(error);
-        throw error;
+        return {
+          success: false,
+          audiographs: [],
+          error: error.message || String(error),
+        };
       }
     }
   );
 }
 
 // Export for use in browser console or other modules
+// ⛔ REGISTRY-ONLY MODE: Only validated tracks from registry can be loaded
 if (typeof window !== 'undefined') {
   window.AudiotoolTrackService = {
-    listTracks: listTracks,
     getTrack: getTrack,
     getTracks: getTracks,
     loadTrack: loadTrack,
     loadTracks: loadTracks,
-    findTrack: findTrack,
-    loadTrackInfo: loadTrackInfo,
+    getAudiographs: getAudiographs,
+    // Search methods removed - registry-only mode
   };
 }
 

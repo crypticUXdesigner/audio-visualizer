@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Get Track Test</title>
+    <style>
+        body {
+            font-family: monospace;
+            background: #0a0a0a;
+            color: #0f0;
+            padding: 20px;
+        }
+        pre { white-space: pre-wrap; word-wrap: break-word; }
+    </style>
+</head>
+<body>
+    <h1>Get Track API Test</h1>
+    <pre id="output"></pre>
+    
+    <script type="module">
+        import { getTrack } from './src/core/AudiotoolTrackService.js';
+        
+        const output = document.getElementById('output');
+        function log(msg) {
+            output.textContent += msg + '\n';
+            console.log(msg);
+        }
+        
+        async function testGetTrack() {
+            try {
+                // Try getting a specific track ID from the previous list
+                const trackId = 'tracks/4ho88jqq549';
+                
+                log('🔍 Testing GetTrack API');
+                log(`Getting track: ${trackId}`);
+                log('');
+                
+                const result = await getTrack(trackId);
+                
+                log('✅ API Response:');
+                log(JSON.stringify(result, null, 2));
+                log('');
+                
+                if (result.track) {
+                    const track = result.track;
+                    log('📋 Track Details:');
+                    log(`  Name: ${track.display_name || 'N/A'}`);
+                    log(`  ID: ${track.name || 'N/A'}`);
+                    log(`  Contributors: ${track.contributor_names?.join(', ') || 'N/A'}`);
+                    log(`  Plays: ${track.num_plays || 0}`);
+                    log(`  Favorites: ${track.num_favorites || 0}`);
+                    log(`  BPM: ${track.bpm || 'N/A'}`);
+                    log(`  Genre: ${track.genre_name || 'N/A'}`);
+                }
+                
+            } catch (error) {
+                log('❌ ERROR: ' + error.message);
+                console.error(error);
+            }
+        }
+        
+        testGetTrack();
+    </script>
+</body>
+</html>
+

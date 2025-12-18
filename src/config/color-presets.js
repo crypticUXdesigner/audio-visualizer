@@ -34,7 +34,7 @@ for (let i = 0; i < 10; i++) {
             hue: [0.0, 0.25, 1.0, 0.75]
         },
         // Threshold distribution curve - controls how feed space is allocated to colors
-        thresholdCurve: [0.2, 0.2, 1.0, 0.7]
+        thresholdCurve: [0.3, 0.1, 1.0, 0.7]
     };
 }
 

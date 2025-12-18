@@ -6,8 +6,8 @@
 export const TempoSmoothingConfig = {
     // Volume smoothing (brightness control)
     volume: {
-        attackNote: 1.0 / 64.0,   // 64th note - very fast attack
-        releaseNote: 1.0 / 8.0,    // 8th note - moderate release
+        attackNote: 1.0 / 128.0,   // 64th note - very fast attack
+        releaseNote: 1.0 / 16.0,    // 8th note - moderate release
         attackTimeFallback: 5.0,   // milliseconds fallback
         releaseTimeFallback: 100.0 // milliseconds fallback
     },
@@ -22,16 +22,16 @@ export const TempoSmoothingConfig = {
     
     // Color modulator hue shifts (color temperature)
     colorModulation: {
-        attackNote: 1.0 / 16.0,   // 16th note - moderate attack
-        releaseNote: 1.0 / 2.0,    // Half note - slow release
+        attackNote: 1.0 / 32.0,   // 16th note - moderate attack
+        releaseNote: 1.0 / 4.0,    // Half note - slow release
         attackTimeFallback: 20.0,  // milliseconds fallback
         releaseTimeFallback: 200.0 // milliseconds fallback
     },
     
     // Time offset smoothing (pattern morphing)
     timeOffset: {
-        attackNote: 1.0 / 64.0,    // 32nd note - fast attack
-        releaseNote: 1.0 / 1.0,    // Quarter note - moderate release
+        attackNote: 1.0 / 128.0,    // 32nd note - fast attack
+        releaseNote: 1.0 / 4.0,    // Quarter note - moderate release
         attackTimeFallback: 10.0,  // milliseconds fallback
         releaseTimeFallback: 150.0 // milliseconds fallback
     }

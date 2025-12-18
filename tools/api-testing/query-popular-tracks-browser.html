@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audiotool Popular Tracks Query</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #1a1a1a;
+            color: #e0e0e0;
+        }
+        h1 {
+            color: #4CAF50;
+            text-align: center;
+        }
+        .controls {
+            background: #2a2a2a;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .controls label {
+            display: block;
+            margin-bottom: 5px;
+            color: #aaa;
+        }
+        .controls input, .controls button {
+            padding: 10px;
+            margin: 5px 0;
+            font-size: 16px;
+        }
+        .controls button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            width: 100%;
+        }
+        .controls button:hover {
+            background: #45a049;
+        }
+        .controls button:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
+        #output {
+            background: #0a0a0a;
+            padding: 20px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            white-space: pre-wrap;
+            overflow-x: auto;
+            line-height: 1.6;
+        }
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #4CAF50;
+        }
+    </style>
+</head>
+<body>
+    <h1>🎵 Audiotool Popular Tracks Query</h1>
+    
+    <div class="controls">
+        <label for="years">Years to search back:</label>
+        <input type="number" id="years" value="2" min="1" max="10">
+        
+        <label for="maxPages">Max pages (50 tracks per page):</label>
+        <input type="number" id="maxPages" value="10" min="1" max="20">
+        
+        <button id="queryBtn" onclick="runQuery()">Run Query</button>
+    </div>
+    
+    <div id="output">Click "Run Query" to fetch tracks...</div>
+    
+    <script type="module">
+        import { listTracks } from './src/core/AudiotoolTrackService.js';
+        
+        // Make functions available globally
+        window.listTracks = listTracks;
+        
+        window.runQuery = async function() {
+            const years = parseInt(document.getElementById('years').value);
+            const maxPages = parseInt(document.getElementById('maxPages').value);
+            const output = document.getElementById('output');
+            const btn = document.getElementById('queryBtn');
+            
+            btn.disabled = true;
+            output.innerHTML = '<div class="loading">⏳ Loading tracks...</div>';
+            
+            try {
+                const result = await queryPopularTracks(years, maxPages);
+                btn.disabled = false;
+            } catch (error) {
+                output.innerHTML += `\n\n❌ ERROR: ${error.message}`;
+                btn.disabled = false;
+            }
+        };
+        
+        async function queryPopularTracks(years = 2, maxPages = 10) {
+            const output = document.getElementById('output');
+            let html = '';
+            
+            const log = (msg) => {
+                html += msg + '\n';
+                output.innerHTML = html;
+                output.scrollTop = output.scrollHeight;
+            };
+            
+            log('='.repeat(80));
+            log(`🔍 QUERYING POPULAR AUDIOTOOL TRACKS FROM LAST ${years} YEAR(S)`);
+            log('='.repeat(80) + '\n');
+            
+            // Calculate date N years ago
+            const yearsAgo = new Date();
+            yearsAgo.setFullYear(yearsAgo.getFullYear() - years);
+            const yearsAgoSeconds = Math.floor(yearsAgo.getTime() / 1000);
+            
+            log(`📅 Searching for tracks created after: ${yearsAgo.toISOString()}`);
+            log(`⏰ Timestamp: ${yearsAgoSeconds} seconds\n`);
+            
+            // CEL filter
+            const filter = `track.create_time.seconds >= ${yearsAgoSeconds}`;
+            
+            let allTracks = [];
+            let pageToken = '';
+            let pageCount = 0;
+            
+            log('📊 Fetching tracks...\n');
+            
+            // Fetch multiple pages
+            while (pageCount < maxPages) {
+                const result = await window.listTracks({
+                    filter: filter,
+                    pageSize: 50,
+                    pageToken: pageToken,
+                    orderBy: 'track.create_time desc',
+                });
+                
+                if (!result.success || !result.tracks || result.tracks.length === 0) {
+                    log(`ℹ️  No more tracks found on page ${pageCount + 1}`);
+                    break;
+                }
+                
+                allTracks = allTracks.concat(result.tracks);
+                log(`✅ Page ${pageCount + 1}: ${result.tracks.length} tracks (total: ${allTracks.length})`);
+                
+                if (!result.nextPageToken) {
+                    log('ℹ️  Reached last page\n');
+                    break;
+                }
+                
+                pageToken = result.nextPageToken;
+                pageCount++;
+            }
+            
+            if (allTracks.length === 0) {
+                log('\n❌ No tracks found matching the criteria');
+                return;
+            }
+            
+            // Sort by plays
+            log('\n🔄 Sorting tracks by play count...\n');
+            allTracks.sort((a, b) => (b.num_plays || 0) - (a.num_plays || 0));
+            
+            // Display results
+            displayTopTracks(allTracks, years, log);
+            
+            // Store in window for console access
+            window.queriedTracks = allTracks;
+            log('\n💡 TIP: Results stored in window.queriedTracks for console access');
+            
+            return allTracks;
+        }
+        
+        function displayTopTracks(tracks, years, log) {
+            log('='.repeat(80));
+            log(`🎵 TOP TRACKS FROM LAST ${years} YEAR(S) (SORTED BY PLAY COUNT)`);
+            log('='.repeat(80));
+            log(`Total tracks found: ${tracks.length}\n`);
+            
+            // Show top 50
+            const topCount = Math.min(50, tracks.length);
+            const topTracks = tracks.slice(0, topCount);
+            
+            log(`📊 Showing top ${topCount} tracks:\n`);
+            
+            topTracks.forEach((track, index) => {
+                const createDate = track.create_time 
+                    ? new Date(track.create_time.seconds * 1000).toISOString().split('T')[0]
+                    : 'unknown';
+                const plays = track.num_plays || 0;
+                const favorites = track.num_favorites || 0;
+                const downloads = track.num_downloads || 0;
+                const contributors = track.contributor_names?.join(', ') || 'unknown';
+                const bpm = track.bpm || 'unknown';
+                const genre = track.genre_name || 'unknown';
+                
+                log(`${(index + 1).toString().padStart(3)}. ${track.display_name}`);
+                log(`     ID: ${track.name}`);
+                log(`     👥 Contributors: ${contributors}`);
+                log(`     📊 Plays: ${plays.toLocaleString()} | ⭐ Favorites: ${favorites.toLocaleString()} | 💾 Downloads: ${downloads.toLocaleString()}`);
+                log(`     🎼 BPM: ${bpm} | Genre: ${genre} | 📅 Created: ${createDate}`);
+                if (track.mp3_url) {
+                    log(`     🔗 Listen: ${track.mp3_url}`);
+                }
+                log('');
+            });
+            
+            // Statistics
+            displayStatistics(tracks, years, log);
+        }
+        
+        function displayStatistics(tracks, years, log) {
+            log('\n' + '='.repeat(80));
+            log('📊 SUMMARY STATISTICS');
+            log('='.repeat(80));
+            
+            const totalPlays = tracks.reduce((sum, t) => sum + (t.num_plays || 0), 0);
+            const totalFavorites = tracks.reduce((sum, t) => sum + (t.num_favorites || 0), 0);
+            const totalDownloads = tracks.reduce((sum, t) => sum + (t.num_downloads || 0), 0);
+            const avgPlays = tracks.length > 0 ? Math.round(totalPlays / tracks.length) : 0;
+            const avgFavorites = tracks.length > 0 ? Math.round(totalFavorites / tracks.length) : 0;
+            
+            log(`\n📈 Overall Stats:`);
+            log(`   Total tracks: ${tracks.length.toLocaleString()}`);
+            log(`   Total plays: ${totalPlays.toLocaleString()}`);
+            log(`   Total favorites: ${totalFavorites.toLocaleString()}`);
+            log(`   Total downloads: ${totalDownloads.toLocaleString()}`);
+            log(`   Average plays per track: ${avgPlays.toLocaleString()}`);
+            log(`   Average favorites per track: ${avgFavorites.toLocaleString()}`);
+            
+            if (tracks.length > 0) {
+                log(`\n🏆 Top Performance:`);
+                log(`   Most played: "${tracks[0].display_name}" - ${tracks[0].num_plays?.toLocaleString()} plays`);
+                
+                const byFavorites = [...tracks].sort((a, b) => (b.num_favorites || 0) - (a.num_favorites || 0));
+                log(`   Most favorited: "${byFavorites[0].display_name}" - ${byFavorites[0].num_favorites?.toLocaleString()} favorites`);
+            }
+            
+            // Genre breakdown
+            const genreCounts = {};
+            tracks.forEach(track => {
+                const genre = track.genre_name || 'Unknown';
+                genreCounts[genre] = (genreCounts[genre] || 0) + 1;
+            });
+            
+            const topGenres = Object.entries(genreCounts)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 10);
+            
+            if (topGenres.length > 0) {
+                log(`\n🎼 Top Genres:`);
+                topGenres.forEach(([genre, count], index) => {
+                    log(`   ${index + 1}. ${genre}: ${count} tracks`);
+                });
+            }
+            
+            // Time breakdown
+            if (years > 1) {
+                const oneYearAgo = new Date();
+                oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+                const oneYearAgoSeconds = Math.floor(oneYearAgo.getTime() / 1000);
+                
+                const lastYearTracks = tracks.filter(t => 
+                    t.create_time && t.create_time.seconds >= oneYearAgoSeconds
+                );
+                
+                log(`\n📅 Time Breakdown:`);
+                log(`   Last year: ${lastYearTracks.length} tracks`);
+                log(`   Previous year(s): ${tracks.length - lastYearTracks.length} tracks`);
+                
+                if (lastYearTracks.length > 0) {
+                    const lastYearPlays = lastYearTracks.reduce((sum, t) => sum + (t.num_plays || 0), 0);
+                    const lastYearAvgPlays = Math.round(lastYearPlays / lastYearTracks.length);
+                    log(`   Last year average plays: ${lastYearAvgPlays.toLocaleString()}`);
+                }
+            }
+            
+            log('\n' + '='.repeat(80));
+            log('✅ Query complete!');
+            log('='.repeat(80) + '\n');
+        }
+    </script>
+</body>
+</html>
+

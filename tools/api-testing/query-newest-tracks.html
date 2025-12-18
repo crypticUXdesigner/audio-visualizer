@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Query Newest Tracks</title>
+    <style>
+        body {
+            font-family: monospace;
+            background: #0a0a0a;
+            color: #0f0;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        pre { white-space: pre-wrap; word-wrap: break-word; }
+        .status { color: #ff0; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <h1>🔍 Newest Tracks Query</h1>
+    <div class="status" id="status">Loading...</div>
+    <pre id="output"></pre>
+    
+    <script type="module">
+        import { listTracks } from './src/core/AudiotoolTrackService.js';
+        
+        const statusDiv = document.getElementById('status');
+        const output = document.getElementById('output');
+        
+        function log(msg) {
+            output.textContent += msg + '\n';
+            console.log(msg);
+        }
+        
+        async function queryNewestTracks() {
+            try {
+                statusDiv.textContent = 'Status: Querying newest tracks...';
+                
+                log('='.repeat(80));
+                log('🔍 QUERYING NEWEST PUBLISHED TRACKS');
+                log('='.repeat(80));
+                log('');
+                
+                // Query without filter, order by create_time descending (newest first)
+                log('📊 Fetching most recently published tracks...');
+                log('   Order: track.create_time desc (newest first)');
+                log('');
+                
+                const result = await listTracks({
+                    filter: '',  // No filter - get all tracks
+                    pageSize: 50,
+                    orderBy: 'track.create_time desc',
+                });
+                
+                if (!result.success || !result.tracks || result.tracks.length === 0) {
+                    log('❌ No tracks found');
+                    statusDiv.textContent = 'Status: No tracks found';
+                    return;
+                }
+                
+                log(`✅ Found ${result.tracks.length} tracks`);
+                log('');
+                
+                log('='.repeat(80));
+                log('📅 TOP 30 NEWEST TRACKS');
+                log('='.repeat(80));
+                log('');
+                
+                const topTracks = result.tracks.slice(0, 30);
+                
+                topTracks.forEach((track, index) => {
+                    // Handle both camelCase and snake_case
+                    const displayName = track.displayName || track.display_name || 'Unknown';
+                    const createTime = track.createTime || track.create_time;
+                    const createDate = createTime
+                        ? (typeof createTime === 'string' ? createTime : new Date(createTime.seconds * 1000).toISOString())
+                        : 'unknown';
+                    const plays = (track.numPlays || track.num_plays || 0).toLocaleString();
+                    const favorites = (track.numFavorites || track.num_favorites || 0).toLocaleString();
+                    const bpm = track.bpm || 'unknown';
+                    const genre = track.genreName || track.genre_name || 'unknown';
+                    
+                    log(`${(index + 1).toString().padStart(3)}. ${displayName}`);
+                    log(`     📅 Created: ${createDate}`);
+                    log(`     📊 ${plays} plays | ⭐ ${favorites} favorites`);
+                    log(`     🎼 ${bpm} BPM | ${genre}`);
+                    log(`     🆔 ${track.name}`);
+                    log('');
+                });
+                
+                // Show date range
+                log('='.repeat(80));
+                log('📊 DATE RANGE');
+                log('='.repeat(80));
+                
+                const newestTrack = result.tracks[0];
+                const oldestTrack = result.tracks[result.tracks.length - 1];
+                
+                const newestDate = newestTrack.createTime || newestTrack.create_time;
+                const oldestDate = oldestTrack.createTime || oldestTrack.create_time;
+                
+                log(`Newest: ${newestDate ? (typeof newestDate === 'string' ? newestDate : new Date(newestDate.seconds * 1000).toISOString()) : 'unknown'}`);
+                log(`Oldest: ${oldestDate ? (typeof oldestDate === 'string' ? oldestDate : new Date(oldestDate.seconds * 1000).toISOString()) : 'unknown'}`);
+                
+                // Check for tracks with actual data
+                const tracksWithStats = result.tracks.filter(t => (t.numPlays || t.num_plays || 0) > 0);
+                log(`\nTracks with play data: ${tracksWithStats.length}/${result.tracks.length}`);
+                
+                log('');
+                log('='.repeat(80));
+                log('✅ Query complete!');
+                log('='.repeat(80));
+                
+                statusDiv.textContent = 'Status: Complete ✅';
+                window.newestTracks = result.tracks;
+                
+            } catch (error) {
+                log('');
+                log('❌ ERROR: ' + error.message);
+                statusDiv.textContent = 'Status: Error';
+                console.error(error);
+            }
+        }
+        
+        queryNewestTracks();
+    </script>
+</body>
+</html>
+

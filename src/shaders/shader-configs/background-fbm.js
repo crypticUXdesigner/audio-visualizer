@@ -18,70 +18,6 @@ export default {
             step: 0.5,
             label: 'Pixel Size'
         },
-        steps: { 
-            type: 'float', 
-            default: 5, 
-            min: 2, 
-            max: 10, 
-            step: 0.5,
-            label: 'Steps'
-        },
-        targetFPS: {
-            type: 'float',
-            default: 60,
-            min: 15,
-            max: 60,
-            step: 1,
-            label: 'Target FPS'
-        },
-        rippleSpeed: {
-            type: 'float',
-            default: 0.3,
-            min: 0.1,
-            max: 2,
-            step: 0.05,
-            label: 'Ripple Speed'
-        },
-        rippleWidth: {
-            type: 'float',
-            default: 0.1,
-            min: 0.02,
-            max: 0.5,
-            step: 0.01,
-            label: 'Ripple Width'
-        },
-        rippleMinRadius: {
-            type: 'float',
-            default: 0.15,
-            min: 0,
-            max: 1,
-            step: 0.05,
-            label: 'Ripple Min Radius'
-        },
-        rippleMaxRadius: {
-            type: 'float',
-            default: 3,
-            min: 0.1,
-            max: 3,
-            step: 0.1,
-            label: 'Ripple Max Radius'
-        },
-        rippleIntensityThreshold: {
-            type: 'float',
-            default: 0.75,
-            min: 0,
-            max: 1,
-            step: 0.05,
-            label: 'Ripple Threshold'
-        },
-        rippleIntensity: {
-            type: 'float',
-            default: 0.25,
-            min: 0,
-            max: 1,
-            step: 0.05,
-            label: 'Ripple Intensity'
-        },
         ditherStrength: {
             type: 'float',
             default: 3.0,
@@ -102,7 +38,7 @@ export default {
     
     // Color configuration (can be overridden)
     colorConfig: {
-        baseHue: '#41eee5',
+        baseHue: '#18191f', // Gray-40 for seamless transition from background
         darkest: {
             lightness: 0.09,
             chroma: 0.08,

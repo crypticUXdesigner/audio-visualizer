@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audiotool API Query Test</title>
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            background: #0a0a0a;
+            color: #0f0;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        pre {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        .status {
+            color: #ff0;
+            font-weight: bold;
+        }
+        .success {
+            color: #0f0;
+        }
+        .error {
+            color: #f00;
+        }
+    </style>
+</head>
+<body>
+    <h1>🎵 Audiotool Popular Tracks Query</h1>
+    <div class="status">Status: Initializing...</div>
+    <pre id="output"></pre>
+    
+    <script type="module">
+        import { listTracks } from './src/core/AudiotoolTrackService.js';
+        
+        const statusDiv = document.querySelector('.status');
+        const outputPre = document.getElementById('output');
+        
+        function log(msg) {
+            outputPre.textContent += msg + '\n';
+            console.log(msg);
+        }
+        
+        async function runQuery() {
+            try {
+                statusDiv.textContent = 'Status: Running query...';
+                statusDiv.className = 'status';
+                
+                log('='.repeat(80));
+                log('🔍 QUERYING AUDIOTOOL API - MOST FAVORITED TRACKS');
+                log('='.repeat(80));
+                log('');
+                
+                log('📊 Strategy: Order by num_favorites (supported field per protobuf)');
+                log('   This should return tracks with actual statistics');
+                log('');
+                
+                // Calculate date 2 years ago for local filtering
+                const twoYearsAgo = new Date();
+                twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
+                const twoYearsAgoTime = twoYearsAgo.getTime();
+                
+                // Use timestamp filter in proper CEL format
+                const timestampString = twoYearsAgo.toISOString();
+                const filter = `track.create_time >= timestamp("${timestampString}")`;
+                
+                log(`📅 Date filter: tracks created after ${timestampString}`);
+                log(`🔍 CEL Filter: ${filter}`);
+                log('');
+                
+                // Fetch tracks (multiple pages)
+                log('📊 Fetching tracks from API...');
+                log('');
+                
+                let allTracks = [];
+                let pageToken = '';
+                const maxPages = 10;
+                
+                for (let page = 0; page < maxPages; page++) {
+                    log(`   Page ${page + 1}...`);
+                    
+                    const result = await listTracks({
+                        filter: filter,
+                        pageSize: 50,
+                        pageToken: pageToken,
+                        orderBy: 'track.num_favorites desc',  // Order by favorites (supported field!)
+                    });
+                    
+                    if (!result.success || !result.tracks || result.tracks.length === 0) {
+                        log(`   ℹ️  No more tracks found`);
+                        break;
+                    }
+                    
+                    allTracks = allTracks.concat(result.tracks);
+                    log(`   ✅ Got ${result.tracks.length} tracks (total: ${allTracks.length})`);
+                    
+                    if (!result.nextPageToken) {
+                        log(`   ℹ️  Reached last page`);
+                        break;
+                    }
+                    
+                    pageToken = result.nextPageToken;
+                }
+                
+                log('');
+                log(`✅ Fetched ${allTracks.length} tracks total`);
+                log('');
+                
+                if (allTracks.length === 0) {
+                    log('❌ No tracks found');
+                    statusDiv.textContent = 'Status: No tracks found';
+                    statusDiv.className = 'status error';
+                    return;
+                }
+                
+                // Check if we got actual data
+                log('🔍 Checking for statistics fields...');
+                const tracksWithStats = allTracks.filter(t => t.num_favorites > 0 || t.num_plays > 0);
+                log(`   Tracks with favorites: ${allTracks.filter(t => t.num_favorites > 0).length}`);
+                log(`   Tracks with plays: ${allTracks.filter(t => t.num_plays > 0).length}`);
+                log(`   Tracks with contributors: ${allTracks.filter(t => t.contributor_names && t.contributor_names.length > 0).length}`);
+                log('');
+                
+                // Already sorted by favorites from API, but also sort by plays for comparison
+                const byPlays = [...allTracks].sort((a, b) => (b.num_plays || 0) - (a.num_plays || 0));
+                log('');
+                
+                // Display top tracks
+                log('='.repeat(80));
+                log('🎵 TOP 30 TRACKS BY FAVORITES');
+                log('='.repeat(80));
+                log('');
+                
+                const topTracks = allTracks.slice(0, 30);
+                
+                log(`   (Also showing play counts for comparison)`);
+                log('');
+                
+                topTracks.forEach((track, index) => {
+                    // Handle both camelCase (API) and snake_case (protobuf) field names
+                    const displayName = track.display_name || track.displayName || 'Unknown';
+                    const createTime = track.create_time || track.createTime;
+                    const createDate = createTime
+                        ? (typeof createTime === 'string' ? createTime.split('T')[0] : new Date(createTime.seconds * 1000).toISOString().split('T')[0])
+                        : 'unknown';
+                    const plays = (track.num_plays || track.numPlays || 0).toLocaleString();
+                    const favorites = (track.num_favorites || track.numFavorites || 0).toLocaleString();
+                    const contributorNames = track.contributor_names || track.contributorNames || [];
+                    const contributors = contributorNames.length > 0 ? contributorNames.join(', ') : 'unknown';
+                    
+                    log(`${(index + 1).toString().padStart(3)}. ${displayName}`);
+                    log(`     👥 ${contributors}`);
+                    log(`     📊 ${plays} plays | ⭐ ${favorites} favorites | 📅 ${createDate}`);
+                    log(`     🆔 ${track.name}`);
+                    log('');
+                });
+                
+                // Summary stats
+                log('='.repeat(80));
+                log('📊 SUMMARY STATISTICS');
+                log('='.repeat(80));
+                log('');
+                
+                const totalPlays = allTracks.reduce((sum, t) => sum + (t.num_plays || 0), 0);
+                const totalFavorites = allTracks.reduce((sum, t) => sum + (t.num_favorites || 0), 0);
+                const avgPlays = Math.round(totalPlays / allTracks.length);
+                
+                log(`Total tracks analyzed: ${allTracks.length.toLocaleString()}`);
+                log(`Total plays: ${totalPlays.toLocaleString()}`);
+                log(`Total favorites: ${totalFavorites.toLocaleString()}`);
+                log(`Average plays per track: ${avgPlays.toLocaleString()}`);
+                log('');
+                if (topTracks[0] && topTracks[0].display_name) {
+                    log(`Top track: "${topTracks[0].display_name}"`);
+                    log(`  by ${topTracks[0].contributor_names?.join(', ') || 'unknown'}`);
+                    log(`  ${(topTracks[0].num_plays || 0).toLocaleString()} plays`);
+                }
+                log('');
+                
+                // Genre breakdown
+                const genreCounts = {};
+                allTracks.forEach(track => {
+                    const genre = track.genre_name || 'Unknown';
+                    genreCounts[genre] = (genreCounts[genre] || 0) + 1;
+                });
+                
+                const topGenres = Object.entries(genreCounts)
+                    .sort((a, b) => b[1] - a[1])
+                    .slice(0, 10);
+                
+                log('🎼 TOP 10 GENRES:');
+                topGenres.forEach(([genre, count], index) => {
+                    log(`   ${index + 1}. ${genre}: ${count} tracks`);
+                });
+                
+                log('');
+                log('='.repeat(80));
+                log('✅ QUERY COMPLETE!');
+                log('='.repeat(80));
+                
+                statusDiv.textContent = 'Status: Complete! ✅';
+                statusDiv.className = 'status success';
+                
+                // Store results for console access
+                window.queriedTracks = allTracks;
+                log('');
+                log('💡 Results stored in window.queriedTracks for console access');
+                
+            } catch (error) {
+                log('');
+                log('❌ ERROR: ' + error.message);
+                log('');
+                console.error('Error details:', error);
+                
+                statusDiv.textContent = 'Status: Error - ' + error.message;
+                statusDiv.className = 'status error';
+            }
+        }
+        
+        // Run automatically on load
+        runQuery();
+    </script>
+</body>
+</html>
+

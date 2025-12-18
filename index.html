@@ -6,7 +6,24 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <title>Background Shader</title>
+    <title>Visual Player - Audio Visualizer</title>
+    <meta name="description" content="An immersive WebGL audio visualizer with dynamic color palettes and real-time frequency analysis. Experience music in a new way with stunning visual effects synchronized to your favorite tracks.">
+    <meta name="keywords" content="audio visualizer, music visualizer, WebGL, shader, audio analysis, frequency visualization">
+    
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="Visual Player - Audio Visualizer">
+    <meta property="og:description" content="An immersive WebGL audio visualizer with dynamic color palettes and real-time frequency analysis.">
+    <meta property="og:url" content="https://crypticUXdesigner.github.io/audio-visualizer/">
+    
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Visual Player - Audio Visualizer">
+    <meta name="twitter:description" content="An immersive WebGL audio visualizer with dynamic color palettes and real-time frequency analysis.">
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@100;200;300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <script>
         // Check for debug mode immediately to prevent flash of buttons
@@ -19,6 +36,11 @@
     </script>
 </head>
 <body>
+    <!-- Loading Spinner -->
+    <div id="appLoader" class="app-loader">
+        <div class="loader"></div>
+    </div>
+    
     <!-- Background Shader Canvas -->
     <canvas id="backgroundCanvas"></canvas>
     
@@ -47,13 +69,6 @@
             </div>
         </div>
         
-        <!-- Shader Controls Button -->
-        <button id="shaderControlsBtn" class="top-control-btn">
-            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M11 15v4H8v4l-.005.102a1 1 0 0 1-1.99 0L6 23v-4H3v-4h8Zm10-8v4h-3v12l-.005.102a1 1 0 0 1-1.99 0L16 23V11h-3V7h8ZM7 0a1 1 0 0 1 1 1v12H6V1a1 1 0 0 1 1-1Zm10 0a1 1 0 0 1 1 1v4h-2V1a1 1 0 0 1 1-1Z"/>
-            </svg>
-        </button>
-        
         <!-- Frequency Visualizer Button -->
         <button id="frequencyVisualizerBtn" class="top-control-btn">
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 100 100">
@@ -61,17 +76,15 @@
             </svg>
         </button>
         
-        <!-- Loop Button -->
-        <button id="loopBtn" class="top-control-btn" title="Loop">
-            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M21.657 6.343a8 8 0 0 1-5.245 13.647L16 20h-6v4l-5-5 5-5v4h6a6 6 0 0 0 4.242-10.242l1.415-1.415ZM19 5l-5 5V6H8a6 6 0 0 0-4.242 10.242l-1.413 1.413A8 8 0 0 1 8 4h6V0l5 5Z"/>
-            </svg>
-        </button>
-        
-        <!-- Random Button -->
-        <button id="randomBtn" class="top-control-btn" title="Random">
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24">
+        <!-- Playback Mode Toggle Button (Random/Loop) -->
+        <button id="playbackModeBtn" class="top-control-btn" title="Random Playlist">
+            <!-- Random Icon (default, visible) -->
+            <svg class="random-icon" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24">
                 <path fill="currentColor" d="M10.59 9.17L5.41 4L4 5.41l5.17 5.17l1.42-1.41M14.5 4l2.04 2.04L4 18.59L5.41 20L17.96 7.46L20 9.5V4h-5.5m.33 9.41l-1.41 1.41l3.13 3.13L14.5 20H20v-5.5l-2.04 2.04l-3.13-3.13z"/>
+            </svg>
+            <!-- Loop Icon (hidden by default) -->
+            <svg class="loop-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 24 24" style="display: none;">
+                <path d="M21.657 6.343a8 8 0 0 1-5.245 13.647L16 20h-6v4l-5-5 5-5v4h6a6 6 0 0 0 4.242-10.242l1.415-1.415ZM19 5l-5 5V6H8a6 6 0 0 0-4.242 10.242l-1.413 1.413A8 8 0 0 1 8 4h6V0l5 5Z"/>
             </svg>
         </button>
     </div>
@@ -100,7 +113,7 @@
                 <span id="currentTime">0:00</span>
                 <span id="totalTime">0:00</span>
             </div>
-            <input type="range" id="seekBar" min="0" max="100" value="0" step="0.1" class="seek-bar" />
+            <!-- Waveform scrubber will be inserted here by JavaScript -->
         </div>
         
         <!-- Playback Controls -->

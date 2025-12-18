@@ -1,6 +1,8 @@
 // Audio Controls UI Module
 // Handles audio playback controls (play, pause, seek, track selection)
 
+import { WaveformScrubber } from './WaveformScrubber.js';
+
 export class AudioControls {
     constructor(audioAnalyzer) {
         this.audioAnalyzer = audioAnalyzer;
@@ -8,7 +10,6 @@ export class AudioControls {
         this.playControlBtn = document.getElementById('playControlBtn');
         this.skipLeftBtn = document.getElementById('skipLeftBtn');
         this.skipRightBtn = document.getElementById('skipRightBtn');
-        this.seekBar = document.getElementById('seekBar');
         this.currentTimeDisplay = document.getElementById('currentTime');
         this.totalTimeDisplay = document.getElementById('totalTime');
         this.trackDropdown = document.getElementById('trackDropdown');
@@ -19,8 +20,7 @@ export class AudioControls {
         this.trackLoadingSpinner = this.trackDropdownBtn?.querySelector('.track-loading-spinner');
         this.scrubberContainer = document.querySelector('.scrubber-container');
         this.audioControlsContainer = document.querySelector('.audio-controls-container');
-        this.loopBtn = document.getElementById('loopBtn');
-        this.randomBtn = document.getElementById('randomBtn');
+        this.playbackModeBtn = document.getElementById('playbackModeBtn');
         
         this.isSeeking = false;
         this.seekUpdateInterval = null;
@@ -32,9 +32,13 @@ export class AudioControls {
         this.mouseMoveTimeout = null;
         this.hideDelay = 2000; // Hide after 2 seconds of no mouse movement
         this.isControlsVisible = false;
+        this.isHoveringControls = false;
         
         // Title texture for shader
         this.titleTexture = null;
+        
+        // Waveform scrubber
+        this.waveformScrubber = null;
         
         // Track change callback for external handlers (e.g., random color preset)
         this.onTrackChange = null;
@@ -53,7 +57,7 @@ export class AudioControls {
     }
     
     init() {
-        if (!this.audioFileInput || !this.playControlBtn || !this.seekBar || 
+        if (!this.audioFileInput || !this.playControlBtn || 
             !this.currentTimeDisplay || !this.totalTimeDisplay) {
             console.warn('Audio control elements not found');
             return;
@@ -160,63 +164,6 @@ export class AudioControls {
             }
         });
         
-        // Seek bar handlers - Mouse events
-        this.seekBar.addEventListener('mousedown', (e) => {
-            // Prevent mouse events if touch is being used
-            if (e.pointerType === 'touch') return;
-            this.isSeeking = true;
-        });
-        
-        this.seekBar.addEventListener('mouseup', (e) => {
-            // Prevent mouse events if touch is being used
-            if (e.pointerType === 'touch') return;
-            this.isSeeking = false;
-            if (this.audioAnalyzer.audioElement && this.audioAnalyzer.audioElement.duration) {
-                const percent = parseFloat(this.seekBar.value);
-                this.audioAnalyzer.audioElement.currentTime = (percent / 100) * this.audioAnalyzer.audioElement.duration;
-            }
-        });
-        
-        // Seek bar handlers - Touch events for mobile
-        this.seekBar.addEventListener('touchstart', (e) => {
-            this.isSeeking = true;
-            // Keep controls visible during touch interaction
-            this.showControls();
-            if (this.mouseMoveTimeout) {
-                clearTimeout(this.mouseMoveTimeout);
-            }
-            // Prevent mouse events from firing
-            e.preventDefault();
-        }, { passive: false });
-        
-        this.seekBar.addEventListener('touchend', (e) => {
-            this.isSeeking = false;
-            if (this.audioAnalyzer.audioElement && this.audioAnalyzer.audioElement.duration) {
-                const percent = parseFloat(this.seekBar.value);
-                this.audioAnalyzer.audioElement.currentTime = (percent / 100) * this.audioAnalyzer.audioElement.duration;
-            }
-            // Reset auto-hide timer after touch ends
-            this.resetHideTimeout();
-            // Prevent mouse events from firing
-            e.preventDefault();
-        }, { passive: false });
-        
-        // Handle touch cancel (when touch is interrupted)
-        this.seekBar.addEventListener('touchcancel', (e) => {
-            this.isSeeking = false;
-            // Reset auto-hide timer
-            this.resetHideTimeout();
-        });
-        
-        // Update time display during seeking (works for both mouse and touch)
-        this.seekBar.addEventListener('input', () => {
-            if (this.isSeeking && this.audioAnalyzer.audioElement && this.audioAnalyzer.audioElement.duration) {
-                const percent = parseFloat(this.seekBar.value);
-                const newTime = (percent / 100) * this.audioAnalyzer.audioElement.duration;
-                this.currentTimeDisplay.textContent = this.formatTime(newTime);
-            }
-        });
-        
         // Play control button
         this.playControlBtn.addEventListener('click', async () => {
             await this.handlePlayControl();
@@ -247,12 +194,16 @@ export class AudioControls {
         // Setup auto-hide controls on mouse movement
         this.setupAutoHideControls();
         
-        // Setup loop and random buttons
-        this.setupLoopButton();
-        this.setupRandomButton();
+        // Setup playback mode toggle button
+        this.setupPlaybackModeButton();
         
         // Setup keyboard controls
         this.setupKeyboardControls();
+        
+        // Initialize waveform scrubber (replaces seek bar)
+        if (this.scrubberContainer) {
+            this.waveformScrubber = new WaveformScrubber(this.scrubberContainer, this.audioAnalyzer?.audioElement || null);
+        }
     }
     
     setupAutoHideControls() {
@@ -283,14 +234,25 @@ export class AudioControls {
             this.trackDropdown,
             this.trackDropdownMenu,
             this.topControls,
-            this.loopBtn,
-            this.randomBtn
+            this.playbackModeBtn,
+            this.audioControlsContainer
         ];
         
         controlElements.forEach(element => {
             if (element) {
                 element.addEventListener('mouseenter', () => {
+                    this.isHoveringControls = true;
                     this.showControls();
+                    // Clear timeout but don't reset it while hovering
+                    if (this.mouseMoveTimeout) {
+                        clearTimeout(this.mouseMoveTimeout);
+                        this.mouseMoveTimeout = null;
+                    }
+                });
+                
+                element.addEventListener('mouseleave', () => {
+                    this.isHoveringControls = false;
+                    // Start hide timeout when leaving the control
                     this.resetHideTimeout();
                 });
                 
@@ -299,6 +261,7 @@ export class AudioControls {
                     this.showControls();
                     if (this.mouseMoveTimeout) {
                         clearTimeout(this.mouseMoveTimeout);
+                        this.mouseMoveTimeout = null;
                     }
                 });
             }
@@ -353,6 +316,11 @@ export class AudioControls {
             clearTimeout(this.mouseMoveTimeout);
         }
         
+        // Don't start hide timer if hovering over controls
+        if (this.isHoveringControls) {
+            return;
+        }
+        
         this.mouseMoveTimeout = setTimeout(() => {
             this.hideControls();
         }, this.hideDelay);
@@ -401,8 +369,7 @@ export class AudioControls {
         const duration = this.audioAnalyzer.audioElement.duration;
         
         if (duration && isFinite(duration)) {
-            const percent = (currentTime / duration) * 100;
-            this.seekBar.value = percent;
+            // Update time displays (waveform scrubber handles visual progress)
             this.currentTimeDisplay.textContent = this.formatTime(currentTime);
             this.totalTimeDisplay.textContent = this.formatTime(duration);
             this.updatePlayControlButton();
@@ -441,11 +408,28 @@ export class AudioControls {
         if (this.trackDropdownBtn) {
             this.trackDropdownBtn.classList.add('loading');
         }
+        // Show full-screen loader
+        const appLoader = document.getElementById('appLoader');
+        if (appLoader) {
+            appLoader.style.display = 'flex';
+            appLoader.classList.remove('hidden');
+        }
     }
     
     hideLoading() {
         if (this.trackDropdownBtn) {
             this.trackDropdownBtn.classList.remove('loading');
+        }
+        // Hide full-screen loader
+        const appLoader = document.getElementById('appLoader');
+        if (appLoader) {
+            appLoader.classList.add('hidden');
+            // Remove from DOM after transition
+            setTimeout(() => {
+                if (appLoader.classList.contains('hidden')) {
+                    appLoader.style.display = 'none';
+                }
+            }, 300);
         }
     }
     
@@ -486,13 +470,30 @@ export class AudioControls {
             
             await this.audioAnalyzer.loadTrack(filePath, metadata);
             
+            // Update waveform scrubber audio element
+            if (this.waveformScrubber) {
+                this.waveformScrubber.audioElement = this.audioAnalyzer.audioElement;
+                
+                // Clear old waveform immediately (will fade out)
+                this.waveformScrubber.clearWaveform();
+                
+                // Load waveform if this is an API track with track ID
+                if (selectedOption && selectedOption.dataset.apiTrackId) {
+                    const trackId = selectedOption.dataset.apiTrackId;
+                    // Small delay to allow fade-out to complete
+                    setTimeout(async () => {
+                        await this.waveformScrubber.loadWaveform(trackId);
+                    }, 150);
+                }
+            }
+            
             // Trigger track change callback (for random color preset)
             if (this.onTrackChange) {
                 this.onTrackChange();
             }
             
-            // Apply loop state to new track
-            this.updateLoopButtonState();
+            // Apply playback mode state to new track
+            this.updatePlaybackModeButtonState();
             
             // Wait for metadata
             if (this.audioAnalyzer.audioElement.readyState >= 1) {
@@ -620,8 +621,6 @@ export class AudioControls {
                 // Update trackOptions reference
                 this.trackOptions = document.querySelectorAll('.track-option');
                 
-                console.log(`✅ Added "${songName || track.description || track.name}" to track selection`);
-                
                 // Auto-load if requested (with BPM metadata)
                 if (autoLoad) {
                     await this.loadTrack(audioUrl, { bpm: metadataBPM });
@@ -673,8 +672,8 @@ export class AudioControls {
     
     setupAudioElementListeners() {
         if (this.audioAnalyzer.audioElement) {
-            // Update loop state when new track is loaded
-            this.updateLoopButtonState();
+            // Update playback mode button state when new track is loaded
+            this.updatePlaybackModeButtonState();
             
             this.audioAnalyzer.audioElement.addEventListener('ended', () => {
                 this.stopSeekUpdate();
@@ -712,63 +711,56 @@ export class AudioControls {
         }
     }
     
-    setupLoopButton() {
-        if (!this.loopBtn) return;
+    setupPlaybackModeButton() {
+        if (!this.playbackModeBtn) return;
         
-        this.loopBtn.addEventListener('click', () => {
-            this.isLoopEnabled = !this.isLoopEnabled;
-            this.updateLoopButtonState();
-            
-            // If random is enabled, disable it (mutually exclusive)
-            if (this.isLoopEnabled && this.isRandomEnabled) {
+        this.playbackModeBtn.addEventListener('click', () => {
+            // Toggle between random and loop modes
+            if (this.isRandomEnabled) {
+                // Switch to loop mode
                 this.isRandomEnabled = false;
-                this.updateRandomButtonState();
+                this.isLoopEnabled = true;
+            } else {
+                // Switch to random mode
+                this.isRandomEnabled = true;
+                this.isLoopEnabled = false;
             }
+            
+            this.updatePlaybackModeButtonState();
         });
         
-        this.updateLoopButtonState();
+        // Initialize with default state (random enabled)
+        this.updatePlaybackModeButtonState();
     }
     
-    updateLoopButtonState() {
-        if (!this.loopBtn) return;
+    updatePlaybackModeButtonState() {
+        if (!this.playbackModeBtn) return;
         
-        if (this.isLoopEnabled) {
-            this.loopBtn.classList.add('active');
-            if (this.audioAnalyzer.audioElement) {
-                this.audioAnalyzer.audioElement.loop = true;
-            }
-        } else {
-            this.loopBtn.classList.remove('active');
+        const randomIcon = this.playbackModeBtn.querySelector('.random-icon');
+        const loopIcon = this.playbackModeBtn.querySelector('.loop-icon');
+        
+        if (this.isRandomEnabled) {
+            // Random mode: show random icon, add active class
+            if (randomIcon) randomIcon.style.display = 'block';
+            if (loopIcon) loopIcon.style.display = 'none';
+            this.playbackModeBtn.classList.add('active');
+            this.playbackModeBtn.title = 'Random Playlist';
+            
+            // Disable audio element loop
             if (this.audioAnalyzer.audioElement) {
                 this.audioAnalyzer.audioElement.loop = false;
             }
-        }
-    }
-    
-    setupRandomButton() {
-        if (!this.randomBtn) return;
-        
-        this.randomBtn.addEventListener('click', () => {
-            this.isRandomEnabled = !this.isRandomEnabled;
-            this.updateRandomButtonState();
+        } else if (this.isLoopEnabled) {
+            // Loop mode: show loop icon, add active class
+            if (randomIcon) randomIcon.style.display = 'none';
+            if (loopIcon) loopIcon.style.display = 'block';
+            this.playbackModeBtn.classList.add('active');
+            this.playbackModeBtn.title = 'Loop Current Track';
             
-            // If loop is enabled, disable it (mutually exclusive)
-            if (this.isRandomEnabled && this.isLoopEnabled) {
-                this.isLoopEnabled = false;
-                this.updateLoopButtonState();
+            // Enable audio element loop
+            if (this.audioAnalyzer.audioElement) {
+                this.audioAnalyzer.audioElement.loop = true;
             }
-        });
-        
-        this.updateRandomButtonState();
-    }
-    
-    updateRandomButtonState() {
-        if (!this.randomBtn) return;
-        
-        if (this.isRandomEnabled) {
-            this.randomBtn.classList.add('active');
-        } else {
-            this.randomBtn.classList.remove('active');
         }
     }
     

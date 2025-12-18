@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Batch Fetch Top Tracks</title>
+    <style>
+        body {
+            font-family: monospace;
+            background: #0a0a0a;
+            color: #0f0;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        pre { white-space: pre-wrap; word-wrap: break-word; }
+        .status { color: #ff0; font-weight: bold; margin: 20px 0; }
+        .track { background: #1a1a1a; padding: 15px; margin: 10px 0; border-left: 4px solid #0f0; }
+        .track h3 { color: #0ff; margin: 0 0 10px 0; }
+    </style>
+</head>
+<body>
+    <h1>🎵 Batch Fetch Top 5 Tracks</h1>
+    <div class="status" id="status">Loading...</div>
+    <div id="output"></div>
+    
+    <script type="module">
+        import { getTracks } from './src/core/AudiotoolTrackService.js';
+        
+        const statusDiv = document.getElementById('status');
+        const outputDiv = document.getElementById('output');
+        
+        function log(msg) {
+            console.log(msg);
+        }
+        
+        function createTrackCard(track, index) {
+            const contributorNames = track.contributorNames || track.contributor_names || [];
+            const displayName = track.displayName || track.display_name || 'Unknown';
+            const createTime = track.createTime || track.create_time;
+            const createDate = createTime
+                ? (typeof createTime === 'string' ? createTime.split('T')[0] : 'unknown')
+                : 'unknown';
+            
+            const card = document.createElement('div');
+            card.className = 'track';
+            card.innerHTML = `
+                <h3>${index}. ${displayName}</h3>
+                <p><strong>🆔 ID:</strong> ${track.name}</p>
+                <p><strong>👥 Contributors:</strong> ${contributorNames.length > 0 ? contributorNames.join(', ') : 'Not available'}</p>
+                <p><strong>📊 Stats:</strong> ${track.numPlays || track.num_plays || 0} plays | ${track.numFavorites || track.num_favorites || 0} favorites</p>
+                <p><strong>🎼 Info:</strong> ${track.bpm || 'unknown'} BPM | ${track.genreName || track.genre_name || 'unknown'} | Created: ${createDate}</p>
+                <p><strong>📝 Description:</strong> ${track.description || 'No description'}</p>
+                ${track.mp3Url || track.mp3_url ? `<p><strong>🔗 MP3:</strong> <a href="${track.mp3Url || track.mp3_url}" target="_blank">${track.mp3Url || track.mp3_url}</a></p>` : ''}
+                ${track.coverUrl || track.cover_url ? `<p><img src="${track.coverUrl || track.cover_url}" alt="Cover" style="max-width: 200px; border-radius: 4px;"></p>` : ''}
+            `;
+            return card;
+        }
+        
+        async function batchFetchTopTracks() {
+            try {
+                statusDiv.textContent = 'Status: Fetching top 5 tracks...';
+                
+                // Top 5 track IDs from our query
+                const trackIds = [
+                    'tracks/xctl53ponq7x',  // u a fan - 216 favorites
+                    'tracks/2r7664s10',     // FOR LIFE - 205 favorites
+                    'tracks/3dglxy0oj3e',   // Honey Lemon - 202 favorites
+                    'tracks/ahntfhcz35',    // the red moon's egg - 185 favorites
+                    'tracks/mb6oqwc1',      // stars align - 172 favorites
+                ];
+                
+                log('🎵 Batch fetching top 5 most favorited tracks...');
+                log(`   Track IDs: ${trackIds.join(', ')}`);
+                log('');
+                
+                const result = await getTracks(trackIds);
+                
+                if (!result.success) {
+                    throw new Error('Failed to fetch tracks');
+                }
+                
+                log('✅ Batch fetch complete!');
+                log(`   Retrieved ${Object.keys(result.tracks).length} tracks`);
+                log('');
+                
+                // Display results
+                statusDiv.textContent = `Status: ✅ Successfully fetched ${Object.keys(result.tracks).length} tracks`;
+                
+                const tracksArray = trackIds.map(id => result.tracks[id]).filter(Boolean);
+                
+                if (tracksArray.length === 0) {
+                    outputDiv.innerHTML = '<p style="color: #f00;">❌ No tracks returned from API</p>';
+                    return;
+                }
+                
+                // Create cards for each track
+                tracksArray.forEach((track, index) => {
+                    const card = createTrackCard(track, index + 1);
+                    outputDiv.appendChild(card);
+                    
+                    // Log detailed info to console
+                    log('='.repeat(60));
+                    log(`Track ${index + 1}: ${track.displayName || track.display_name}`);
+                    log('='.repeat(60));
+                    log(JSON.stringify(track, null, 2));
+                    log('');
+                });
+                
+                // Summary
+                const summary = document.createElement('div');
+                summary.style.cssText = 'background: #1a3a1a; padding: 15px; margin: 20px 0; border-left: 4px solid #0f0;';
+                summary.innerHTML = `
+                    <h3 style="color: #0ff; margin: 0 0 10px 0;">📊 Summary</h3>
+                    <p>Total tracks fetched: ${tracksArray.length}</p>
+                    <p>Tracks with contributors: ${tracksArray.filter(t => (t.contributorNames || t.contributor_names || []).length > 0).length}</p>
+                    <p>Tracks with MP3 URLs: ${tracksArray.filter(t => t.mp3Url || t.mp3_url).length}</p>
+                    <p>Average BPM: ${Math.round(tracksArray.reduce((sum, t) => sum + (t.bpm || 0), 0) / tracksArray.length)}</p>
+                `;
+                outputDiv.appendChild(summary);
+                
+                // Store in window for console access
+                window.topTracks = result.tracks;
+                log('💾 Tracks stored in window.topTracks');
+                
+            } catch (error) {
+                statusDiv.textContent = 'Status: ❌ Error - ' + error.message;
+                outputDiv.innerHTML = `<p style="color: #f00;">❌ ERROR: ${error.message}</p>`;
+                console.error('Error details:', error);
+            }
+        }
+        
+        // Run on load
+        batchFetchTopTracks();
+    </script>
+</body>
+</html>
+

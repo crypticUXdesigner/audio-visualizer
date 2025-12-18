@@ -10,6 +10,7 @@ export class ShaderManager {
         this.audioAnalyzer = null;
         this.colors = null;
         this.colorUpdateCallback = null; // Callback for dynamic color updates
+        this.onFirstColorUpdate = null; // Callback for when shader receives first colors
     }
     
     /**

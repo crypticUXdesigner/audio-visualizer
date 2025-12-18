@@ -3,7 +3,7 @@ body {
   width: 100vw;
   height: 100vh;
   overflow: hidden;
-  background: var(--bg-primary);
+  background: var(--color-gray-40);
   position: relative;
   font-family: var(--font-system);
 }
@@ -17,10 +17,18 @@ body {
   height: 100%;
   z-index: var(--z-base);
   pointer-events: auto;
-  opacity: 1 !important;
   display: block !important;
   visibility: visible !important;
-  background-color: magenta !important; /* TEMP TEST - remove after debugging */
+  opacity: 0;
+  transition: none;
+}
+
+#backgroundCanvas.ready {
+  transition: opacity 2s var(--effects-default-bezier);
+}
+
+#backgroundCanvas.visible {
+  opacity: 1;
 }
 
 /* Frequency Band Visualizer - Bottom Right */
