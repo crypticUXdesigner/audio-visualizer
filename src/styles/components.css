@@ -31,7 +31,7 @@
     justify-content: center;
     
     .loader-bar {
-      fill: #fff;
+      fill: var(--base-print-light);
       
       &.loader-bar-1 {
         animation: loader-pulse-bar-1 1.0s ease-in-out infinite;
@@ -645,9 +645,9 @@ html.debug-mode {
 /* Track Dropdown Menu (independent from button, not affected by controls fade) */
 .track-dropdown-menu {
   position: fixed;
-  top: 5vh;
+  top: 50vh;
   left: 50vw;
-  transform: translate(-50%, 20px);
+  transform: translate(-50%, -47%);
   width: 90vw;
   height: 80vh;
   max-width: 400px;
@@ -703,8 +703,9 @@ html.debug-mode {
       transform var(--spatial-default);
     user-select: none;
     display: flex;
-    flex-direction: column;
-    gap: 4px;
+    flex-direction: row;
+    align-items: center;
+    gap: var(--pd-md);
 
     &:hover {
       background: var(--list-library-bg-hover);
@@ -831,20 +832,33 @@ html.debug-mode {
     font-size: var(--text-md);
   }
 
-  /* Enhanced track option with artist info */
+  /* Track option styling */
+  .track-option-cover {
+    width: var(--cover-size-sm);
+    height: var(--cover-size-sm);
+    min-width: var(--cover-size-sm);
+    min-height: var(--cover-size-sm);
+    border-radius: var(--cover-radius-sm);
+    flex-shrink: 0;
+  }
+
+  img.track-option-cover {
+    object-fit: cover;
+  }
+
+  .track-option-cover-placeholder {
+    background: var(--list-library-bg-hover);
+    border: 1px solid var(--input-nudge-border);
+  }
+
   .track-option-name {
     font-size: var(--text-md);
     font-weight: 500;
     line-height: 1.3;
-  }
-
-  .track-option-artist {
-    font-size: var(--text-xs);
-    color: var(--base-print-subtle);
-  }
-
-  .track-option:hover .track-option-artist {
-    color: var(--input-nudge-print-active);
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .track-option.active .track-option-name {
@@ -856,7 +870,7 @@ html.debug-mode {
 .track-dropdown-menu.open {
   display: flex !important;
   opacity: 1;
-  transform: translate(-50%, 0);
+  transform: translate(-50%, -50%);
 }
 
 @keyframes track-spin {

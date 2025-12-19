@@ -370,7 +370,7 @@ export async function loadTracks(tracks) {
  * Load a track by identifier - REGISTRY ONLY MODE
  * Only loads tracks that exist in the registry (170+ validated tracks)
  * @param {string} songName - Name of the song
- * @param {string} username - Username of the artist
+ * @param {string} username - Username (deprecated, used for registry lookup only)
  * @param {string|null} trackIdentifier - Optional track identifier to use directly
  * @returns {Promise<object>} Track information
  */

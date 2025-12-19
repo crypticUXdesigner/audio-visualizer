@@ -564,7 +564,7 @@ export class AudioControls {
     /**
      * Add a track from the Audiotool TrackService to the track selection
      * @param {string} songName - Name of the song
-     * @param {string} username - Username of the artist
+     * @param {string} username - Username (deprecated, not used)
      * @param {boolean} autoLoad - Whether to automatically load the track after adding
      * @param {object} preloadedTrack - Optional pre-loaded track object (skips API call)
      */
@@ -624,30 +624,41 @@ export class AudioControls {
                 return existingTrack;
             }
             
-            // Create new track option button with name and artist
+            // Create new track option button with name
             const trackOption = document.createElement('button');
             trackOption.className = 'track-option';
+            
+            // Create cover image element (always show, placeholder if no image)
+            const coverUrl = track.cover_url || track.coverUrl;
+            const coverElement = coverUrl 
+                ? (() => {
+                    const img = document.createElement('img');
+                    img.className = 'track-option-cover';
+                    img.src = coverUrl;
+                    img.alt = songName || track.description || track.name;
+                    img.loading = 'lazy'; // Lazy load for performance
+                    return img;
+                })()
+                : (() => {
+                    const placeholder = document.createElement('div');
+                    placeholder.className = 'track-option-cover track-option-cover-placeholder';
+                    return placeholder;
+                })();
+            trackOption.appendChild(coverElement);
             
             // Create name element
             const nameElement = document.createElement('div');
             nameElement.className = 'track-option-name';
             nameElement.textContent = songName || track.description || track.name;
             
-            // Create artist element
-            const artistElement = document.createElement('div');
-            artistElement.className = 'track-option-artist';
-            artistElement.textContent = username || 'Unknown Artist';
-            
             // Append elements
             trackOption.appendChild(nameElement);
-            trackOption.appendChild(artistElement);
             
             // Store data for filtering and playback
             trackOption.dataset.track = audioUrl; // Store the full URL
             trackOption.dataset.apiTrackId = track.name; // Store API ID for reference
             trackOption.dataset.apiTrack = 'true'; // Mark as API track
             trackOption.dataset.trackName = songName || track.description || track.name;
-            trackOption.dataset.trackArtist = username || 'Unknown Artist';
             // Store BPM in dataset for later use when loading track
             if (metadataBPM) {
                 trackOption.dataset.trackBpm = metadataBPM.toString();
@@ -933,9 +944,8 @@ export class AudioControls {
         
         tracks.forEach(track => {
             const name = track.dataset.trackName?.toLowerCase() || '';
-            const artist = track.dataset.trackArtist?.toLowerCase() || '';
             
-            if (name.includes(query) || artist.includes(query)) {
+            if (name.includes(query)) {
                 track.style.display = '';
                 visibleCount++;
             } else {

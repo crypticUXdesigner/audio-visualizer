@@ -180,6 +180,11 @@ class VisualPlayer {
                 }
             }, 300);
         }
+        
+        // Show controls after initial loading completes
+        if (this.audioControls) {
+            this.audioControls.showControls();
+        }
     }
     
     /**
@@ -597,7 +602,7 @@ class VisualPlayer {
     /**
      * Load a track from the Audiotool TrackService and add it to the track selection
      * @param {string} songName - Name of the song
-     * @param {string} username - Username of the artist
+     * @param {string} username - Username (deprecated, not used)
      * @param {boolean} autoLoad - Whether to automatically load the track after adding
      */
     async loadAPITrack(songName, username, autoLoad = false) {
@@ -609,7 +614,7 @@ class VisualPlayer {
         try {
             const result = await this.audioControls.addTrackFromAPI(songName, username, autoLoad);
             if (result) {
-                console.log(`✅ Successfully added "${songName}" by ${username} to track selection`);
+                console.log(`✅ Successfully added "${songName}" to track selection`);
             }
             // If result is null, track wasn't found - already logged in addTrackFromAPI, skip silently
         } catch (error) {
