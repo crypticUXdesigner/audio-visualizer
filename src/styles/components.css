@@ -645,8 +645,8 @@ html.debug-mode {
 /* Track Dropdown Menu (independent from button, not affected by controls fade) */
 .track-dropdown-menu {
   position: fixed;
-  top: 10%;
-  left: 50%;
+  top: 5vh;
+  left: 50vw;
   transform: translate(-50%, 20px);
   width: 90vw;
   height: 80vh;
