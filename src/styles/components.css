@@ -649,7 +649,7 @@ html.debug-mode {
   left: 50%;
   transform: translate(-50%, 20px);
   width: 90vw;
-  height: 90vh;
+  height: 80vh;
   max-width: 400px;
   max-height: 650px;
   background: var(--color-gray-40);
