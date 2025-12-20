@@ -6,6 +6,9 @@ import { AudioAnalyzer } from './audio/AudioAnalyzer.js';
 import { ShaderManager } from '../shaders/ShaderManager.js';
 import heightmapConfig from '../shaders/configs/heightmap.js';
 import dotsConfig from '../shaders/configs/dots.js';
+import refractionConfig from '../shaders/configs/refraction.js';
+import frequencyVisualizerConfig from '../shaders/configs/frequency-visualizer.js';
+import synthwaveConfig from '../shaders/configs/synthwave.js';
 import { ColorModulator } from './color/ColorModulator.js';
 
 /**
@@ -43,6 +46,9 @@ export async function initializeApp(app) {
                 // 3. Register shaders
                 app.shaderManager.registerShader(heightmapConfig);
                 app.shaderManager.registerShader(dotsConfig);
+                app.shaderManager.registerShader(refractionConfig);
+                app.shaderManager.registerShader(frequencyVisualizerConfig);
+                app.shaderManager.registerShader(synthwaveConfig);
                 
                 // 4. Initialize color system
                 app.colorConfig = { ...dotsConfig.colorConfig };
@@ -58,10 +64,14 @@ export async function initializeApp(app) {
                 
                 // 6. Initialize and activate default shader (check localStorage for saved preference)
                 let savedShader = localStorage.getItem('activeShader') || 'dots';
-                // Migrate old shader name to new name
+                // Migrate old shader names to new names
                 if (savedShader === 'background-fbm') {
                     savedShader = 'heightmap';
                     localStorage.setItem('activeShader', 'heightmap');
+                }
+                if (savedShader === 'milky-glass') {
+                    savedShader = 'refraction';
+                    localStorage.setItem('activeShader', 'refraction');
                 }
                 await app.shaderManager.setActiveShader(savedShader);
                 

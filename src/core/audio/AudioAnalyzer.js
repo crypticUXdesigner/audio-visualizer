@@ -1031,5 +1031,77 @@ export class AudioAnalyzer {
             audioContext: this.audioContext
         };
     }
+    
+    /**
+     * Calculate configurable frequency bands with left/right channel separation
+     * @param {number} numBands - Number of frequency bands (16-128)
+     * @returns {Object} Object with leftBands and rightBands Float32Arrays
+     */
+    calculateConfigurableBands(numBands = 32) {
+        if (!this.frequencyData) {
+            return { leftBands: new Float32Array(numBands), rightBands: new Float32Array(numBands), numBands };
+        }
+        
+        const sampleRate = this.audioContext?.sampleRate || 44100;
+        const nyquist = sampleRate / 2;
+        const binSize = nyquist / this.frequencyData.length;
+        
+        // Helper to convert Hz to bin number
+        const hzToBin = (hz) => Math.floor(hz / binSize);
+        
+        // Helper to get average value in a range
+        const getAverage = (data, start, end) => {
+            let sum = 0;
+            const count = Math.min(end, data.length - 1) - start + 1;
+            if (count <= 0) return 0;
+            for (let i = start; i <= end && i < data.length; i++) {
+                sum += data[i];
+            }
+            return sum / count / 255.0; // Normalize to 0-1
+        };
+        
+        // Frequency range: 20 Hz to Nyquist (typically 22050 Hz)
+        const minFreq = 20;
+        const maxFreq = nyquist;
+        
+        // Logarithmic distribution of bands
+        const leftBands = new Float32Array(numBands);
+        const rightBands = new Float32Array(numBands);
+        
+        for (let i = 0; i < numBands; i++) {
+            // Logarithmic spacing
+            const t = i / (numBands - 1);
+            const freqStart = minFreq * Math.pow(maxFreq / minFreq, t);
+            const freqEnd = minFreq * Math.pow(maxFreq / minFreq, (i + 1) / (numBands - 1));
+            
+            const binStart = hzToBin(freqStart);
+            const binEnd = hzToBin(freqEnd);
+            
+            // Calculate average for main channel
+            const avg = getAverage(this.frequencyData, binStart, binEnd);
+            
+            // Calculate left and right channel averages
+            let leftAvg = 0;
+            let rightAvg = 0;
+            
+            if (this.leftFrequencyData && this.rightFrequencyData) {
+                leftAvg = getAverage(this.leftFrequencyData, binStart, binEnd);
+                rightAvg = getAverage(this.rightFrequencyData, binStart, binEnd);
+            } else {
+                // Fallback: use main channel data split evenly
+                leftAvg = avg * 0.5;
+                rightAvg = avg * 0.5;
+            }
+            
+            leftBands[i] = leftAvg;
+            rightBands[i] = rightAvg;
+        }
+        
+        return {
+            leftBands,
+            rightBands,
+            numBands
+        };
+    }
 }
 

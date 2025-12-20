@@ -1,78 +1,86 @@
-// Dots Grid Shader Configuration
-// Dense grid of dots with frequency-based colors and ripple distortions
+// Frequency Visualizer Shader Configuration
+// Classic frequency visualizer with configurable bands and multi-layer rendering
 
 export default {
-    name: 'dots',
-    displayName: 'draft: Dots Grid',
+    name: 'frequency-visualizer',
+    displayName: 'draft: Frequency Visualizer',
     canvasId: 'backgroundCanvas',
     vertexPath: 'shaders/vertex.glsl',
-    fragmentPath: 'shaders/dots-fragment.glsl',
+    fragmentPath: 'shaders/frequency-visualizer-fragment.glsl',
     
     // Default parameters
     parameters: {
-        dotSpacing: { 
-            type: 'float', 
-            default: 24.0,  // Pixels between dots (10-20px range)
-            min: 8.0, 
-            max: 30.0, 
-            step: 1.0,
-            label: 'Dot Spacing'
+        numBands: {
+            type: 'int',
+            default: 320,
+            min: 16,
+            max: 1024,
+            step: 1,
+            label: 'Number of Visual Bands'
         },
-        dotSize: {
+        maxHeight: {
             type: 'float',
-            default: 0.2,   // Size of dots (0.0-1.0, relative to spacing)
-            min: 0.2,
-            max: 0.8,
-            step: 0.05,
-            label: 'Dot Size'
-        },
-        pulsationStrength: {
-            type: 'float',
-            default: 0.0,  // How much dots pulse with frequency (0.0-0.5)
-            min: 0.0,
+            default: 0.4,
+            min: 0.1,
             max: 0.5,
             step: 0.05,
-            label: 'Pulsation Strength'
+            label: 'Max Height'
         },
-        rippleDistortionStrength: {
+        layer1HeightMultiplier: {
             type: 'float',
-            default: 2.5,   // How much ripples distort the grid (0.0-1.0)
+            default: 1.2,
+            min: 1.0,
+            max: 1.5,
+            step: 0.05,
+            label: 'Background Far Height'
+        },
+        layer2HeightMultiplier: {
+            type: 'float',
+            default: 1.1,
+            min: 1.0,
+            max: 1.5,
+            step: 0.05,
+            label: 'Background Near Height'
+        },
+        layer3HeightMultiplier: {
+            type: 'float',
+            default: 1.0,
+            min: 0.8,
+            max: 1.2,
+            step: 0.05,
+            label: 'Foreground Height'
+        },
+        layer1Opacity: {
+            type: 'float',
+            default: 0.4,
             min: 0.0,
             max: 1.0,
-            step: 0.1,
-            label: 'Ripple Distortion'
+            step: 0.05,
+            label: 'Background Far Opacity'
         },
-        enableCenterPositionOffset: {
+        layer2Opacity: {
             type: 'float',
-            default: 1.0,  // Enabled by default
+            default: 0.6,
             min: 0.0,
             max: 1.0,
-            step: 1.0,  // Binary: 0 or 1
-            label: 'Enable Center Position Offset'
+            step: 0.05,
+            label: 'Background Near Opacity'
         },
-        enableUVOffset: {
+        layer3Opacity: {
             type: 'float',
-            default: 1.0,  // Disabled by default for testing
+            default: 1.0,
             min: 0.0,
             max: 1.0,
-            step: 1.0,  // Binary: 0 or 1
-            label: 'Enable UV Offset'
+            step: 0.05,
+            label: 'Foreground Opacity'
         },
-        movementStrength: {
+        barWidth: {
             type: 'float',
-            default: 0.05,  // Multiplier for dot center position movement
-            min: 0.0,
-            max: 3.0,
-            step: 0.1,
-            label: 'Movement Strength'
-        },
-        uvOffsetStrength: {
-            type: 'float',
-            default: 2.0,  // Multiplier for UV sampling offset
-            min: 0.0,
-            max: 3.0,
-            step: 0.1,
-            label: 'UV Offset Strength'
+            default: 0.8,
+            min: 0.1,
+            max: 1.0,
+            step: 0.05,
+            label: 'Bar Width'
         }
     },
     
@@ -97,13 +105,15 @@ export default {
         thresholdCurve: [0.2, 0.2, 1.0, 0.7]
     },
     
-    // Uniform mapping (same as heightmap - reuse audio data)
+    // Uniform mapping (how audio data maps to shader uniforms)
     uniformMapping: {
+        // Standard audio uniforms
         uBass: (data) => data?.bass || 0,
         uMid: (data) => data?.mid || 0,
         uTreble: (data) => data?.treble || 0,
         uVolume: (data) => data?.volume || 0,
         
+        // Frequency band uniforms (for compatibility)
         uFreq1: (data) => data?.smoothedFreq1 || 0,
         uFreq2: (data) => data?.smoothedFreq2 || 0,
         uFreq3: (data) => data?.smoothedFreq3 || 0,
@@ -115,10 +125,12 @@ export default {
         uFreq9: (data) => data?.smoothedFreq9 || 0,
         uFreq10: (data) => data?.smoothedFreq10 || 0,
         
+        // Stereo uniforms
         uBassStereo: (data) => data?.bassStereo || 0,
         uMidStereo: (data) => data?.midStereo || 0,
         uTrebleStereo: (data) => data?.trebleStereo || 0,
         
+        // Temporal and beat uniforms
         uSmoothedBass: (data) => data?.smoothedBass || 0,
         uSmoothedMid: (data) => data?.smoothedMid || 0,
         uSmoothedTreble: (data) => data?.smoothedTreble || 0,
@@ -127,6 +139,7 @@ export default {
         uBeatIntensity: (data) => data?.beatIntensity || 0,
         uBPM: (data) => data?.estimatedBPM || 0,
         
+        // Multi-frequency beat uniforms
         uBeatTimeBass: (data) => data?.beatTimeBass || 0,
         uBeatTimeMid: (data) => data?.beatTimeMid || 0,
         uBeatTimeTreble: (data) => data?.beatTimeTreble || 0,

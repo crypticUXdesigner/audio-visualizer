@@ -7,10 +7,14 @@ export class ShaderSwitcher {
         this.onShaderChange = onShaderChange; // Optional callback: (shaderName) => void
         this.audioControls = audioControls; // Reference to AudioControls for hideControls/showControls
         let savedShader = localStorage.getItem('activeShader') || 'dots';
-        // Migrate old shader name to new name
+        // Migrate old shader names to new names
         if (savedShader === 'background-fbm') {
             savedShader = 'heightmap';
             localStorage.setItem('activeShader', 'heightmap');
+        }
+        if (savedShader === 'milky-glass') {
+            savedShader = 'refraction';
+            localStorage.setItem('activeShader', 'refraction');
         }
         this.currentShader = savedShader;
         this.isMenuOpen = false;
@@ -69,7 +73,21 @@ export class ShaderSwitcher {
     populateShaderButtons(container) {
         const shaderNames = this.shaderManager.getShaderNames();
         
-        shaderNames.forEach(shaderName => {
+        // Define desired order: final shaders first, then draft shaders
+        const shaderOrder = ['refraction', 'heightmap', 'dots', 'frequency-visualizer', 'synthwave'];
+        
+        // Sort shaders according to desired order
+        const sortedShaderNames = shaderNames.sort((a, b) => {
+            const indexA = shaderOrder.indexOf(a);
+            const indexB = shaderOrder.indexOf(b);
+            // If not in order list, put at end
+            if (indexA === -1 && indexB === -1) return 0;
+            if (indexA === -1) return 1;
+            if (indexB === -1) return -1;
+            return indexA - indexB;
+        });
+        
+        sortedShaderNames.forEach(shaderName => {
             const shaderEntry = this.shaderManager.shaders.get(shaderName);
             if (!shaderEntry) return;
             

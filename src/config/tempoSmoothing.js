@@ -34,6 +34,38 @@ export const TempoSmoothingConfig = {
         releaseNote: 1.0 / 4.0,    // Quarter note - moderate release
         attackTimeFallback: 10.0,  // milliseconds fallback
         releaseTimeFallback: 150.0 // milliseconds fallback
+    },
+    
+    // Feed value smoothing (volume-based brightness for refraction)
+    feed: {
+        attackNote: 1.0 / 128.0,    // 64th note - fast attack
+        releaseNote: 1.0 / 16.0,    // 8th note - moderate release
+        attackTimeFallback: 10.0,  // milliseconds fallback
+        releaseTimeFallback: 100.0 // milliseconds fallback
+    },
+    
+    // Cell brightness animation intensity (refraction)
+    cellBrightnessIntensity: {
+        attackNote: 1.0 / 32.0,   // 128th note - very fast attack
+        releaseNote: 1.0 / 16.0,    // Half note - slow release
+        attackTimeFallback: 5.0,   // milliseconds fallback
+        releaseTimeFallback: 200.0 // milliseconds fallback
+    },
+    
+    // Ripple brightness boost (refraction)
+    rippleBrightness: {
+        attackNote: 1.0 / 128.0,   // 128th note - very fast attack
+        releaseNote: 1.0 / 4.0,    // Quarter note - moderate release
+        attackTimeFallback: 5.0,   // milliseconds fallback
+        releaseTimeFallback: 150.0 // milliseconds fallback
+    },
+    
+    // FBM zoom animation (refraction)
+    fbmZoom: {
+        attackNote: 1.0 / 32.0,    // 64th note - fast attack
+        releaseNote: 1.0 / 16.0,    // 8th note - moderate release
+        attackTimeFallback: 10.0,  // milliseconds fallback
+        releaseTimeFallback: 100.0  // milliseconds fallback
     }
 };
 

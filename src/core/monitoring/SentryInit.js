@@ -9,8 +9,9 @@ const sentryDsn = import.meta.env.VITE_SENTRY_DSN || "https://bfcbd4287d8125d0ff
 // Flag to track if Sentry is blocked by browser extensions
 let isSentryBlocked = false;
 
-// Check if Sentry should be disabled (e.g., for development or if blocked)
-const disableSentry = import.meta.env.VITE_DISABLE_SENTRY === 'true';
+// Check if Sentry should be disabled (disabled by default in development, can be enabled via env var)
+// In production, Sentry is enabled by default unless VITE_DISABLE_SENTRY is set to 'true'
+const disableSentry = import.meta.env.DEV || import.meta.env.VITE_DISABLE_SENTRY === 'true';
 
 /**
  * Completely disable Sentry client to prevent any further requests
@@ -164,14 +165,11 @@ if (sentryDsn && !disableSentry && !isSentryBlocked) {
       // In production, this is false to protect user privacy
       sendDefaultPii: import.meta.env.DEV,
       
-      // Enable performance monitoring - 100% of sessions
-      tracesSampleRate: 1.0,
+      // Disable transaction tracking - only using Sentry for error logging and performance metrics
+      tracesSampleRate: 0,
       
-      // Enable Web Vitals tracking (no replay sessions)
-      integrations: [
-        Sentry.browserTracingIntegration(),
-        // Replay integration removed - not needed
-      ],
+      // No integrations needed - only using for error logging and metrics
+      integrations: [],
       
       // Performance monitoring options
       _experiments: {
@@ -331,27 +329,16 @@ export function isSentryAvailable() {
 
 /**
  * Safely create a Sentry span, handling blocked requests gracefully
- * @param {object} options - Span options
+ * NOTE: Transaction tracking is disabled (tracesSampleRate: 0), so this is a no-op
+ * Kept for API compatibility but doesn't create spans or send data
+ * @param {object} options - Span options (ignored)
  * @param {Function} callback - Callback function
  * @returns {Promise|any} Result of callback
  */
 export function safeSentrySpan(options, callback) {
-  if (isSentryBlocked || typeof Sentry === 'undefined' || !Sentry.startSpan) {
-    // If Sentry is blocked, just execute the callback without tracking
-    return callback({ setAttribute: () => {}, setData: () => {} });
-  }
-  
-  try {
-    return Sentry.startSpan(options, callback);
-  } catch (error) {
-    // If span creation fails, check if it's a blocked request
-    const errorMessage = error?.message || String(error) || '';
-    if (errorMessage.toLowerCase().includes('blocked') || errorMessage.includes('ERR_BLOCKED_BY_CLIENT')) {
-      isSentryBlocked = true;
-    }
-    // Execute callback without tracking
-    return callback({ setAttribute: () => {}, setData: () => {} });
-  }
+  // Transaction tracking is disabled, so just execute callback without creating spans
+  // This prevents any network requests while maintaining API compatibility
+  return callback({ setAttribute: () => {}, setData: () => {} });
 }
 
 /**

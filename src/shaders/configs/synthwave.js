@@ -1,103 +1,79 @@
-// Dots Grid Shader Configuration
-// Dense grid of dots with frequency-based colors and ripple distortions
+// Synthwave Shader Configuration
+// Retro-futuristic 80s aesthetic with perspective grid and neon colors
 
 export default {
-    name: 'dots',
-    displayName: 'draft: Dots Grid',
+    name: 'synthwave',
+    displayName: 'draft: Synthwave',
     canvasId: 'backgroundCanvas',
     vertexPath: 'shaders/vertex.glsl',
-    fragmentPath: 'shaders/dots-fragment.glsl',
+    fragmentPath: 'shaders/synthwave-fragment.glsl',
     
     // Default parameters
     parameters: {
-        dotSpacing: { 
+        gridDensity: { 
             type: 'float', 
-            default: 24.0,  // Pixels between dots (10-20px range)
-            min: 8.0, 
-            max: 30.0, 
+            default: 8.0, 
+            min: 4.0, 
+            max: 16.0, 
             step: 1.0,
-            label: 'Dot Spacing'
+            label: 'Grid Density'
         },
-        dotSize: {
+        perspectiveStrength: {
             type: 'float',
-            default: 0.2,   // Size of dots (0.0-1.0, relative to spacing)
-            min: 0.2,
-            max: 0.8,
-            step: 0.05,
-            label: 'Dot Size'
-        },
-        pulsationStrength: {
-            type: 'float',
-            default: 0.0,  // How much dots pulse with frequency (0.0-0.5)
+            default: 0.8,
             min: 0.0,
-            max: 0.5,
-            step: 0.05,
-            label: 'Pulsation Strength'
-        },
-        rippleDistortionStrength: {
-            type: 'float',
-            default: 2.5,   // How much ripples distort the grid (0.0-1.0)
-            min: 0.0,
-            max: 1.0,
+            max: 2.0,
             step: 0.1,
-            label: 'Ripple Distortion'
+            label: 'Perspective Strength'
         },
-        enableCenterPositionOffset: {
+        scanlineIntensity: {
             type: 'float',
-            default: 1.0,  // Enabled by default
+            default: 0.3,
             min: 0.0,
             max: 1.0,
-            step: 1.0,  // Binary: 0 or 1
-            label: 'Enable Center Position Offset'
+            step: 0.05,
+            label: 'Scanline Intensity'
         },
-        enableUVOffset: {
+        glowIntensity: {
             type: 'float',
-            default: 1.0,  // Disabled by default for testing
-            min: 0.0,
-            max: 1.0,
-            step: 1.0,  // Binary: 0 or 1
-            label: 'Enable UV Offset'
-        },
-        movementStrength: {
-            type: 'float',
-            default: 0.05,  // Multiplier for dot center position movement
-            min: 0.0,
+            default: 1.5,
+            min: 0.5,
             max: 3.0,
             step: 0.1,
-            label: 'Movement Strength'
+            label: 'Glow Intensity'
         },
-        uvOffsetStrength: {
+        horizonPosition: {
             type: 'float',
-            default: 2.0,  // Multiplier for UV sampling offset
-            min: 0.0,
-            max: 3.0,
-            step: 0.1,
-            label: 'UV Offset Strength'
+            default: 0.6,
+            min: 0.3,
+            max: 0.9,
+            step: 0.05,
+            label: 'Horizon Position'
         }
     },
     
-    // Color configuration (can reuse or customize)
+    // Synthwave color configuration (pink/cyan/purple neon palette)
     colorConfig: {
-        baseHue: '#18191f',
+        baseHue: '#ff00ff', // Magenta base
         darkest: {
-            lightness: 0.09,
-            chroma: 0.08,
-            hueOffset: -60
+            lightness: 0.15,
+            chroma: 0.25,
+            hueOffset: -60 // Shift to purple
         },
         brightest: {
-            lightness: 0.97,
-            chroma: 0.2,
-            hueOffset: 60
+            lightness: 0.95,
+            chroma: 0.35,
+            hueOffset: 120 // Shift to cyan
         },
         interpolationCurve: {
-            lightness: [0.3, 0.0, 1.0, 0.7],
-            chroma: [0.0, 0.25, 1.0, 0.75],
-            hue: [0.0, 0.25, 1.0, 0.75]
+            lightness: [0.2, 0.0, 0.8, 1.0], // Ease-in-out for smooth gradient
+            chroma: [0.0, 0.3, 0.7, 0.7], // More saturated in middle
+            hue: [0.0, 0.2, 0.8, 0.8] // Smooth hue transition
         },
-        thresholdCurve: [0.2, 0.2, 1.0, 0.7]
+        thresholdCurve: [0.1, 0.0, 1.0, 0.9] // More colors in bright range
     },
     
-    // Uniform mapping (same as heightmap - reuse audio data)
+    // Uniform mapping (reuse audio data)
     uniformMapping: {
         uBass: (data) => data?.bass || 0,
         uMid: (data) => data?.mid || 0,
@@ -138,4 +114,5 @@ export default {
         uBeatStereoTreble: (data) => data?.beatStereoTreble || 0
     }
 };
+
 
