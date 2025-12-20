@@ -72,7 +72,13 @@ export class WaveformScrubber {
       timeDisplay.style.display = 'none';
     }
     
-    this.container.appendChild(this.canvas);
+    // Insert canvas before playback controls (if they exist) or append to container
+    const playbackControls = this.container.querySelector('.playback-controls');
+    if (playbackControls) {
+      this.container.insertBefore(this.canvas, playbackControls);
+    } else {
+      this.container.appendChild(this.canvas);
+    }
     this.container.classList.add('has-waveform');
     
     // Read padding from CSS tokens

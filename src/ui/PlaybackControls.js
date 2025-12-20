@@ -16,6 +16,7 @@ export class AudioControls {
         this.trackDropdown = document.getElementById('trackDropdown');
         this.trackDropdownBtn = document.getElementById('trackDropdownBtn');
         this.trackDropdownText = document.getElementById('trackDropdownText');
+        this.trackDropdownCover = document.getElementById('trackDropdownCover');
         this.trackDropdownMenu = document.getElementById('trackDropdownMenu');
         this.trackList = document.getElementById('trackList');
         this.trackOptions = document.querySelectorAll('.track-option');
@@ -123,6 +124,26 @@ export class AudioControls {
         // Reset state for new track
         this.hideTitleDisplay();
         this.titleDisplayState.hasShown = false;
+    }
+    
+    // Update track cover image in dropdown button
+    updateTrackCover(trackOption) {
+        if (!this.trackDropdownCover) return;
+        
+        // Get cover image from track option
+        const coverImg = trackOption?.querySelector('.track-option-cover');
+        
+        if (coverImg && coverImg.tagName === 'IMG' && coverImg.src) {
+            // Has cover image
+            this.trackDropdownCover.src = coverImg.src;
+            this.trackDropdownCover.alt = coverImg.alt || '';
+            this.trackDropdownCover.style.display = 'block';
+        } else {
+            // No cover image, hide it
+            this.trackDropdownCover.src = '';
+            this.trackDropdownCover.alt = '';
+            this.trackDropdownCover.style.display = 'none';
+        }
     }
     
     // Show title display with fade in
@@ -369,6 +390,7 @@ export class AudioControls {
                 matchingOption.classList.add('active');
                 this.trackDropdownText.textContent = matchingOption.textContent;
                 this.updateTrackTitle(matchingOption.textContent);
+                this.updateTrackCover(matchingOption);
                 
                 // Load track asynchronously after a short delay to ensure audio context is ready
                 setTimeout(async () => {
@@ -391,6 +413,7 @@ export class AudioControls {
             this.trackDropdownText.textContent = randomTrack.textContent;
             // Update title texture with random track
             this.updateTrackTitle(randomTrack.textContent);
+            this.updateTrackCover(randomTrack);
         }
         
         // Track dropdown button click
@@ -437,6 +460,11 @@ export class AudioControls {
             // Update title texture (remove file extension)
             const titleWithoutExt = file.name.replace(/\.[^/.]+$/, "");
             this.updateTrackTitle(titleWithoutExt);
+            // Hide cover for custom files
+            if (this.trackDropdownCover) {
+                this.trackDropdownCover.src = '';
+                this.trackDropdownCover.style.display = 'none';
+            }
             
             const fileUrl = URL.createObjectURL(file);
             try {
@@ -784,6 +812,9 @@ export class AudioControls {
                 this.trackDropdownText.textContent = selectedOption.textContent;
                 // Update title texture
                 this.updateTrackTitle(selectedOption.textContent);
+                
+                // Update cover image
+                this.updateTrackCover(selectedOption);
             }
             
             await this.audioAnalyzer.loadTrack(filePath, metadata);

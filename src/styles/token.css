@@ -199,6 +199,8 @@
   --badge-supporter-print: var(--color-brand-90);
   --button-size-lg: var(--size-lg);
   --button-icon-size-lg: var(--icon-lg);
+  --button-icon-size-xl: var(--icon-xl);
+  --button-icon-size-2xl: var(--icon-2xl);
   --base-print-placeholder: var(--color-gray-100);
   --input-accented-bg: var(--button-accented-bg);
   --input-accented-bg-hover: var(--button-accented-bg-hover);
@@ -816,20 +818,15 @@
   --top-control-menu-shadow: var(--shadow-sm);
 
   /* Component Tokens - Play/Pause Control */
-  --play-control-size: var(--size-2xl);
-  --play-control-icon-size: var(--size-md);
-  --play-control-padding: 0;
-  --play-control-bottom: var(--pd-xl);
+  --play-control-size: var(--size-xl);
+  --play-control-icon-size: var(--button-icon-size-2xl);
   --play-control-radius: var(--radius-max);
-  --play-control-bg: var(--button-inverse-bg);
-  --play-control-bg-hover: var(--button-inverse-bg-hover);
-  --play-control-bg-active: var(--button-inverse-bg-active);
-  --play-control-color: var(--button-inverse-print);
-  --play-control-color-hover: var(--button-inverse-print-hover);
-  --play-control-color-active: var(--button-inverse-print-active);
-  --play-control-opacity: 1.0;
-  --play-control-opacity-hover: 1.0;
-  --play-control-opacity-active: 1.0;
+  --play-control-bg: var(--button-primary-bg);
+  --play-control-bg-hover: var(--button-primary-bg-hover);
+  --play-control-bg-active: var(--button-primary-bg-active);
+  --play-control-color: var(--button-primary-print);
+  --play-control-color-hover: var(--button-primary-print-hover);
+  --play-control-color-active: var(--button-primary-print-active);
 
   /* Component Tokens - Dropdown */
   --dropdown-btn-padding-x: var(--pd-lg);
@@ -936,7 +933,7 @@
   --shader-panel-max-height: 80vh;
 
   /* Component Tokens - Audio Controls Container */
-  --audio-controls-container-bottom: var(--pd-2xl);
+  --audio-controls-container-bottom: var(--pd-xl);
   --audio-controls-container-gap: var(--pd-2xl);
 
   /* Component Tokens - Scrubber Container */
