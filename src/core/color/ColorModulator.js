@@ -2,7 +2,7 @@
 // Applies dynamic color modifications based on audio frequency analysis
 
 import { hexToRgb, rgbToOklch, interpolateHue } from './ColorGenerator.js';
-import { TempoSmoothingConfig, getTempoRelativeTimeConstant, applyTempoRelativeSmoothing } from '../config/tempo-smoothing-config.js';
+import { TempoSmoothingConfig, getTempoRelativeTimeConstant, applyTempoRelativeSmoothing } from '../../config/tempoSmoothing.js';
 
 /**
  * Deep clones an object

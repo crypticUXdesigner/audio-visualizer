@@ -1,5 +1,14 @@
 /* Component Styles */
 
+/* Font Face Declarations */
+@font-face {
+  font-family: 'FivoSansModern';
+  src: url('/fonts/FivoSansModern-ExtBlack.otf') format('opentype');
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
+}
+
 /* Loading Spinner */
 .app-loader {
   position: fixed;
@@ -134,10 +143,6 @@ input[type="submit"] {
 
   .top-control-item {
     position: relative;
-
-    &.open .top-control-menu {
-      display: flex;
-    }
   }
 
   .top-control-btn {
@@ -229,36 +234,68 @@ html.debug-mode {
 
 /* Color Preset Menu */
 .top-control-menu {
-  position: absolute;
-  top: 100%;
-  left: 50%;
-  transform: translateX(-50%);
-  margin-top: var(--top-control-menu-margin-top);
-  background: var(--dropdown-bg);
-  border: var(--dropdown-border-width) solid var(--dropdown-border);
+  position: fixed;
+  top: 50vh;
+  left: 50vw;
+  transform: translate(-50%, -47%);
+  width: 90vw;
+  height: 80vh;
+  max-width: 400px;
+  max-height: 650px;
+  /* Use same background/border as track dropdown */
+  background: var(--color-gray-40);
+  border: 1px solid var(--color-gray-70);
   border-radius: var(--radius-xl);
   padding: var(--pd-md) 0;
   display: none;
-  min-width: var(--top-control-menu-min-width);
-  max-width: var(--top-control-menu-max-width);
-  box-shadow: 0 0 0 6px var(--color-gray-10);
   flex-direction: column;
   gap: var(--pd-md);
+  overflow-y: auto;
+  box-shadow: 0 0 0 6px var(--color-gray-10);
+  scrollbar-width: thin;
+  scrollbar-color: var(--dropdown-menu-scrollbar-thumb-bg) transparent;
+  z-index: 10000;
+  opacity: 0;
+  transition: opacity var(--effects-default), transform var(--spatial-default);
+
+  &::-webkit-scrollbar {
+    width: var(--dropdown-menu-scrollbar-width);
+  }
+
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: var(--dropdown-menu-scrollbar-thumb-bg);
+    border-radius: var(--dropdown-menu-scrollbar-thumb-radius);
+    height: var(--dropdown-menu-scrollbar-thumb-size);
+    width: var(--dropdown-menu-scrollbar-thumb-size);
+  }
+
+  &::-webkit-scrollbar-thumb:hover {
+    background: var(--dropdown-menu-scrollbar-thumb-bg-hover);
+  }
 
   .preset-buttons {
     display: grid;
     grid-template-columns: var(--preset-btn-grid-columns);
     gap: var(--pd-md);
-    padding: 0 var(--pd-md);
+    padding: 0 var(--pd-lg); /* Match track option padding */
   }
 
   .preset-btn {
     padding: 0;
-    background: var(--preset-btn-bg);
-    border: 1px solid var(--preset-btn-border);
-    border-radius: var(--radius-md);
+    /* Use dropdown option tokens instead of preset-btn tokens */
+    background: var(--dropdown-option-bg);
+    border: 1px solid transparent;
+    border-radius: var(--dropdown-option-radius);
     cursor: pointer;
-    transition: background var(--effects-fast), border-color var(--effects-fast);
+    transition: 
+      background var(--effects-default), 
+      border-color var(--effects-fast), 
+      color var(--effects-fast),
+      transform var(--spatial-default);
     user-select: none;
     overflow: hidden;
     width: 100%;
@@ -266,14 +303,15 @@ html.debug-mode {
     justify-self: center;
 
     &:hover {
-      background: var(--preset-btn-bg-hover);
-      border-color: var(--preset-btn-border-hover);
+      background: var(--dropdown-option-bg-hover);
+      border-color: var(--list-hub-border-hover);
+      transform: scale(1.02);
     }
 
     &.active {
-      border-color: var(--preset-btn-border-active);
-      border-width: var(--preset-btn-border-width-active);
-      box-shadow: var(--preset-btn-shadow-active);
+      background: var(--dropdown-option-bg-active);
+      border-color: var(--list-hub-border-active);
+      transform: scale(1.02);
     }
 
     .preset-swatch {
@@ -282,17 +320,98 @@ html.debug-mode {
     }
   }
 
+  /* Shader Switcher */
+  .shader-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: var(--pd-sm);
+    padding: 0 var(--pd-lg); /* Match track option padding */
+  }
+
+  .shader-btn {
+    display: flex;
+    align-items: center;
+    gap: var(--pd-lg); /* Match track option gap */
+    /* Use same padding pattern as track-option */
+    padding: var(--pd-sm) var(--pd-lg) var(--pd-sm) var(--pd-sm);
+    /* Use dropdown option tokens */
+    background: var(--dropdown-option-bg);
+    border: 1px solid transparent;
+    border-radius: var(--dropdown-option-radius);
+    cursor: pointer;
+    transition: 
+      background var(--effects-default), 
+      color var(--effects-fast), 
+      transform var(--spatial-default);
+    user-select: none;
+    width: 100%;
+
+    &:hover {
+      background: var(--dropdown-option-bg-hover);
+      color: var(--dropdown-option-color-hover);
+      border-color: var(--list-hub-border-hover);
+      transform: scale(1.02);
+    }
+
+    &.active {
+      background: var(--dropdown-option-bg-active);
+      color: var(--dropdown-option-color-active);
+      border-color: var(--list-hub-border-active);
+      transform: scale(1.02);
+    }
+
+    .shader-preview {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: var(--size-lg);
+      height: var(--size-lg);
+      flex-shrink: 0;
+      color: var(--dropdown-option-color);
+      opacity: 0.8;
+      transition: opacity var(--effects-fast);
+
+      svg {
+        width: 100%;
+        height: 100%;
+      }
+    }
+
+    .shader-btn-label {
+      font-size: var(--dropdown-option-font-size);
+      color: var(--dropdown-option-color);
+      font-weight: 400;
+      flex: 1;
+      text-align: left;
+    }
+
+    &:hover .shader-preview {
+      opacity: 1;
+      color: var(--dropdown-option-color-hover);
+    }
+
+    &.active .shader-preview {
+      opacity: 1;
+      color: var(--dropdown-option-color-active);
+    }
+
+    &.active .shader-btn-label {
+      color: var(--dropdown-option-color-active);
+      font-weight: 400; /* Match track-option weight */
+    }
+  }
+
   /* Color Controls */
   .color-controls-separator {
     height: 1px;
     background: var(--dropdown-divider);
-    margin-bottom: var(--pd-md);
+    margin: 0 var(--pd-lg) var(--pd-md); /* Match content padding */
   }
 
   .color-pickers-row {
     display: flex;
     gap: var(--color-control-row-gap);
-    padding: 0 var(--pd-md);
+    padding: 0 var(--pd-lg); /* Match track option padding */
 
     .color-control-group {
       flex: 1;
@@ -550,8 +669,12 @@ html.debug-mode {
   /* Track Dropdown Button */
   .track-dropdown {
     position: relative;
-    width: auto;
-    max-width: calc(100% - var(--spacing-3xl));
+    width: 100%;
+    flex-shrink: 1;
+    padding: var(--pd-md);
+    display: flex;
+    flex-direction: column;
+    gap: var(--pd-sm);
 
     &.open {
       .track-dropdown-btn .dropdown-arrow {
@@ -560,32 +683,38 @@ html.debug-mode {
     }
 
     .track-dropdown-btn {
-      width: auto;
-      padding: var(--dropdown-btn-padding-y) var(--dropdown-btn-padding-x);
-      background: var(--dropdown-btn-bg);
-      border: 1px solid var(--dropdown-btn-border);
-      border-radius: var(--dropdown-btn-radius);
-      color: var(--dropdown-btn-color);
+      align-self: stretch;
+      width: 100%;
+      padding: var(--pd-xs) var(--pd-md);
+      background: var(--button-ghost-bg);
+      border: 1px solid var(--button-ghost-border);
+      border-radius: var(--button-ghost-radius);
+      color: var(--button-ghost-print);
       cursor: pointer;
       display: flex;
       align-items: center;
-      justify-content: space-between;
-      gap: var(--dropdown-btn-gap);
-      font-size: var(--dropdown-btn-font-size);
-      font-weight: 400;
+      justify-content: center;
+      gap: var(--pd-md);
+      font-size: var(--text-sm);
+      font-weight: 500;
+      text-align: center;
       transition: background var(--effects-fast), border-color var(--effects-fast), color var(--effects-fast), opacity var(--effects-fast);
       user-select: none;
       white-space: nowrap;
-      opacity: var(--dropdown-btn-opacity);
+      height: var(--button-size-xs);
+      min-height: auto;
+      line-height: 1;
 
       &:hover {
-        backdrop-filter: var(--blur-md);
-        background: var(--dropdown-btn-bg-hover);
-        border-color: var(--dropdown-btn-border-hover);
-        color: var(--dropdown-btn-color-hover);
-        opacity: var(--dropdown-btn-opacity-hover);
+        background: var(--button-ghost-bg-hover);
+        border-color: var(--button-ghost-border-hover);
+        color: var(--button-ghost-print-hover);
       }
-
+      &:active {
+        background: var(--button-ghost-bg-active);
+        border-color: var(--button-ghost-border-active);
+        color: var(--base-print-light);
+      }
       .dropdown-arrow {
         display: none;
         transition: transform var(--spatial-fast);
@@ -615,29 +744,42 @@ html.debug-mode {
     position: relative;
     max-width: var(--scrubber-container-max-width);
     width: var(--scrubber-container-width);
-    min-height: var(--waveform-height); /* Reserve space for waveform to prevent layout shift */
+    height: auto;
     display: flex;
     flex-direction: column;
-    gap: 0;
+    gap: var(--pd-xs);
+    padding: var(--pd-xs);
+    line-height: 0;
+    border-radius: var(--waveform-radius);
+    border: 1px solid var(--color-gray-70);
+    background: color-mix(in srgb, var(--waveform-bg) 100%, transparent 10%);
+    transition: transform var(--spatial-slow);
+    overflow: hidden;
+
+    &:hover {
+      transform: scale(1.05);
+    }
 
     .time-display {
       display: none;
+    }
+
+    /* Track Dropdown inside scrubber container */
+    .track-dropdown {
+      position: relative;
+      width: 100%;
+      flex-shrink: 1;
+      padding: var(--pd-xs) var(--pd-sm);
     }
 
     /* Waveform Scrubber */
     .waveform-canvas {
       width: 100%;
       height: var(--waveform-height);
+      border-radius: calc(var(--waveform-radius) - var(--pd-xs));
+      background: var(--waveform-bg);
       cursor: crosshair;
-      border-radius: var(--waveform-radius);
-      border: 1px solid var(--color-gray-70);
-      background: color-mix(in srgb, var(--waveform-bg) 100%, transparent 10%);
-      transition: transform var(--spatial-slow);
       display: block;
-
-      &:hover {
-        transform: scale(1.05);
-      }
     }
   }
 }
@@ -653,9 +795,9 @@ html.debug-mode {
   max-width: 400px;
   max-height: 650px;
   background: var(--color-gray-40);
-  border: 1px solid var(--color-gray-60);
+  border: 1px solid var(--color-gray-70);
   border-radius: var(--radius-xl);
-  padding: var(--pd-md);
+  padding: var(--pd-md) 0;
   display: none;
   flex-direction: column;
   gap: var(--pd-md);
@@ -687,12 +829,18 @@ html.debug-mode {
   }
 
   .track-option {
+    display: flex;
+    box-sizing: border-box;
+    flex-direction: row;
+    align-items: center;
+    gap: var(--pd-lg);
     width: 100%;
-    padding: var(--pd-md);
-    background: var(--list-library-bg);
-    border: none;
-    border-radius: var(--radius-lg);
-    color: var(--list-library-print);
+    height: var(--size-xl);
+    padding: var(--pd-sm) var(--pd-lg) var(--pd-sm) var(--pd-sm);
+    background: var(--list-hub-bg);
+    border: 1px solid transparent;
+    border-radius: var(--radius-xl);
+    color: var(--list-hub-print);
     cursor: pointer;
     text-align: left;
     font-size: var(--text-md);
@@ -702,29 +850,36 @@ html.debug-mode {
       color var(--effects-fast), 
       transform var(--spatial-default);
     user-select: none;
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    gap: var(--pd-md);
 
     &:hover {
-      background: var(--list-library-bg-hover);
-      color: var(--list-library-print-hover);
+      background: var(--list-hub-bg-hover);
+      color: var(--list-hub-print-hover);
       transform: scale(1.02);
+      border: 1px solid var(--list-hub-border-hover);
     }
 
-    &.active {
-      background: var(--list-library-bg-active);
-      color: var(--list-library-print-active);
+    &.active, &:active {
+      background: var(--list-hub-bg-active);
+      color: var(--list-hub-print-active);
       transform: scale(0.98);
+      border: 1px solid var(--list-hub-border-active);
     }
-  }
+    &.active, &:active {
+      background: var(--list-hub-bg-active);
+      color: var(--list-hub-print-active);
+      transform: scale(1.02);
+      border: 1px solid var(--list-hub-border-active);
+    }  }
 
   /* Track Search Styles */
-  .track-search-container {
+  .track-search-wrapper {
     position: sticky;
     top: 0;
     z-index: 10;
+    padding: 0 var(--pd-lg);
+  }
+
+  .track-search-container {
     padding: 0 0 0 var(--pd-lg);
     background: var(--input-nudge-bg);
     border: 1px solid var(--input-nudge-border);
@@ -766,7 +921,7 @@ html.debug-mode {
     border: none;
     padding: 0;
     color: var(--input-nudge-print);
-    font-size: var(--text-sm);
+    font-size: var(--text-md);
     font-weight: 400;
     height: 100%;
     outline: none;
@@ -812,13 +967,31 @@ html.debug-mode {
   .track-list {
     display: flex;
     flex-direction: column;
+    padding: var(--pd-lg);
     gap: var(--pd-sm);
     overflow-y: scroll;
     overflow-x: hidden;
     flex: 1;
-    padding: 0 0 var(--pd-md) 0;
     scrollbar-width: none; /* Firefox */
     -ms-overflow-style: none; /* IE and Edge */
+    mask-image: linear-gradient(
+      to bottom,
+      transparent 0,
+      black var(--pd-lg),
+      black calc(100% - var(--pd-lg)),
+      transparent 100%
+    );
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      transparent 0,
+      black var(--pd-lg),
+      black calc(100% - var(--pd-lg)),
+      transparent 100%
+    );
+    mask-size: 100% 100%;
+    -webkit-mask-size: 100% 100%;
+    mask-repeat: no-repeat;
+    -webkit-mask-repeat: no-repeat;
   }
 
   .track-list::-webkit-scrollbar {
@@ -834,12 +1007,24 @@ html.debug-mode {
 
   /* Track option styling */
   .track-option-cover {
-    width: var(--cover-size-sm);
-    height: var(--cover-size-sm);
+    box-sizing: border-box;
+    width: auto;
+    height: 100%;
+    aspect-ratio: 1/1;
     min-width: var(--cover-size-sm);
     min-height: var(--cover-size-sm);
-    border-radius: var(--cover-radius-sm);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--list-hub-cover-border);
     flex-shrink: 0;
+    transition: border-color var(--effects-fast);
+  }
+
+  .track-option:hover .track-option-cover {
+    border-color: var(--list-hub-cover-border-hover);
+  }
+
+  .track-option.active .track-option-cover {
+    border-color: var(--list-hub-cover-border-active);
   }
 
   img.track-option-cover {
@@ -853,21 +1038,17 @@ html.debug-mode {
 
   .track-option-name {
     font-size: var(--text-md);
-    font-weight: 500;
-    line-height: 1.3;
+    line-height: 1;
     flex: 1;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-
-  .track-option.active .track-option-name {
-    color: var(--input-nudge-print-active);
-  }
 }
 
 /* Show menu when it has the open class (controlled by JS) */
-.track-dropdown-menu.open {
+.track-dropdown-menu.open,
+.top-control-menu.open {
   display: flex !important;
   opacity: 1;
   transform: translate(-50%, -50%);
@@ -891,4 +1072,62 @@ html.debug-mode {
 .loudness-controls {
   display: none !important;
 }
+
+/* Track Title Display */
+.track-title-display {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 100vh;
+  width: 60vw;
+  padding: 0 0 10vh var(--pd-xl);
+  z-index: 10;
+  pointer-events: none;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  
+  /* Fade in/out based on visible class */
+  transition: opacity 1.6s var(--effects-slow-bezier);
+  mix-blend-mode: color-dodge;
+  opacity: 0;
+
+  
+  &.visible {
+    opacity: 1;
+  }
+
+  .track-title-text {
+    font-family: 'FivoSansModern', var(--font-brand, 'Montserrat', sans-serif);
+    font-weight: 900;
+    font-size: clamp(2rem, 16vh, 16rem);
+    line-height: 0.8;
+    color: rgba(255, 255, 255, 0.9);
+    text-transform: uppercase;
+    letter-spacing: -0.075em;
+    
+    /* Allow words to break more freely */
+    word-break: break-word;
+    overflow-wrap: break-word;
+    word-wrap: break-word;
+    hyphens: none;
+    
+    /* Modulate both color and opacity */
+    transition: 
+      color 0.06s var(--effects-fast-bezier),
+      opacity 0.06s var(--effects-fast-bezier);
+    filter: url(#textNoise);
+    
+    /* Audio-reactive opacity */
+    --audio-opacity: 0.0;
+    opacity: var(--audio-opacity);
+  
+    /* Prevent text selection */
+    user-select: none;
+    -webkit-user-select: none;
+  }
+}
+
+
 

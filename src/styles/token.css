@@ -1,76 +1,5 @@
 /* Design Tokens - Colors, Fonts, and Core Design Values */
 
-/* Font Face Declarations */
-@font-face {
-  font-family: 'MangoGrotesqueThin';
-  src: url('/src/fonts/Web-PS/Humane-Thin.woff2') format('woff2'),
-       url('/src/fonts/Web-PS/Humane-Thin.otf') format('opentype');
-  font-style: normal;
-  font-weight: normal;
-  text-rendering: optimizeLegibility;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'MangoGrotesqueExtLt';
-  src: url('/src/fonts/Web-PS/Humane-ExtraLight.woff2') format('woff2'),
-       url('/src/fonts/Web-PS/Humane-ExtraLight.otf') format('opentype');
-  font-style: normal;
-  font-weight: normal;
-  text-rendering: optimizeLegibility;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'MangoGrotesqueLight';
-  src: url('/src/fonts/Web-PS/Humane-Light.woff2') format('woff2'),
-       url('/src/fonts/Web-PS/Humane-Light.otf') format('opentype');
-  font-style: normal;
-  font-weight: normal;
-  text-rendering: optimizeLegibility;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'MangoGrotesque';
-  src: url('/src/fonts/Web-PS/Humane-Regular.woff2') format('woff2'),
-       url('/src/fonts/Web-PS/Humane-Regular.otf') format('opentype');
-  font-style: normal;
-  font-weight: normal;
-  text-rendering: optimizeLegibility;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'MangoGrotesqueMed';
-  src: url('/src/fonts/Web-PS/Humane-Medium.woff2') format('woff2'),
-       url('/src/fonts/Web-PS/Humane-Medium.otf') format('opentype');
-  font-style: normal;
-  font-weight: normal;
-  text-rendering: optimizeLegibility;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'MangoGrotesqueSemBd';
-  src: url('/src/fonts/Web-PS/Humane-SemiBold.woff2') format('woff2'),
-       url('/src/fonts/Web-PS/Humane-SemiBold.otf') format('opentype');
-  font-style: normal;
-  font-weight: normal;
-  text-rendering: optimizeLegibility;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'MangoGrotesque';
-  src: url('/src/fonts/Web-PS/Humane-Bold.woff2') format('woff2'),
-       url('/src/fonts/Web-PS/Humane-Bold.otf') format('opentype');
-  font-style: normal;
-  font-weight: bold;
-  text-rendering: optimizeLegibility;
-  font-display: swap;
-}
-
 /* Color Tokens */
 :root {
   /* Base Colors */
@@ -101,7 +30,8 @@
   
   /* Font Families */
   --font-system: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-  --font-brand: 'MangoGrotesque', var(--font-system);
+  --font-brand: 'Lexend', sans-serif;
+  --font-text: 'Lexend', sans-serif;
   
   /* Transitions */
   --transition-fast: 0.2s ease;
@@ -843,6 +773,9 @@
   --list-hub-print: var(--color-gray-120);
   --list-hub-print-hover: var(--base-print-highlight);
   --list-hub-print-active: var(--base-print-light);
+  --list-hub-border: transparent;
+  --list-hub-border-hover: var(--color-gray-70);
+  --list-hub-border-active: var(--color-gray-100);
   --list-navigation-bg: var(--button-ghost-bg);
   --list-navigation-bg-hover: var(--list-hub-bg-hover);
   --list-navigation-bg-active: var(--button-ghost-bg-active);
@@ -939,7 +872,7 @@
   --dropdown-option-font-size: var(--text-md);
 
   /* Waveform Scrubber */
-  --waveform-height: var(--size-2xl);
+  --waveform-height: 60px;
   --waveform-radius: var(--radius-xl);
   --waveform-bg: var(--list-bg);
   --waveform-wave-color: var(--button-ghost-print);

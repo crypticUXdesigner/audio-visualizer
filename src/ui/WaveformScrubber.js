@@ -1,7 +1,7 @@
 // Waveform Scrubber Component
 // Renders audio waveform using Audiotool Audiograph data
 
-import { safeSentrySpan, safeCaptureException } from '../core/SentryInit.js';
+import { safeSentrySpan, safeCaptureException } from '../core/monitoring/SentryInit.js';
 
 export class WaveformScrubber {
   constructor(container, audioElement) {
@@ -35,7 +35,7 @@ export class WaveformScrubber {
     this.waveColorHover = 'rgba(255, 255, 255, 0.5)';
     this.progressColor = 'rgba(255, 255, 255, 0.9)';
     this.cursorColor = 'rgba(255, 255, 255, 1.0)';
-    this.backgroundColor = 'rgba(0, 0, 0, 0.2)';
+    this.backgroundColor = 'rgba(0, 0, 0, 0.62)';
     
     // Color transition
     this.targetWaveColor = this.waveColor;
@@ -110,13 +110,15 @@ export class WaveformScrubber {
   }
   
   resize() {
-    const rect = this.container.getBoundingClientRect();
+    // Use canvas element's bounding rect instead of container
+    // This accounts for container padding since canvas is sized via CSS (width: 100%)
+    const canvasRect = this.canvas.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
     
     // Set canvas size
-    this.canvas.width = rect.width * dpr;
+    this.canvas.width = canvasRect.width * dpr;
     this.canvas.height = 60 * dpr; // Fixed height in logical pixels
-    this.canvas.style.width = `${rect.width}px`;
+    this.canvas.style.width = `${canvasRect.width}px`;
     this.canvas.style.height = '60px';
     
     // Scale context for high DPI
@@ -206,7 +208,7 @@ export class WaveformScrubber {
           }
           
           // Import the service dynamically
-          const { getAudiographs } = await import('../core/AudiotoolTrackService.js');
+          const { getAudiographs } = await import('../api/AudiographService.js');
           
           console.log(`📊 Loading waveform for ${trackId} at ${resolution}px (stereo)`);
           

@@ -35,7 +35,7 @@ The project uses a modular architecture with clear separation of concerns:
 - `src/main.js` - Application entry point
 - `frequency-visualizer.js` - Development tool for frequency band visualization
 - `shaders/vertex.glsl` - Vertex shader
-- `shaders/background-fragment.glsl` - Fragment shader with animated fBm noise
+- `shaders/heightmap-fragment.glsl` - Fragment shader with animated fBm noise
 
 ## Development
 

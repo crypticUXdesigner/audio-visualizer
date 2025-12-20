@@ -1,11 +1,9 @@
-// Audiotool Track Service Client - REGISTRY-ONLY MODE
-// Uses the TrackService protobuf definitions to access published tracks
-// 
-// ⛔ SEARCH DISABLED: Only the 170+ validated tracks in the registry can be loaded
-// This ensures all tracks have been validated and prevents random API searches
+// Track Service API Client
+// Core API client for track operations: getTrack(), getTracks(), loadTrack(), loadTracks()
+// Authentication handling and base RPC calls
 
-import Sentry, { safeCaptureException, safeSentrySpan } from './SentryInit.js';
-import { getTrackIdentifier } from '../config/track-registry.js';
+import { safeCaptureException, safeSentrySpan } from '../core/monitoring/SentryInit.js';
+import { getTrackIdentifier } from '../config/trackRegistry.js';
 
 /**
  * Get the API token from environment variables (optional for public endpoints)
@@ -125,7 +123,7 @@ async function callTrackService(method, request) {
  * @param {number} options.pageSize - Number of results per page
  * @returns {Promise<object>} List of tracks
  */
-async function listTracksByIds(options = {}) {
+export async function listTracksByIds(options = {}) {
   return safeSentrySpan(
     {
       op: 'http.client',
@@ -137,7 +135,7 @@ async function listTracksByIds(options = {}) {
           filter: options.filter || '',
           page_size: options.pageSize || 50,
           page_token: options.pageToken || '',
-          order_by: 'track.create_time desc',
+          order_by: options.orderBy || 'track.create_time desc',
         };
         
         const result = await callTrackService('ListTracks', request);
@@ -418,103 +416,8 @@ export async function loadTrack(songName, username, trackIdentifier = null) {
 // ⛔ findTrack() - REMOVED - Search functionality disabled (registry-only mode)
 // ⛔ loadTrackInfo() - REMOVED - Search functionality disabled (registry-only mode)
 
-/**
- * Call the AudiographService using Connect RPC format
- * @param {string} method - The RPC method name (e.g., "GetAudiographs")
- * @param {object} request - The request payload
- * @returns {Promise<object>} The response
- */
-async function callAudiographService(method, request) {
-  const token = await getToken();
-  const baseUrl = 'https://rpc.audiotool.com';
-  const serviceName = 'audiotool.audiograph.v1.AudiographService';
-  const url = `${baseUrl}/${serviceName}/${method}`;
-  
-  const headers = {
-    'Content-Type': 'application/json',
-  };
-  
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-  
-  console.log(`🎨 Calling AudiographService.${method}`);
-  
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: headers,
-    body: JSON.stringify(request),
-    credentials: 'omit',
-  });
-  
-  if (!response.ok) {
-    let errorText = '';
-    try {
-      errorText = await response.text();
-    } catch (e) {
-      errorText = response.statusText;
-    }
-    
-    const errorMessage = `AudiographService.${method} failed: ${response.status} ${errorText}`;
-    throw new Error(errorMessage);
-  }
-  
-  return await response.json();
-}
-
-/**
- * Get audiograph waveform data for tracks
- * @param {string|string[]} trackNames - Track name(s) in format "tracks/{id}"
- * @param {number} resolution - Resolution (120, 240, 480, 960, 1920, 3840)
- * @param {boolean} stereo - Whether to get stereo (true) or mono (false)
- * @returns {Promise<object>} Audiograph data with RMS values
- */
-export async function getAudiographs(trackNames, resolution = 1920, stereo = false) {
-  return safeSentrySpan(
-    {
-      op: 'http.client',
-      name: 'Get Audiographs',
-    },
-    async (span) => {
-      try {
-        // Normalize to array
-        const names = Array.isArray(trackNames) ? trackNames : [trackNames];
-        
-        // Ensure track names are in correct format
-        const normalizedNames = names.map(name => 
-          name.startsWith('tracks/') ? name : `tracks/${name}`
-        );
-        
-        const request = {
-          resource_names: normalizedNames,
-          resolution: resolution,
-          channels: stereo ? 2 : 1, // 2 = STEREO, 1 = MONO
-        };
-        
-        console.log(`📊 Fetching audiographs for ${normalizedNames.length} track(s) at ${resolution}px resolution`);
-        
-        const result = await callAudiographService('GetAudiographs', request);
-        
-        span.setAttribute('audiographs.count', result.audiographs?.length || 0);
-        span.setAttribute('audiographs.resolution', resolution);
-        span.setAttribute('audiographs.stereo', stereo);
-        
-        return {
-          success: true,
-          audiographs: result.audiographs || [],
-        };
-      } catch (error) {
-        console.error('❌ Failed to get audiographs:', error);
-        safeCaptureException(error);
-        return {
-          success: false,
-          audiographs: [],
-          error: error.message || String(error),
-        };
-      }
-    }
-  );
-}
+// Note: getAudiographs() moved to ../api/AudiographService.js
+// Note: getTopEngagementTracks() moved to ../api/EngagementService.js
 
 // Export for use in browser console or other modules
 // ⛔ REGISTRY-ONLY MODE: Only validated tracks from registry can be loaded
@@ -524,8 +427,8 @@ if (typeof window !== 'undefined') {
     getTracks: getTracks,
     loadTrack: loadTrack,
     loadTracks: loadTracks,
-    getAudiographs: getAudiographs,
+    // getAudiographs moved to AudiographService
+    // getTopEngagementTracks moved to EngagementService
     // Search methods removed - registry-only mode
   };
 }
-

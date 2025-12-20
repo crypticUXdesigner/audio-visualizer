@@ -98,14 +98,6 @@ uniform float uRippleMaxRadius;           // Maximum ring radius (0.0-2.0)
 uniform float uRippleIntensityThreshold; // Intensity threshold for ripples (0.0-1.0)
 uniform float uRippleIntensity;          // Overall ripple intensity multiplier (0.0-1.0)
 
-// Title texture
-uniform sampler2D uTitleTexture;
-uniform vec2 uTitleTextureSize;
-uniform float uTitleScale; // Scale factor for title texture (1.0 = normal, >1.0 = zoomed in/larger)
-uniform float uTitleScaleBottomLeft; // Scale factor when in bottom left position
-uniform float uPlaybackProgress; // Playback progress (0.0 = start, 1.0 = end)
-uniform vec2 uTitlePositionOffset; // Position offset for title (x, y) - used to move text to bottom left
-
 // Threshold uniforms - calculated from thresholdCurve bezier
 uniform float uThreshold1;  // Threshold for color1 (brightest)
 uniform float uThreshold2;  // Threshold for color2
@@ -321,10 +313,40 @@ void main() {
     // Base animation speed (constant - no volume modulation)
     float baseTimeSpeed = 0.08 * tempoSpeed;
     
+    // Add volume-based time modulation that's more sensitive at low volumes
+    // Use an inverse curve to amplify small changes when volume is low
+    // When volume is 0.0-0.3, small changes have big impact
+    // When volume is high, changes are more linear
+    float volumeSensitivity = 0.0;
+    if (uVolume > 0.0) {
+        // Create a curve that's more sensitive at low volumes
+        // Low volumes (0.0-0.3): high sensitivity (2.0-1.0x)
+        // High volumes (0.3-1.0): lower sensitivity (1.0-0.3x)
+        float lowVolumeRange = 0.3;
+        if (uVolume < lowVolumeRange) {
+            // High sensitivity for low volumes: 2.0x at 0.0, 1.0x at 0.3
+            volumeSensitivity = 2.0 - (uVolume / lowVolumeRange);
+        } else {
+            // Lower sensitivity for higher volumes: 1.0x at 0.3, 0.3x at 1.0
+            float highVolumeT = (uVolume - lowVolumeRange) / (1.0 - lowVolumeRange);
+            volumeSensitivity = 1.0 - (highVolumeT * 0.7);
+        }
+    } else {
+        // Maximum sensitivity when completely silent
+        volumeSensitivity = 2.0;
+    }
+    
+    // Modulate time with volume changes - more sensitive at low volumes
+    // Use a combination of volume and frequency bands for more nuanced response
+    float volumeModulation = (uVolume + uBass * 0.3 + uMid * 0.2 + uTreble * 0.1) * volumeSensitivity;
+    
+    // Apply volume modulation to time - creates more variation at low volumes
+    float modulatedTime = (uTime + staticTimeOffset + uTimeOffset) * baseTimeSpeed + volumeModulation * 0.15;
+    
     // Time debt system: uTimeOffset accumulates when loud, decays when quiet
     // This creates a "morphing" effect: animation jumps ahead, then catches up
     // Base fBm noise pattern - provides organic spatial variation
-    float feed = fbm2(uv, (uTime + staticTimeOffset + uTimeOffset) * baseTimeSpeed);
+    float feed = fbm2(uv, modulatedTime);
     
     // Scale feed based on volume - quieter songs stay darker
     // This fixes the white issue: silent songs should be dark, not white
@@ -545,130 +567,6 @@ void main() {
     
     // Blend title texture with shader output
     vec3 finalColor = color;
-    
-    // Check if title texture is available (size > 0 indicates texture is set)
-    if (uTitleTextureSize.x > 1.0 && uTitleTextureSize.y > 1.0) {
-        // Calculate UV coordinates for title texture
-        // Since texture matches canvas size, screen space maps 1:1 to texture UV
-        vec2 screenUV = gl_FragCoord.xy / uResolution.xy; // 0-1 screen space
-        
-        // Determine which scale to use based on playback progress
-        float playbackProgressForScale = clamp(uPlaybackProgress, 0.0, 1.0);
-        float titleScale = uTitleScale > 0.0 ? uTitleScale : 1.0;
-        float currentScale;
-        if (playbackProgressForScale < 0.08) {
-            // Phase 1-2: use center scale
-            currentScale = titleScale;
-        } else {
-            // Phase 3+: use bottom left scale (smaller)
-            currentScale = uTitleScaleBottomLeft > 0.0 ? uTitleScaleBottomLeft : 0.6;
-        }
-        
-        // uTitlePositionOffset contains target screen position (0-1)
-        // x: 0.0 = left edge, 0.5 = center, 1.0 = right edge
-        // y: 0.0 = top edge, 0.5 = center, 1.0 = bottom edge
-        vec2 targetScreenPos = uTitlePositionOffset;
-        
-        // Since texture matches canvas, screen space maps 1:1 to texture UV
-        // Text is now rendered at the correct position in the texture (matching targetScreenPos)
-        // So we can simply scale around the target position
-        
-        vec2 titleUV;
-        // Scale around target position (text is already at targetScreenPos in texture)
-        titleUV = (screenUV - targetScreenPos) / currentScale + targetScreenPos;
-        
-        // Flip Y coordinate (canvas has 0,0 at top-left, WebGL texture has 0,0 at bottom-left)
-        titleUV.y = 1.0 - titleUV.y;
-        
-        // Clamp UV to valid range
-        titleUV = clamp(titleUV, 0.0, 1.0);
-        
-        // Sample title texture
-        vec4 titleColor = texture2D(uTitleTexture, titleUV);
-        
-        // Calculate text position in the same UV space as visualization
-        // Convert titleUV (screen space 0-1) to centered UV space used by fBm
-        // titleUV is already in screen space, convert to centered UV like the main visualization
-        vec2 textScreenUV = titleUV;
-        vec2 textVizUV = (textScreenUV - 0.5) * vec2(aspectRatio, 1.0);
-        
-        // Calculate feed at text position (use same fBm system, no ripples)
-        float textFeed = fbm2(textVizUV, (uTime + staticTimeOffset + uTimeOffset) * baseTimeSpeed);
-        textFeed = textFeed * volumeScale * stereoBrightness;
-        textFeed = clamp(textFeed, 0.0, 1.0);
-        
-        // Calculate intensity/brightness at text position (needed for all phases)
-        float textBrightness = dot(color, vec3(0.299, 0.587, 0.114)); // Luminance calculation
-        
-        // Sequence phases:
-        // Phase 1: 0-5% - Beginning: fade in, visible, affected by sound/visualization, then fade out
-        // Phase 2: 5-8% - Transition: move position and scale (text hidden during transition)
-        // Phase 3: 8%-95% - Bottom left: visible based on loudness, impacted by pixels, slightly visible
-        // Phase 4: 95-100% - End: can show again if needed
-        
-        float playbackProgress = clamp(uPlaybackProgress, 0.0, 1.0);
-        float phase1End = 0.05;      // End of beginning phase (5%)
-        float phase2Start = 0.05;    // Start of transition (5%)
-        float phase2End = 0.08;      // End of transition (8%)
-        float phase3Start = 0.08;    // Start of bottom left phase (8%)
-        float phase3End = 0.95;      // End of bottom left phase (95%)
-        
-        float textVisibility = 0.0;
-        
-        if (playbackProgress < phase1End) {
-            // Phase 1: Beginning - fade in, visible, affected by sound/visualization, then fade out
-            float fadeInDuration = 0.01;  // Fade in over 1% (very quick)
-            float fadeOutStart = phase1End - 0.02; // Start fade out 2% before end
-            
-            float fadeIn = smoothstep(0.0, fadeInDuration, playbackProgress);
-            float fadeOut = 1.0 - smoothstep(fadeOutStart, phase1End, playbackProgress);
-            float baseVisibility = min(fadeIn, fadeOut);
-            
-            // Affected by sound/visualization
-            float loudnessFactor = smoothstep(0.1, 0.6, uVolume);
-            float brightnessFactor = smoothstep(0.2, 0.7, textBrightness);
-            float feedFactor = smoothstep(0.3, 0.7, textFeed);
-            float audioVisualFactor = max(loudnessFactor, max(brightnessFactor, feedFactor));
-            
-            textVisibility = baseVisibility * (0.6 + audioVisualFactor * 0.4); // 60% base + up to 40% from audio/visual
-            
-        } else if (playbackProgress >= phase2Start && playbackProgress < phase2End) {
-            // Phase 2: Transition - text hidden during position/scale transition
-            textVisibility = 0.0;
-            
-        } else if (playbackProgress >= phase3Start && playbackProgress < phase3End) {
-            // Phase 3: Bottom left - visible based on loudness, impacted by surrounding pixels, slightly visible
-            float volumeBasedVisibility = smoothstep(0.15, 0.5, uVolume); // Show when volume is present
-            float brightnessBasedVisibility = smoothstep(0.2, 0.6, textBrightness); // Impacted by surrounding pixels
-            float feedBasedVisibility = smoothstep(0.2, 0.5, textFeed); // Show when feed is present
-            
-            // Combine factors - any one can make it visible
-            float combinedVisibility = max(volumeBasedVisibility, max(brightnessBasedVisibility, feedBasedVisibility));
-            
-            // Slightly visible - scale down to make it subtle
-            textVisibility = combinedVisibility * 0.4; // 40% max visibility (slightly visible)
-            
-        } else {
-            // Phase 4: End (95-100%) - can show again if needed
-            float endFadeIn = smoothstep(phase3End, phase3End + 0.02, playbackProgress);
-            float volumeBasedVisibility = smoothstep(0.15, 0.5, uVolume);
-            float brightnessBasedVisibility = smoothstep(0.2, 0.6, textBrightness);
-            textVisibility = endFadeIn * max(volumeBasedVisibility, brightnessBasedVisibility) * 0.5;
-        }
-        
-        textVisibility = clamp(textVisibility, 0.0, 1.0);
-        
-        // Use the SAME color system for text (use visualization color)
-        // Mix between pure white and visualization color (70% viz, 30% white for readability)
-        vec3 titleColorRGB = mix(vec3(1.0), color, 0.7);
-        
-        // Text alpha combines: base alpha, feed-based visibility, and ripple boost
-        float baseAlpha = 0.4;
-        float titleAlpha = titleColor.a * baseAlpha * textVisibility;
-        
-        // Additive blend - text adds to visualization, feels like part of it
-        finalColor = finalColor + titleColorRGB * titleAlpha * 0.5;
-    }
     
     gl_FragColor = vec4(finalColor, coverage);
 }

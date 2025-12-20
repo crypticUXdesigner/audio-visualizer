@@ -7,12 +7,12 @@ const copyShadersPlugin = () => {
   return {
     name: 'copy-shaders',
     writeBundle() {
-      const shadersDir = join('public', 'shaders');
+      const shadersDir = join('src', 'shaders', 'source');
       const distShadersDir = join('dist', 'shaders');
       
       if (existsSync(shadersDir)) {
         mkdirSync(distShadersDir, { recursive: true });
-        const files = ['vertex.glsl', 'background-fragment.glsl'];
+        const files = ['vertex.glsl', 'heightmap-fragment.glsl', 'dots-fragment.glsl'];
         files.forEach(file => {
           const src = join(shadersDir, file);
           const dest = join(distShadersDir, file);
@@ -91,7 +91,7 @@ export default defineConfig(({ command, mode }) => {
               // req.url includes the full path like '/shaders/vertex.glsl'
               // Extract just the filename
               const filename = url.split('/').pop();
-              const filePath = join(process.cwd(), 'public', 'shaders', filename);
+              const filePath = join(process.cwd(), 'src', 'shaders', 'source', filename);
               
               if (!existsSync(filePath)) {
                 console.error(`Shader file not found: ${filePath} (requested: ${req.url})`);

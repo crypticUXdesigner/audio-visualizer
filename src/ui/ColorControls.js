@@ -1,16 +1,19 @@
 // Color Preset Switcher UI Module
 // Handles color preset selection and application
 
-import { generateColorsFromOklch, rgbToHex, rgbToOklch, hexToRgb, interpolateHue, oklchToRgb } from '../core/ColorGenerator.js';
+import { generateColorsFromOklch, rgbToHex, rgbToOklch, hexToRgb, interpolateHue, oklchToRgb } from '../core/color/ColorGenerator.js';
 
 export class ColorPresetSwitcher {
-    constructor(colorPresets, onPresetChange, onPropertyChange, getCurrentColorConfig) {
+    constructor(colorPresets, onPresetChange, onPropertyChange, getCurrentColorConfig, audioControls = null) {
         this.colorPresets = colorPresets;
         this.onPresetChange = onPresetChange; // Callback: (presetConfig) => void
         this.onPropertyChange = onPropertyChange; // Callback: (property, value, target) => void
         this.getCurrentColorConfig = getCurrentColorConfig; // Callback: () => colorConfig
+        this.audioControls = audioControls; // Reference to AudioControls for hideControls/showControls
         this.currentPresetName = localStorage.getItem('colorPreset') || Object.keys(colorPresets)[0];
         this.currentColorConfig = null; // Store current color config for sliders
+        this.isMenuOpen = false;
+        this.colorPresetMenu = null;
         this.init();
     }
     
@@ -33,41 +36,31 @@ export class ColorPresetSwitcher {
         
         // Setup color preset button toggle
         const colorPresetBtn = document.getElementById('colorPresetBtn');
-        const colorPresetMenu = document.getElementById('colorPresetMenu');
+        this.colorPresetMenu = document.getElementById('colorPresetMenu');
         const colorPresetItem = colorPresetBtn?.closest('.top-control-item');
         
-        if (colorPresetBtn && colorPresetMenu && colorPresetItem) {
+        if (colorPresetBtn && this.colorPresetMenu && colorPresetItem) {
             colorPresetBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
-                const wasOpen = colorPresetItem.classList.contains('open');
-                colorPresetItem.classList.toggle('open');
-                
-                // If opening menu, update color pickers with current config values
-                if (!wasOpen) {
-                    setTimeout(() => {
-                        // Get current color config (which may have custom values)
-                        const currentConfig = this.getCurrentColorConfig ? this.getCurrentColorConfig() : null;
-                        if (currentConfig) {
-                            // Use current config values (preserves custom colors)
-                            this.updateSlidersFromConfig(currentConfig);
-                        } else if (this.currentPresetName && this.colorPresets[this.currentPresetName]) {
-                            // Fallback to preset if no current config available
-                            this.updateSlidersFromPreset(this.colorPresets[this.currentPresetName]);
-                        }
-                    }, 50);
+                if (this.isMenuOpen) {
+                    this.closeMenu();
+                } else {
+                    this.openMenu();
                 }
             });
             
             // Close when clicking outside
             document.addEventListener('click', (e) => {
-                if (!colorPresetItem.contains(e.target)) {
-                    colorPresetItem.classList.remove('open');
+                if (this.isMenuOpen && 
+                    !colorPresetItem.contains(e.target) && 
+                    !this.colorPresetMenu.contains(e.target)) {
+                    this.closeMenu();
                 }
             });
         }
         
         // Create color controls section
-        this.createColorControls(colorPresetMenu);
+        this.createColorControls(this.colorPresetMenu);
         
         // Create buttons for each preset
         Object.keys(this.colorPresets).forEach(presetName => {
@@ -341,6 +334,57 @@ export class ColorPresetSwitcher {
         console.log('🎨 Random color preset selected:', randomPresetName);
         
         return randomPresetName;
+    }
+    
+    openMenu() {
+        this.isMenuOpen = true;
+        
+        // Step 1: Hide controls (top and bottom)
+        if (this.audioControls) {
+            this.audioControls.hideControls();
+        }
+        
+        // Step 2: After controls start animating out, show menu
+        setTimeout(() => {
+            if (this.colorPresetMenu) {
+                // If opening menu, update color pickers with current config values
+                setTimeout(() => {
+                    // Get current color config (which may have custom values)
+                    const currentConfig = this.getCurrentColorConfig ? this.getCurrentColorConfig() : null;
+                    if (currentConfig) {
+                        // Use current config values (preserves custom colors)
+                        this.updateSlidersFromConfig(currentConfig);
+                    } else if (this.currentPresetName && this.colorPresets[this.currentPresetName]) {
+                        // Fallback to preset if no current config available
+                        this.updateSlidersFromPreset(this.colorPresets[this.currentPresetName]);
+                    }
+                }, 50);
+                
+                // Set display first, then add open class for animation
+                this.colorPresetMenu.style.display = 'flex';
+                // Force reflow to ensure display is applied
+                this.colorPresetMenu.offsetHeight;
+                this.colorPresetMenu.classList.add('open');
+            }
+        }, 100); // Small delay to let controls start animating out
+    }
+    
+    closeMenu() {
+        // Step 1: Hide menu (fade out with downward movement)
+        if (this.colorPresetMenu) {
+            this.colorPresetMenu.classList.remove('open');
+        }
+        this.isMenuOpen = false;
+        
+        // Step 2: After menu animation completes, show controls
+        setTimeout(() => {
+            if (this.colorPresetMenu) {
+                this.colorPresetMenu.style.display = 'none';
+            }
+            if (this.audioControls) {
+                this.audioControls.showControls();
+            }
+        }, 350); // Match the animation duration
     }
 }
 

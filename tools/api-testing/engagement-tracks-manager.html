@@ -1,0 +1,728 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Engagement Tracks Cache Manager</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #0a0a0a;
+            color: #e0e0e0;
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header {
+            background: #1a1a1a;
+            padding: 16px 24px;
+            border-bottom: 1px solid #333;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .header h1 {
+            font-size: 18px;
+            font-weight: 600;
+            color: #fff;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 12px;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border: 1px solid #444;
+            background: #2a2a2a;
+            color: #e0e0e0;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .btn:hover:not(:disabled) {
+            background: #3a3a3a;
+            border-color: #555;
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-primary {
+            background: #0066cc;
+            border-color: #0066cc;
+            color: #fff;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            background: #0052a3;
+        }
+
+        .btn-danger {
+            background: #cc0000;
+            border-color: #cc0000;
+            color: #fff;
+        }
+
+        .btn-danger:hover:not(:disabled) {
+            background: #a30000;
+        }
+
+        .main-container {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+        }
+
+        .track-list-panel {
+            width: 60%;
+            border-right: 1px solid #333;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .track-list-header {
+            padding: 12px 16px;
+            background: #151515;
+            border-bottom: 1px solid #333;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .track-list-header h2 {
+            font-size: 14px;
+            font-weight: 600;
+            color: #fff;
+        }
+
+        .track-count {
+            font-size: 12px;
+            color: #888;
+        }
+
+        .track-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px;
+        }
+
+        .track-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px;
+            background: #1a1a1a;
+            border: 1px solid #2a2a2a;
+            border-radius: 6px;
+            margin-bottom: 8px;
+            transition: all 0.2s;
+        }
+
+        .track-item:hover {
+            background: #222;
+            border-color: #3a3a3a;
+        }
+
+        .track-item.active {
+            background: #1a3a5a;
+            border-color: #0066cc;
+        }
+
+        .track-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .track-name {
+            font-size: 14px;
+            font-weight: 500;
+            color: #fff;
+            margin-bottom: 4px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .track-meta {
+            display: flex;
+            gap: 12px;
+            font-size: 12px;
+            color: #888;
+        }
+
+        .engagement-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 2px 8px;
+            background: #2a4a2a;
+            color: #4ade80;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .track-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .btn-icon {
+            width: 32px;
+            height: 32px;
+            padding: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+
+        .player-panel {
+            width: 40%;
+            display: flex;
+            flex-direction: column;
+            background: #151515;
+        }
+
+        .player-header {
+            padding: 16px;
+            border-bottom: 1px solid #333;
+        }
+
+        .player-header h2 {
+            font-size: 14px;
+            font-weight: 600;
+            color: #fff;
+            margin-bottom: 12px;
+        }
+
+        .current-track-info {
+            background: #1a1a1a;
+            padding: 12px;
+            border-radius: 6px;
+            border: 1px solid #2a2a2a;
+        }
+
+        .current-track-name {
+            font-size: 16px;
+            font-weight: 600;
+            color: #fff;
+            margin-bottom: 8px;
+        }
+
+        .current-track-details {
+            display: flex;
+            gap: 16px;
+            font-size: 12px;
+            color: #888;
+        }
+
+        .player-controls {
+            padding: 16px;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .play-pause-btn {
+            width: 64px;
+            height: 64px;
+            border-radius: 50%;
+            background: #0066cc;
+            border: none;
+            color: #fff;
+            font-size: 24px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+            align-self: center;
+        }
+
+        .play-pause-btn:hover:not(:disabled) {
+            background: #0052a3;
+            transform: scale(1.05);
+        }
+
+        .play-pause-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .scrubber-container {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .scrubber {
+            width: 100%;
+            height: 6px;
+            background: #2a2a2a;
+            border-radius: 3px;
+            cursor: pointer;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .scrubber-progress {
+            height: 100%;
+            background: #0066cc;
+            border-radius: 3px;
+            transition: width 0.1s;
+        }
+
+        .time-display {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            color: #888;
+        }
+
+        .status-message {
+            padding: 12px 16px;
+            background: #1a1a1a;
+            border-top: 1px solid #333;
+            font-size: 12px;
+            color: #888;
+        }
+
+        .status-message.success {
+            color: #4ade80;
+        }
+
+        .status-message.error {
+            color: #f87171;
+        }
+
+        .status-message.info {
+            color: #60a5fa;
+        }
+
+        .loading {
+            opacity: 0.6;
+            pointer-events: none;
+        }
+
+        /* Scrollbar styling */
+        .track-list::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .track-list::-webkit-scrollbar-track {
+            background: #0a0a0a;
+        }
+
+        .track-list::-webkit-scrollbar-thumb {
+            background: #333;
+            border-radius: 4px;
+        }
+
+        .track-list::-webkit-scrollbar-thumb:hover {
+            background: #444;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Engagement Tracks Cache Manager</h1>
+        <div class="header-actions">
+            <button id="fetchBtn" class="btn btn-primary">Fetch & Cache</button>
+            <button id="exportBtn" class="btn" disabled>Export Cache</button>
+            <button id="loadCacheBtn" class="btn">Load Existing Cache</button>
+        </div>
+    </div>
+
+    <div class="main-container">
+        <div class="track-list-panel">
+            <div class="track-list-header">
+                <h2>Tracks</h2>
+                <span class="track-count" id="trackCount">0 tracks</span>
+            </div>
+            <div class="track-list" id="trackList"></div>
+        </div>
+
+        <div class="player-panel">
+            <div class="player-header">
+                <h2>Player</h2>
+                <div class="current-track-info">
+                    <div class="current-track-name" id="currentTrackName">No track selected</div>
+                    <div class="current-track-details" id="currentTrackDetails"></div>
+                </div>
+            </div>
+            <div class="player-controls">
+                <button id="playPauseBtn" class="play-pause-btn" disabled>▶</button>
+                <div class="scrubber-container">
+                    <div class="scrubber" id="scrubber">
+                        <div class="scrubber-progress" id="scrubberProgress" style="width: 0%"></div>
+                    </div>
+                    <div class="time-display">
+                        <span id="currentTime">0:00</span>
+                        <span id="totalTime">0:00</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="status-message" id="statusMessage"></div>
+
+    <script type="module">
+        // Note: This tool should be served through Vite dev server (npm run dev)
+        // or accessed via http://localhost:5173/tools/api-testing/engagement-tracks-manager.html
+        import { getTopEngagementTracks } from '../../src/core/AudiotoolTrackService.js';
+
+        class EngagementTracksManager {
+            constructor() {
+                this.tracks = new Map(); // track.name -> track object
+                this.currentTrack = null;
+                this.audio = new Audio();
+                this.isPlaying = false;
+                this.isSeeking = false;
+
+                this.init();
+            }
+
+            init() {
+                // Load existing cache if available
+                this.loadExistingCache();
+
+                // Setup event listeners
+                document.getElementById('fetchBtn').addEventListener('click', () => this.fetchTracks());
+                document.getElementById('exportBtn').addEventListener('click', () => this.exportCache());
+                document.getElementById('loadCacheBtn').addEventListener('click', () => this.loadExistingCache());
+                document.getElementById('playPauseBtn').addEventListener('click', () => this.togglePlayback());
+                document.getElementById('scrubber').addEventListener('click', (e) => this.seek(e));
+
+                // Audio event listeners
+                this.audio.addEventListener('loadedmetadata', () => this.updateDuration());
+                this.audio.addEventListener('timeupdate', () => this.updateProgress());
+                this.audio.addEventListener('ended', () => this.onTrackEnd());
+                this.audio.addEventListener('error', (e) => {
+                    this.showStatus('Error loading audio: ' + (e.message || 'Unknown error'), 'error');
+                });
+
+                // Update scrubber on drag
+                const scrubber = document.getElementById('scrubber');
+                let isDragging = false;
+                scrubber.addEventListener('mousedown', (e) => {
+                    isDragging = true;
+                    this.seek(e);
+                });
+                document.addEventListener('mousemove', (e) => {
+                    if (isDragging) {
+                        this.seek(e);
+                    }
+                });
+                document.addEventListener('mouseup', () => {
+                    isDragging = false;
+                });
+            }
+
+            async loadExistingCache() {
+                try {
+                    // Try to import the cache file
+                    // Note: Path is relative to project root when served via Vite
+                    const cacheModule = await import('../../src/config/tracks-config.js');
+                    if (cacheModule.ENGAGEMENT_TRACKS_CACHE) {
+                        this.tracks = new Map(Object.entries(cacheModule.ENGAGEMENT_TRACKS_CACHE));
+                        this.renderTracks();
+                        this.showStatus(`Loaded ${this.tracks.size} tracks from cache`, 'success');
+                        document.getElementById('exportBtn').disabled = false;
+                    } else {
+                        this.showStatus('Cache file exists but is empty', 'info');
+                    }
+                } catch (error) {
+                    this.showStatus('No existing cache found (this is normal for first use)', 'info');
+                }
+            }
+
+            async fetchTracks() {
+                const fetchBtn = document.getElementById('fetchBtn');
+                const exportBtn = document.getElementById('exportBtn');
+                
+                fetchBtn.disabled = true;
+                fetchBtn.textContent = 'Fetching...';
+                this.showStatus('Fetching top 150 engagement tracks (this may take 1-2 minutes)...', 'info');
+
+                try {
+                    const result = await getTopEngagementTracks(30, 150);
+                    
+                    if (result.success && result.tracks && result.tracks.length > 0) {
+                        // Clear existing tracks
+                        this.tracks.clear();
+
+                        // Add tracks to map (keyed by track.name)
+                        for (const track of result.tracks) {
+                            const trackName = track.name || track.id;
+                            if (trackName) {
+                                this.tracks.set(trackName, track);
+                            }
+                        }
+
+                        this.renderTracks();
+                        this.showStatus(`✅ Fetched ${this.tracks.size} tracks successfully`, 'success');
+                        exportBtn.disabled = false;
+                    } else {
+                        this.showStatus('No tracks returned from API', 'error');
+                    }
+                } catch (error) {
+                    console.error('Fetch error:', error);
+                    this.showStatus(`Error fetching tracks: ${error.message}`, 'error');
+                } finally {
+                    fetchBtn.disabled = false;
+                    fetchBtn.textContent = 'Fetch & Cache';
+                }
+            }
+
+            renderTracks() {
+                const trackList = document.getElementById('trackList');
+                const trackCount = document.getElementById('trackCount');
+                
+                trackList.innerHTML = '';
+                trackCount.textContent = `${this.tracks.size} tracks`;
+
+                // Sort tracks by engagement score (descending)
+                const sortedTracks = Array.from(this.tracks.values())
+                    .sort((a, b) => {
+                        const scoreA = a.engagementScore || a._engagementScore || 0;
+                        const scoreB = b.engagementScore || b._engagementScore || 0;
+                        return scoreB - scoreA;
+                    });
+
+                for (const track of sortedTracks) {
+                    const trackName = track.name || track.id;
+                    const displayName = track.display_name || track.displayName || trackName;
+                    const engagementScore = track.engagementScore || track._engagementScore || 0;
+                    const bpm = track.bpm || 'N/A';
+
+                    const item = document.createElement('div');
+                    item.className = 'track-item';
+                    if (this.currentTrack && (this.currentTrack.name || this.currentTrack.id) === trackName) {
+                        item.classList.add('active');
+                    }
+
+                    item.innerHTML = `
+                        <div class="track-info">
+                            <div class="track-name">${this.escapeHtml(displayName)}</div>
+                            <div class="track-meta">
+                                <span>BPM: ${bpm}</span>
+                                <span class="engagement-badge">Score: ${engagementScore.toFixed(1)}</span>
+                            </div>
+                        </div>
+                        <div class="track-actions">
+                            <button class="btn btn-icon" data-action="play" data-track="${this.escapeHtml(trackName)}" title="Play">▶</button>
+                            <button class="btn btn-icon btn-danger" data-action="remove" data-track="${this.escapeHtml(trackName)}" title="Remove">🗑</button>
+                        </div>
+                    `;
+
+                    // Add event listeners
+                    item.querySelector('[data-action="play"]').addEventListener('click', () => this.playTrack(track));
+                    item.querySelector('[data-action="remove"]').addEventListener('click', () => this.removeTrack(trackName));
+
+                    trackList.appendChild(item);
+                }
+            }
+
+            playTrack(track) {
+                this.currentTrack = track;
+                const trackName = track.name || track.id;
+                const displayName = track.display_name || track.displayName || trackName;
+                const mp3Url = track.mp3_url || track.mp3Url;
+                const oggUrl = track.ogg_url || track.oggUrl;
+
+                if (!mp3Url && !oggUrl) {
+                    this.showStatus('Track has no audio URL', 'error');
+                    return;
+                }
+
+                // Update UI
+                document.getElementById('currentTrackName').textContent = displayName;
+                const details = [];
+                if (track.bpm) details.push(`BPM: ${track.bpm}`);
+                const engagementScore = track.engagementScore || track._engagementScore || 0;
+                details.push(`Engagement: ${engagementScore.toFixed(1)}`);
+                document.getElementById('currentTrackDetails').innerHTML = details.join(' • ');
+
+                // Load and play audio
+                this.audio.src = mp3Url || oggUrl;
+                this.audio.load();
+                this.audio.play().then(() => {
+                    this.isPlaying = true;
+                    this.updatePlayButton();
+                }).catch(error => {
+                    this.showStatus('Error playing audio: ' + error.message, 'error');
+                });
+
+                // Update active track in list
+                this.renderTracks();
+            }
+
+            togglePlayback() {
+                if (this.isPlaying) {
+                    this.audio.pause();
+                    this.isPlaying = false;
+                } else {
+                    if (this.currentTrack) {
+                        this.audio.play().then(() => {
+                            this.isPlaying = true;
+                        }).catch(error => {
+                            this.showStatus('Error playing audio: ' + error.message, 'error');
+                        });
+                    }
+                }
+                this.updatePlayButton();
+            }
+
+            updatePlayButton() {
+                const btn = document.getElementById('playPauseBtn');
+                btn.textContent = this.isPlaying ? '⏸' : '▶';
+                btn.disabled = !this.currentTrack;
+            }
+
+            seek(e) {
+                if (!this.audio.duration) return;
+
+                const scrubber = document.getElementById('scrubber');
+                const rect = scrubber.getBoundingClientRect();
+                const percent = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+                const time = percent * this.audio.duration;
+
+                this.audio.currentTime = time;
+            }
+
+            updateDuration() {
+                const totalTime = document.getElementById('totalTime');
+                totalTime.textContent = this.formatTime(this.audio.duration);
+            }
+
+            updateProgress() {
+                if (this.isSeeking) return;
+
+                const currentTime = document.getElementById('currentTime');
+                const scrubberProgress = document.getElementById('scrubberProgress');
+
+                if (this.audio.duration) {
+                    const percent = (this.audio.currentTime / this.audio.duration) * 100;
+                    scrubberProgress.style.width = percent + '%';
+                    currentTime.textContent = this.formatTime(this.audio.currentTime);
+                }
+            }
+
+            formatTime(seconds) {
+                if (!isFinite(seconds)) return '0:00';
+                const mins = Math.floor(seconds / 60);
+                const secs = Math.floor(seconds % 60);
+                return `${mins}:${secs.toString().padStart(2, '0')}`;
+            }
+
+            onTrackEnd() {
+                this.isPlaying = false;
+                this.updatePlayButton();
+            }
+
+            removeTrack(trackName) {
+                if (confirm(`Remove "${trackName}" from cache?`)) {
+                    this.tracks.delete(trackName);
+                    this.renderTracks();
+                    this.showStatus(`Removed track. Don't forget to export the updated cache!`, 'info');
+                    
+                    // If removed track was playing, stop playback
+                    if (this.currentTrack && (this.currentTrack.name || this.currentTrack.id) === trackName) {
+                        this.audio.pause();
+                        this.currentTrack = null;
+                        this.isPlaying = false;
+                        this.updatePlayButton();
+                        document.getElementById('currentTrackName').textContent = 'No track selected';
+                        document.getElementById('currentTrackDetails').innerHTML = '';
+                    }
+                }
+            }
+
+            exportCache() {
+                if (this.tracks.size === 0) {
+                    this.showStatus('No tracks to export', 'error');
+                    return;
+                }
+
+                // Generate cache file content
+                const cacheObject = {};
+                for (const [trackName, track] of this.tracks) {
+                    cacheObject[trackName] = track;
+                }
+
+                const metadata = {
+                    fetchedAt: new Date().toISOString(),
+                    totalTracks: this.tracks.size,
+                    engagementThreshold: 0.0
+                };
+
+                // Format as JS module
+                let content = `// Engagement Tracks Cache\n`;
+                content += `// Top ${this.tracks.size} tracks by engagement score, fetched on ${new Date().toLocaleString()}\n`;
+                content += `// Format: track.name -> full track object with all metadata\n\n`;
+                content += `export const ENGAGEMENT_TRACKS_CACHE = ${JSON.stringify(cacheObject, null, 2)};\n\n`;
+                content += `export const CACHE_METADATA = ${JSON.stringify(metadata, null, 2)};\n`;
+
+                // Create download
+                const blob = new Blob([content], { type: 'text/javascript' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'engagement-tracks-cache.js';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+
+                this.showStatus(`✅ Cache exported! Save to src/config/tracks-config.js (or run merge script to update unified config)`, 'success');
+            }
+
+            showStatus(message, type = 'info') {
+                const statusEl = document.getElementById('statusMessage');
+                statusEl.textContent = message;
+                statusEl.className = `status-message ${type}`;
+                
+                // Clear status after 5 seconds for info messages
+                if (type === 'info') {
+                    setTimeout(() => {
+                        if (statusEl.textContent === message) {
+                            statusEl.textContent = '';
+                            statusEl.className = 'status-message';
+                        }
+                    }, 5000);
+                }
+            }
+
+            escapeHtml(text) {
+                const div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
+            }
+        }
+
+        // Initialize manager
+        const manager = new EngagementTracksManager();
+    </script>
+</body>
+</html>
+

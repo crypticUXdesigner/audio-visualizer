@@ -1,7 +1,7 @@
 // Audio Analysis Module
 // Handles audio context, analysis, and provides structured audio data
 
-import { TempoSmoothingConfig, getTempoRelativeTimeConstant, applyTempoRelativeSmoothing } from '../config/tempo-smoothing-config.js';
+import { TempoSmoothingConfig, getTempoRelativeTimeConstant, applyTempoRelativeSmoothing } from '../../config/tempoSmoothing.js';
 
 export class AudioAnalyzer {
     constructor() {
@@ -26,6 +26,7 @@ export class AudioAnalyzer {
         this.mid = 0;
         this.treble = 0;
         this.volume = 0;
+        this.peakVolume = 0;
         
         // Volume smoothing (asymmetric: fast attack, slow release)
         // Tempo-relative attack/release (musical note values) - adapts to song BPM
@@ -226,7 +227,7 @@ export class AudioAnalyzer {
                 padding: 15px 20px;
                 border-radius: 8px;
                 z-index: 10000;
-                font-family: sans-serif;
+                font-family: 'Lexend', sans-serif;
                 font-size: 14px;
                 max-width: 500px;
                 text-align: center;
@@ -432,6 +433,9 @@ export class AudioAnalyzer {
         
         // Calculate volume (RMS from time domain)
         this.volume = this.getRMS(this.timeData);
+        
+        // Calculate peak volume (maximum absolute value from time domain)
+        this.peakVolume = this.getPeakVolume(this.timeData);
         
         // Apply tempo-relative asymmetric smoothing to volume
         const volumeConfig = TempoSmoothingConfig.volume;
@@ -767,7 +771,7 @@ export class AudioAnalyzer {
         let centerY = 0.0;
         let rippleWidth = 0.05; // Default width
         let rippleMinRadius = 0.0; // Default min radius
-        let rippleMaxRadius = 1.3; // Default max radius
+        let baseMaxRadius = 1.3; // Base max radius (will be scaled by intensity)
         let intensityMultiplier = 0.8; // Default intensity multiplier
         
         if (bandType === 'bass') {
@@ -778,16 +782,29 @@ export class AudioAnalyzer {
             const bassBaseY = -0.15; // 20% down from center
             const bassMaxY = -0.4; // 90% from top (max distance)
             centerY = bassBaseY + (bassMaxY - bassBaseY) * intensity;
-            rippleWidth = 0.2; // Reduced from 0.3 (narrower rings to prevent large bright areas)
+            rippleWidth = 0.15; // Reduced from 0.2 (narrower rings, less prominent)
             intensityMultiplier = 0.65; // Reduced from 0.75 (less bright)
+            baseMaxRadius = 0.88; // Bass base max radius (reduced for ~30% shorter lifetime)
         } else if (bandType === 'treble') {
             centerY = 0.25; // 20% up from center (10% closer than before)
             rippleWidth = 0.07; // Thinner rings
             rippleMinRadius = 0.0; // Smaller min radius
-            rippleMaxRadius = 0.5; // Smaller max radius
+            baseMaxRadius = 0.5; // Treble base max radius (smaller)
             intensityMultiplier = 0.55; // Less intensity (60% of normal)
         }
         // else: mid stays at defaults
+        
+        // Make maxRadius intensity-dependent: stronger beats create larger ripples
+        // Scale from 0.5x to 1.0x of base max radius based on intensity
+        let rippleMaxRadius = baseMaxRadius * (0.5 + intensity * 0.5);
+        
+        // Calculate dynamic lifetime based on when wave reaches maxRadius
+        // Ripple speed matches shader's default uRippleSpeed (0.3)
+        const rippleSpeed = 0.3;
+        const radiusRange = rippleMaxRadius - rippleMinRadius;
+        const timeToReachMax = radiusRange / rippleSpeed;
+        // Add small buffer to ensure fade completes (0.1 seconds)
+        const rippleLifetime = timeToReachMax + 0.1;
         
         // Add new ripple
         this.ripples.push({
@@ -797,8 +814,9 @@ export class AudioAnalyzer {
             intensity: intensity,
             width: rippleWidth, // Per-ripple width
             minRadius: rippleMinRadius, // Per-ripple min radius
-            maxRadius: rippleMaxRadius, // Per-ripple max radius
+            maxRadius: rippleMaxRadius, // Per-ripple max radius (intensity-based)
             intensityMultiplier: intensityMultiplier, // Per-ripple intensity multiplier
+            lifetime: rippleLifetime, // Per-ripple dynamic lifetime
             active: 1.0
         });
         
@@ -812,7 +830,9 @@ export class AudioAnalyzer {
     updateRipples(currentTime) {
         this.ripples = this.ripples.filter(ripple => {
             const age = (currentTime - ripple.startTime) / 1000.0; // Age in seconds
-            if (age > this.rippleLifetime) {
+            // Use per-ripple lifetime if available, otherwise fall back to class property
+            const lifetime = ripple.lifetime !== undefined ? ripple.lifetime : this.rippleLifetime;
+            if (age > lifetime) {
                 return false; // Remove expired ripple
             }
             return true; // Keep active ripple
@@ -913,6 +933,15 @@ export class AudioAnalyzer {
         return Math.sqrt(sum / data.length);
     }
     
+    getPeakVolume(data) {
+        let peak = 0;
+        for (let i = 0; i < data.length; i++) {
+            const normalized = Math.abs((data[i] - 128) / 128.0);
+            peak = Math.max(peak, normalized);
+        }
+        return peak; // Returns 0-1 range
+    }
+    
     isPlaying() {
         return this.audioElement && !this.audioElement.paused;
     }
@@ -948,6 +977,7 @@ export class AudioAnalyzer {
             mid: this.mid,
             treble: this.treble,
             volume: this.smoothedVolume,  // Use smoothed volume to reduce jittery brightness changes
+            peakVolume: this.peakVolume,  // Peak volume (maximum absolute value, 0-1 range)
             freq1: this.freq1,
             freq2: this.freq2,
             freq3: this.freq3,

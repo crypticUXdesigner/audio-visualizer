@@ -5,3 +5,14 @@
   box-sizing: border-box;
 }
 
+/* Ensure all text uses Lexend font */
+body,
+button,
+input,
+select,
+textarea,
+h1, h2, h3, h4, h5, h6,
+p, span, div, a, label {
+  font-family: var(--font-brand);
+}
+

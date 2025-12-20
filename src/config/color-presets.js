@@ -1,7 +1,7 @@
 // Color Preset Configurations
 // 10 presets evenly distributed across the hue range (360° / 10 = 36° per preset)
 
-import { hslToRgb, rgbToHex } from '../core/ColorGenerator.js';
+import { hslToRgb, rgbToHex } from '../core/color/ColorGenerator.js';
 
 const presetNames = [
     'Red', 'Orange', 'Yellow', 'Green', 'Cyan',
@@ -34,7 +34,7 @@ for (let i = 0; i < 10; i++) {
             hue: [0.0, 0.25, 1.0, 0.75]
         },
         // Threshold distribution curve - controls how feed space is allocated to colors
-        thresholdCurve: [0.3, 0.0, 1.0, 0.7]
+        thresholdCurve: [0.4, 0.0, 0.8, 1.0]
     };
 }
 

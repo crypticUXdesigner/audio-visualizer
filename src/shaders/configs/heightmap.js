@@ -1,12 +1,12 @@
-// Background FBM Shader Configuration
-// Configuration for the fBm noise pattern background shader
+// Heightmap Shader Configuration
+// Configuration for the fBm noise pattern heightmap shader
 
 export default {
-    name: 'background-fbm',
-    displayName: 'FBM Noise Background',
+    name: 'heightmap',
+    displayName: 'Heightmap',
     canvasId: 'backgroundCanvas',
     vertexPath: 'shaders/vertex.glsl',
-    fragmentPath: 'shaders/background-fragment.glsl',
+    fragmentPath: 'shaders/heightmap-fragment.glsl',
     
     // Default parameters (experiment with these)
     parameters: {

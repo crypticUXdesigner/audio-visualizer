@@ -24,7 +24,11 @@
     <!-- Favicon -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     
-    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@100;200;300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <!-- Google Fonts - Lexend -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Lexend:wght@100..900&display=swap" rel="stylesheet">
+    
     <script>
         // Check for debug mode immediately to prevent flash of buttons
         (function() {
@@ -36,6 +40,71 @@
     </script>
 </head>
 <body>
+    <!-- SVG Filters for Text Noise -->
+    <svg style="position: absolute; width: 0; height: 0; visibility: hidden;">
+      <defs>
+        <filter id="textNoise" x="0%" y="0%" width="100%" height="100%" colorInterpolationFilters="sRGB">
+          <feTurbulence 
+            id="noiseTurbulence"
+            type="fractalNoise" 
+            baseFrequency="0.02" 
+            numOctaves="3" 
+            seed="0"
+            result="noise">
+          </feTurbulence>
+          
+          <!-- Convert noise to grayscale -->
+          <feColorMatrix 
+            in="noise" 
+            type="saturate" 
+            values="0" 
+            result="noiseBW"/>
+          
+          <!-- Smoothstep-like remapping: bias toward more blacks -->
+          <feComponentTransfer in="noiseBW" result="noiseRemapped">
+            <!-- Gamma < 1.0 creates curve that favors darker values (more blacks) -->
+            <feFuncR type="gamma" amplitude="1" exponent="0.4" offset="0"/>
+            <feFuncG type="gamma" amplitude="1" exponent="0.4" offset="0"/>
+            <feFuncB type="gamma" amplitude="1" exponent="0.4" offset="0"/>
+            <feFuncA type="gamma" amplitude="1" exponent="0.4" offset="0"/>
+          </feComponentTransfer>
+          
+          <!-- Extract alpha channel from source to use as mask -->
+          <feColorMatrix 
+            in="SourceGraphic" 
+            type="matrix"
+            values="0 0 0 0 0
+                    0 0 0 0 0
+                    0 0 0 0 0
+                    0 0 0 1 0"
+            result="sourceAlpha"/>
+          
+          <!-- Extract RGB from source (preserve color, remove alpha) -->
+          <feColorMatrix 
+            in="SourceGraphic" 
+            type="matrix"
+            values="1 0 0 0 0
+                    0 1 0 0 0
+                    0 0 1 0 0
+                    0 0 0 0 1"
+            result="sourceRGB"/>
+          
+          <!-- Apply noise only where text exists (using source alpha as mask) -->
+          <feComposite 
+            in="noiseRemapped" 
+            in2="sourceAlpha" 
+            operator="in" 
+            result="maskedNoise"/>
+          
+          <!-- Composite: use noise to control alpha/opacity (noise becomes alpha channel) -->
+          <feComposite 
+            in="sourceRGB" 
+            in2="maskedNoise" 
+            operator="in"/>
+        </filter>
+      </defs>
+    </svg>
+    
     <!-- Loading Spinner -->
     <div id="appLoader" class="app-loader">
         <svg class="loader" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -50,6 +119,11 @@
     
     <!-- Frequency Band Visualizer -->
     <canvas id="frequencyCanvas"></canvas>
+    
+    <!-- Track Title Display -->
+    <div id="trackTitleDisplay" class="track-title-display" aria-hidden="true">
+        <span class="track-title-text"></span>
+    </div>
     
     <!-- Audio Controls -->
     <div id="audioControls">
@@ -66,11 +140,15 @@
                     <path fill="currentColor" d="M20 14c-.092.064-2 2.083-2 3.5c0 1.494.949 2.448 2 2.5c.906.044 2-.891 2-2.5c0-1.5-1.908-3.436-2-3.5M9.586 20c.378.378.88.586 1.414.586s1.036-.208 1.414-.586l7-7l-.707-.707L11 4.586L8.707 2.293L7.293 3.707L9.586 6L4 11.586c-.378.378-.586.88-.586 1.414s.208 1.036.586 1.414zM11 7.414L16.586 13H5.414z"/>
                 </svg>
             </button>
-            <div id="colorPresetMenu" class="top-control-menu">
-                <div id="presetButtons" class="preset-buttons">
-                    <!-- Will be populated by JavaScript -->
-                </div>
-            </div>
+        </div>
+        
+        <!-- Shader Switcher Button -->
+        <div class="top-control-item">
+            <button id="shaderSwitcherBtn" class="top-control-btn" title="Switch Shader">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24">
+                    <path fill="currentColor" d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+                </svg>
+            </button>
         </div>
         
         <!-- Frequency Visualizer Button -->
@@ -108,24 +186,26 @@
     <!-- Track Selection Menu (outside controls for independent visibility) -->
     <div id="trackDropdownMenu" class="track-dropdown-menu">
         <!-- Search Input -->
-        <div class="track-search-container">
-            <svg class="search-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="11" cy="11" r="8"></circle>
-                <path d="m21 21-4.35-4.35"></path>
-            </svg>
-            <input 
-                type="text" 
-                id="trackSearchInput" 
-                class="track-search-input" 
-                placeholder="Search tracks..."
-                autocomplete="off"
-            />
-            <button id="trackSearchClear" class="track-search-clear" style="display: none;">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <line x1="18" y1="6" x2="6" y2="18"></line>
-                    <line x1="6" y1="6" x2="18" y2="18"></line>
+        <div class="track-search-wrapper">
+            <div class="track-search-container">
+                <svg class="search-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="11" cy="11" r="8"></circle>
+                    <path d="m21 21-4.35-4.35"></path>
                 </svg>
-            </button>
+                <input 
+                    type="text" 
+                    id="trackSearchInput" 
+                    class="track-search-input" 
+                    placeholder="Search tracks..."
+                    autocomplete="off"
+                />
+                <button id="trackSearchClear" class="track-search-clear" style="display: none;">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
         </div>
         <!-- Track List -->
         <div id="trackList" class="track-list">
@@ -137,23 +217,37 @@
         </div>
     </div>
     
+    <!-- Color Preset Menu (outside controls for independent visibility) -->
+    <div id="colorPresetMenu" class="top-control-menu">
+        <div id="presetButtons" class="preset-buttons">
+            <!-- Will be populated by JavaScript -->
+        </div>
+    </div>
+    
+    <!-- Shader Switcher Menu (outside controls for independent visibility) -->
+    <div id="shaderSwitcherMenu" class="top-control-menu">
+        <div id="shaderButtons" class="shader-buttons">
+            <!-- Will be populated by JavaScript -->
+        </div>
+    </div>
+    
     <!-- Audio Controls Container -->
     <div class="audio-controls-container ui-hidden">
-        <!-- Track Selection Button -->
-        <div id="trackDropdown" class="track-dropdown">
-            <button id="trackDropdownBtn" class="track-dropdown-btn">
-                <span id="trackDropdownText">Select Track</span>
-                <svg class="track-loading-spinner" width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" style="display: none;">
-                    <circle cx="7" cy="7" r="5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="8 20" opacity="0.7"/>
-                </svg>
-                <svg class="dropdown-arrow" width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M4 6L8 10L12 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
-            </button>
-        </div>
-        
-        <!-- Scrubber -->
+        <!-- Scrubber Container (now includes track selection button) -->
         <div class="scrubber-container">
+            <!-- Track Selection Button -->
+            <div id="trackDropdown" class="track-dropdown">
+                <button id="trackDropdownBtn" class="track-dropdown-btn">
+                    <span id="trackDropdownText">Select Track</span>
+                    <svg class="track-loading-spinner" width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" style="display: none;">
+                        <circle cx="7" cy="7" r="5.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="8 20" opacity="0.7"/>
+                    </svg>
+                    <svg class="dropdown-arrow" width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M4 6L8 10L12 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </button>
+            </div>
+            
             <div class="time-display" style="display: none;">
                 <span id="currentTime">0:00</span>
                 <span id="totalTime">0:00</span>
@@ -176,7 +270,7 @@
                     <path d="M22 12 6 1v22l16-11Z"/>
                 </svg>
                 <svg class="pause-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 24 24" style="display: none;">
-                    <path d="M11 22H4V2h7v20Zm9 0h-7V2h7v20Z"/>
+                    <path d="M10 22H4V2h6v20Zm10 0h-6V2h6v20Z"/>
                 </svg>
             </button>
             

@@ -1,9 +1,9 @@
 // ShaderInstance - Manages a single shader instance
 // Handles WebGL context, program, uniforms, and rendering for one shader
 
-import { loadShader, createProgram, createQuad } from '../core/WebGLUtils.js';
-import Sentry, { safeSentryMetric, isSentryAvailable, safeSetContext, safeAddBreadcrumb } from '../core/SentryInit.js';
-import { TempoSmoothingConfig, getTempoRelativeTimeConstant, applyTempoRelativeSmoothing } from '../config/tempo-smoothing-config.js';
+import { loadShader, createProgram, createQuad } from '../core/shader/ShaderUtils.js';
+import Sentry, { safeSentryMetric, isSentryAvailable, safeSetContext, safeAddBreadcrumb } from '../core/monitoring/SentryInit.js';
+import { TempoSmoothingConfig, getTempoRelativeTimeConstant, applyTempoRelativeSmoothing } from '../config/tempoSmoothing.js';
 
 export class ShaderInstance {
     constructor(canvasId, config) {
@@ -69,9 +69,6 @@ export class ShaderInstance {
         this.pixelSizeRateLimit = 4; // Max 4 triggers in 500ms window
         this.pixelSizeCooldownUntil = 0; // Timestamp when cooldown ends
         this.pixelSizeCooldownDuration = 500; // 500ms cooldown after hitting rate limit
-        
-        // Title texture
-        this.titleTexture = null;
         
         // Performance monitoring and adaptive quality
         this.frameTimes = [];
@@ -357,6 +354,16 @@ export class ShaderInstance {
             uDitherStrength: gl.getUniformLocation(program, 'uDitherStrength'),
             uTransitionWidth: gl.getUniformLocation(program, 'uTransitionWidth'),
             
+            // Dots shader uniforms
+            uDotSpacing: gl.getUniformLocation(program, 'uDotSpacing'),
+            uDotSize: gl.getUniformLocation(program, 'uDotSize'),
+            uPulsationStrength: gl.getUniformLocation(program, 'uPulsationStrength'),
+            uRippleDistortionStrength: gl.getUniformLocation(program, 'uRippleDistortionStrength'),
+            uEnableCenterPositionOffset: gl.getUniformLocation(program, 'uEnableCenterPositionOffset'),
+            uEnableUVOffset: gl.getUniformLocation(program, 'uEnableUVOffset'),
+            uMovementStrength: gl.getUniformLocation(program, 'uMovementStrength'),
+            uUVOffsetStrength: gl.getUniformLocation(program, 'uUVOffsetStrength'),
+            
             // Colors
             uColor: gl.getUniformLocation(program, 'uColor'),
             uColor2: gl.getUniformLocation(program, 'uColor2'),
@@ -432,14 +439,6 @@ export class ShaderInstance {
             uRippleActive: gl.getUniformLocation(program, 'uRippleActive'),
             uRippleCount: gl.getUniformLocation(program, 'uRippleCount'),
             
-            // Title texture
-            uTitleTexture: gl.getUniformLocation(program, 'uTitleTexture'),
-            uTitleTextureSize: gl.getUniformLocation(program, 'uTitleTextureSize'),
-            uTitleScale: gl.getUniformLocation(program, 'uTitleScale'),
-            uTitleScaleBottomLeft: gl.getUniformLocation(program, 'uTitleScaleBottomLeft'),
-            uPlaybackProgress: gl.getUniformLocation(program, 'uPlaybackProgress'),
-            uTitlePositionOffset: gl.getUniformLocation(program, 'uTitlePositionOffset'),
-            
             // Threshold uniforms (calculated from thresholdCurve bezier)
             uThreshold1: gl.getUniformLocation(program, 'uThreshold1'),
             uThreshold2: gl.getUniformLocation(program, 'uThreshold2'),
@@ -497,12 +496,6 @@ export class ShaderInstance {
             this.gl.uniform2f(this.uniformLocations.uResolution, this.canvas.width, this.canvas.height);
         }
         
-        // Resize title texture to match canvas (async, but don't wait)
-        if (this.titleTexture && typeof this.titleTexture.resize === 'function') {
-            this.titleTexture.resize(this.canvas.width, this.canvas.height).catch(err => {
-                console.warn('TitleTexture resize error:', err);
-            });
-        }
     }
     
     setParameter(name, value) {
@@ -520,11 +513,6 @@ export class ShaderInstance {
     getAllParameters() {
         return { ...this.parameters };
     }
-    
-    setTitleTexture(titleTexture) {
-        this.titleTexture = titleTexture;
-    }
-    
     render(audioData = null, colors = null) {
         if (!this.isInitialized || !this.gl || !this.program) return;
         
@@ -726,6 +714,72 @@ export class ShaderInstance {
             if (this.uniformLocations.uTransitionWidth) {
                 gl.uniform1f(this.uniformLocations.uTransitionWidth, transitionWidthValue);
                 this._lastUniformValues.uTransitionWidth = transitionWidthValue;
+            }
+        }
+        
+        // Dots shader parameters - only update if changed
+        if (this.uniformLocations.uDotSpacing) {
+            const dotSpacing = this.parameters.dotSpacing !== undefined ? this.parameters.dotSpacing : 15.0;
+            if (this._lastUniformValues.uDotSpacing !== dotSpacing) {
+                gl.uniform1f(this.uniformLocations.uDotSpacing, dotSpacing);
+                this._lastUniformValues.uDotSpacing = dotSpacing;
+            }
+        }
+        
+        if (this.uniformLocations.uDotSize) {
+            const dotSize = this.parameters.dotSize !== undefined ? this.parameters.dotSize : 0.4;
+            if (this._lastUniformValues.uDotSize !== dotSize) {
+                gl.uniform1f(this.uniformLocations.uDotSize, dotSize);
+                this._lastUniformValues.uDotSize = dotSize;
+            }
+        }
+        
+        if (this.uniformLocations.uPulsationStrength) {
+            const pulsationStrength = this.parameters.pulsationStrength !== undefined ? this.parameters.pulsationStrength : 0.15;
+            if (this._lastUniformValues.uPulsationStrength !== pulsationStrength) {
+                gl.uniform1f(this.uniformLocations.uPulsationStrength, pulsationStrength);
+                this._lastUniformValues.uPulsationStrength = pulsationStrength;
+            }
+        }
+        
+        if (this.uniformLocations.uRippleDistortionStrength) {
+            const rippleDistortionStrength = this.parameters.rippleDistortionStrength !== undefined ? this.parameters.rippleDistortionStrength : 0.3;
+            if (this._lastUniformValues.uRippleDistortionStrength !== rippleDistortionStrength) {
+                gl.uniform1f(this.uniformLocations.uRippleDistortionStrength, rippleDistortionStrength);
+                this._lastUniformValues.uRippleDistortionStrength = rippleDistortionStrength;
+            }
+        }
+        
+        // Dot movement control uniforms
+        if (this.uniformLocations.uEnableCenterPositionOffset) {
+            const enableCenterOffset = this.parameters.enableCenterPositionOffset !== undefined ? this.parameters.enableCenterPositionOffset : 1.0;
+            if (this._lastUniformValues.uEnableCenterPositionOffset !== enableCenterOffset) {
+                gl.uniform1f(this.uniformLocations.uEnableCenterPositionOffset, enableCenterOffset);
+                this._lastUniformValues.uEnableCenterPositionOffset = enableCenterOffset;
+            }
+        }
+        
+        if (this.uniformLocations.uEnableUVOffset) {
+            const enableUVOffset = this.parameters.enableUVOffset !== undefined ? this.parameters.enableUVOffset : 0.0;
+            if (this._lastUniformValues.uEnableUVOffset !== enableUVOffset) {
+                gl.uniform1f(this.uniformLocations.uEnableUVOffset, enableUVOffset);
+                this._lastUniformValues.uEnableUVOffset = enableUVOffset;
+            }
+        }
+        
+        if (this.uniformLocations.uMovementStrength) {
+            const movementStrength = this.parameters.movementStrength !== undefined ? this.parameters.movementStrength : 1.3;
+            if (this._lastUniformValues.uMovementStrength !== movementStrength) {
+                gl.uniform1f(this.uniformLocations.uMovementStrength, movementStrength);
+                this._lastUniformValues.uMovementStrength = movementStrength;
+            }
+        }
+        
+        if (this.uniformLocations.uUVOffsetStrength) {
+            const uvOffsetStrength = this.parameters.uvOffsetStrength !== undefined ? this.parameters.uvOffsetStrength : 1.0;
+            if (this._lastUniformValues.uUVOffsetStrength !== uvOffsetStrength) {
+                gl.uniform1f(this.uniformLocations.uUVOffsetStrength, uvOffsetStrength);
+                this._lastUniformValues.uUVOffsetStrength = uvOffsetStrength;
             }
         }
         
@@ -979,158 +1033,6 @@ export class ShaderInstance {
                 }
             });
         }
-        
-        // Set title texture if available
-        if (this.titleTexture && this.uniformLocations.uTitleTexture) {
-            const textureUnit = this.titleTexture.bindTexture(0);
-            // Texture unit rarely changes, but check anyway
-            if (this._lastUniformValues.uTitleTexture !== textureUnit) {
-                gl.uniform1i(this.uniformLocations.uTitleTexture, textureUnit);
-                this._lastUniformValues.uTitleTexture = textureUnit;
-            }
-            
-            if (this.uniformLocations.uTitleTextureSize) {
-                const size = this.titleTexture.getSize();
-                const sizeArray = [size.width, size.height];
-                const lastSize = this._lastUniformValues.uTitleTextureSize;
-                if (!lastSize || lastSize[0] !== sizeArray[0] || lastSize[1] !== sizeArray[1]) {
-                    gl.uniform2f(
-                        this.uniformLocations.uTitleTextureSize,
-                        sizeArray[0],
-                        sizeArray[1]
-                    );
-                    this._lastUniformValues.uTitleTextureSize = sizeArray;
-                }
-            }
-            
-            // Set title scale (1.5 = 50% larger, 2.0 = 2x larger, etc.)
-            const titleScale = 1.5; // Default scale: 1.5x larger
-            if (this.uniformLocations.uTitleScale !== null && this.uniformLocations.uTitleScale !== undefined) {
-                if (this._lastUniformValues.uTitleScale !== titleScale) {
-                    gl.uniform1f(this.uniformLocations.uTitleScale, titleScale);
-                    this._lastUniformValues.uTitleScale = titleScale;
-                }
-            }
-            
-            // Set playback progress (0.0 = start, 1.0 = end) - changes every frame, but optimize check
-            if (this.uniformLocations.uPlaybackProgress !== null && this.uniformLocations.uPlaybackProgress !== undefined) {
-                const playbackProgress = audioData && audioData.playbackProgress !== undefined 
-                    ? audioData.playbackProgress 
-                    : 0.0;
-                if (this._lastUniformValues.uPlaybackProgress !== playbackProgress) {
-                    gl.uniform1f(this.uniformLocations.uPlaybackProgress, playbackProgress);
-                    this._lastUniformValues.uPlaybackProgress = playbackProgress;
-                }
-            }
-            
-            // Set title position offset and scale based on playback sequence
-            if (this.uniformLocations.uTitlePositionOffset !== null && this.uniformLocations.uTitlePositionOffset !== undefined) {
-                const playbackProgress = audioData && audioData.playbackProgress !== undefined 
-                    ? audioData.playbackProgress 
-                    : 0.0;
-                
-                // Sequence phases:
-                // Phase 1: 0-5% - Beginning: middle left with padding
-                // Phase 2: 5-8% - Transition: move position and scale (text hidden)
-                // Phase 3: 8%-95% - Bottom left with padding
-                // Phase 4: 95-100% - End: can show again if needed
-                
-                const phase1End = 0.03;      // End of beginning phase (5%)
-                const phase2Start = 0.05;    // Start of transition (5%)
-                const phase2End = 0.08;      // End of transition (8%)
-                const phase3Start = 0.08;    // Start of bottom left phase (8%)
-                const phase3End = 0.95;      // End of bottom left phase (95%)
-                
-                // Padding values (as fraction of screen: 0.0 = edge, 0.05 = 5% from edge)
-                const leftPadding = 0.01;      // 5% padding from left edge
-                const bottomPadding = 0.01;    // 5% padding from bottom edge
-                
-                // Target screen position (0-1 normalized)
-                // x: 0.0 = left edge, 0.5 = center, 1.0 = right edge
-                // y: 0.0 = top edge, 0.5 = center, 1.0 = bottom edge
-                let targetX = 0.0;
-                let targetY = 0.0;
-                let scale = 1.0;    // Default scale for center
-                let bottomLeftScale = 0.6; // Smaller scale for bottom left
-                
-                // Determine vertical position in texture and font size based on phase
-                let verticalPositionInTexture = 0.5; // Default to center
-                let fontSize = '12vh'; // Default font size for intro
-                
-                if (playbackProgress < phase2Start) {
-                    // Phase 1: Middle left with padding
-                    targetX = leftPadding;        // Left edge + padding
-                    targetY = 0.5;                 // Middle vertically (0.5 = center)
-                    scale = 1.0;
-                    verticalPositionInTexture = 0.5; // Render at center of texture
-                    fontSize = '12vh'; // Large font for intro
-                } else {
-                    // Phase 2+: Transition to bottom left (text may be hidden during transition)
-                    // Phase 3+: Bottom left with padding
-                    targetX = leftPadding;        // Left edge + padding
-                    targetY = 1.0 - bottomPadding; // Bottom edge - padding
-                    scale = 1.0; // No scaling needed since we change font size
-                    verticalPositionInTexture = 1.0 - bottomPadding; // Render at bottom of texture
-                    fontSize = '8vh'; // Smaller font for bottom left (60% of intro size)
-                }
-                
-                // Update texture rendering position and font size (async, but don't wait)
-                if (this.titleTexture) {
-                    // Force update by ensuring needsUpdate is set
-                    this.titleTexture.needsUpdate = true;
-                    
-                    // Update font size if method exists
-                    if (typeof this.titleTexture.setFontSize === 'function') {
-                        this.titleTexture.setFontSize(fontSize).catch(err => {
-                            console.warn('TitleTexture setFontSize error:', err);
-                        });
-                    }
-                    
-                    // Update vertical position if method exists
-                    if (typeof this.titleTexture.setVerticalPosition === 'function') {
-                        this.titleTexture.setVerticalPosition(verticalPositionInTexture).catch(err => {
-                            console.warn('TitleTexture setVerticalPosition error:', err);
-                        });
-                    }
-                }
-                
-                // Pass target screen position (0-1) to shader (only update if changed)
-                const positionOffset = [targetX, targetY];
-                const lastPositionOffset = this._lastUniformValues.uTitlePositionOffset;
-                if (!lastPositionOffset || lastPositionOffset[0] !== positionOffset[0] || lastPositionOffset[1] !== positionOffset[1]) {
-                    gl.uniform2f(this.uniformLocations.uTitlePositionOffset, positionOffset[0], positionOffset[1]);
-                    this._lastUniformValues.uTitlePositionOffset = positionOffset;
-                }
-                
-                // Set scale (now always 1.0 since we use font size instead)
-                if (this.uniformLocations.uTitleScaleBottomLeft !== null && this.uniformLocations.uTitleScaleBottomLeft !== undefined) {
-                    if (this._lastUniformValues.uTitleScaleBottomLeft !== scale) {
-                        gl.uniform1f(this.uniformLocations.uTitleScaleBottomLeft, scale);
-                        this._lastUniformValues.uTitleScaleBottomLeft = scale;
-                    }
-                }
-            }
-        } else if (this.uniformLocations.uTitleTextureSize) {
-            // Set size to 0,0 if no texture to disable sampling (only update if changed)
-            const zeroSize = [0.0, 0.0];
-            const lastSize = this._lastUniformValues.uTitleTextureSize;
-            if (!lastSize || lastSize[0] !== zeroSize[0] || lastSize[1] !== zeroSize[1]) {
-                gl.uniform2f(this.uniformLocations.uTitleTextureSize, zeroSize[0], zeroSize[1]);
-                this._lastUniformValues.uTitleTextureSize = zeroSize;
-            }
-        }
-        
-        // Always set playback progress even if no texture (for consistency)
-        if (this.uniformLocations.uPlaybackProgress !== null && this.uniformLocations.uPlaybackProgress !== undefined) {
-            const playbackProgress = audioData && audioData.playbackProgress !== undefined 
-                ? audioData.playbackProgress 
-                : 0.0;
-            if (this._lastUniformValues.uPlaybackProgress !== playbackProgress) {
-                gl.uniform1f(this.uniformLocations.uPlaybackProgress, playbackProgress);
-                this._lastUniformValues.uPlaybackProgress = playbackProgress;
-            }
-        }
-        
         // Setup quad
         gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer);
         const positionLocation = this.uniformLocations.a_position;
