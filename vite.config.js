@@ -12,14 +12,15 @@ const copyShadersPlugin = () => {
       
       if (existsSync(shadersDir)) {
         mkdirSync(distShadersDir, { recursive: true });
-        const files = ['vertex.glsl', 'heightmap-fragment.glsl', 'dots-fragment.glsl'];
+        // Copy all .glsl files from source directory
+        const files = readdirSync(shadersDir).filter(file => 
+          file.endsWith('.glsl') && statSync(join(shadersDir, file)).isFile()
+        );
         files.forEach(file => {
           const src = join(shadersDir, file);
           const dest = join(distShadersDir, file);
-          if (existsSync(src)) {
-            copyFileSync(src, dest);
-            console.log(`Copied ${src} to ${dest}`);
-          }
+          copyFileSync(src, dest);
+          console.log(`Copied ${src} to ${dest}`);
         });
       }
     }
