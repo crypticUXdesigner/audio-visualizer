@@ -722,38 +722,85 @@ void main() {
     // Ripple boost adds to movement intensity (can exceed 1.0 for extra movement)
     float movementIntensity = baseMovementIntensity + rippleMovementBoost;
     
-    // Per-dot variation using cell ID for unique movement patterns
-    float cellHash = hash11(dot(cellId, vec2(12.9898, 78.233)));
-    float perDotPhase = cellHash * 6.28318; // 0 to 2π
+    // ===== SWARM MOVEMENT SYSTEM =====
+    // Individual dots with subtle spatial coherence (like a swarm of particles)
     
-    // Spring oscillation parameters
-    float springFreq1 = 6.0 + cellHash * 4.0;  // Vary frequency per dot (6-10 Hz)
-    float springFreq2 = 11.0 + cellHash * 5.0; // Secondary frequency (11-16 Hz)
-    
-    // Time-based oscillation - use periodic damping instead of exponential decay
     float t = (uTime + uTimeOffset) * 2.0; // Faster time for more visible movement
-    float tWithPhase = t + perDotPhase; // Add per-dot phase offset
     
-    // Periodic damping - creates spring-like oscillation that doesn't fade out
-    // Use envelope modulation instead of exponential decay
-    float envelope = 0.5 + 0.5 * sin(t * 0.3 + perDotPhase); // Slow envelope modulation
-    float damping = 0.6 + 0.4 * envelope; // Vary between 0.6-1.0
+    // 1. PER-DOT BASE VARIATION (individuality)
+    // Each dot gets unique hash for base characteristics
+    float cellHash = hash11(dot(cellId, vec2(12.9898, 78.233)));
+    float basePhase = cellHash * 6.28318; // 0 to 2π
     
-    // Multi-frequency oscillation for spring-like behavior
+    // 2. SPATIAL PHASE GRADIENTS (subtle coherence)
+    // Sample noise at dot position to create smooth phase gradients across space
+    // Nearby dots get similar but not identical phase offsets
+    vec3 phaseFieldPos = vec3(baseDotWorldPos * 0.3, t * 0.2);
+    float phaseField1 = vnoise(phaseFieldPos) * 2.0; // -2π to 2π range
+    float phaseField2 = vnoise(phaseFieldPos + vec3(100.0, 0.0, 0.0)) * 1.5;
+    
+    // Combine base phase with spatial gradient (spatial adds ~30% variation)
+    float perDotPhase = basePhase + (phaseField1 + phaseField2) * 0.3;
+    
+    // 3. SPATIAL FREQUENCY GRADIENTS (varying speeds across space)
+    // Dots in different regions move at slightly different speeds
+    vec3 freqFieldPos = vec3(baseDotWorldPos * 0.25, t * 0.15);
+    float freqVariation = vnoise(freqFieldPos) * 0.4; // ±0.4 frequency variation
+    
+    // Per-dot base frequencies with spatial variation
+    float baseFreq1 = 6.0 + cellHash * 4.0;  // 6-10 Hz base
+    float baseFreq2 = 11.0 + cellHash * 5.0; // 11-16 Hz base
+    float springFreq1 = baseFreq1 + freqVariation;
+    float springFreq2 = baseFreq2 + freqVariation * 1.3;
+    
+    // 4. SPATIAL DIRECTION GRADIENTS (smooth direction changes)
+    // Create smooth direction field so nearby dots move in similar but not identical directions
+    vec3 dirFieldPos = vec3(baseDotWorldPos * 0.35, t * 0.25);
+    float dirFieldX = vnoise(dirFieldPos);
+    float dirFieldY = vnoise(dirFieldPos + vec3(0.0, 0.0, 50.0));
+    
+    // Base direction from per-dot phase, modified by spatial field
+    vec2 baseDirection = vec2(cos(perDotPhase), sin(perDotPhase));
+    vec2 spatialDirection = normalize(vec2(dirFieldX, dirFieldY));
+    
+    // Blend: 70% per-dot direction, 30% spatial influence (creates coherence without uniformity)
+    vec2 offsetDirection = normalize(mix(baseDirection, spatialDirection, 0.3));
+    
+    // 5. MULTI-SCALE NOISE FOR COMPLEX PATTERNS
+    // Multiple overlapping noise fields create rich, varied movement
+    vec3 multiScalePos1 = vec3(baseDotWorldPos * 0.5, t * 0.3);
+    vec3 multiScalePos2 = vec3(baseDotWorldPos * 0.2, t * 0.4);
+    vec3 multiScalePos3 = vec3(baseDotWorldPos * 0.8, t * 0.2);
+    
+    float multiScale1 = vnoise(multiScalePos1) * 0.15;
+    float multiScale2 = vnoise(multiScalePos2) * 0.10;
+    float multiScale3 = vnoise(multiScalePos3) * 0.08;
+    
+    // 6. STAGGERED OSCILLATION
+    // Time with per-dot phase creates natural staggering
+    float tWithPhase = t + perDotPhase;
+    
+    // Periodic damping with spatial variation
+    float envelopePhase = perDotPhase + phaseField1 * 0.5;
+    float envelope = 0.5 + 0.5 * sin(t * 0.3 + envelopePhase);
+    float damping = 0.6 + 0.4 * envelope;
+    
+    // Multi-frequency oscillation with spatial frequency variation
     float oscillation1 = sin(tWithPhase * springFreq1) * damping;
     float oscillation2 = cos(tWithPhase * springFreq2 * 1.3) * damping * 0.7;
-    float oscillation3 = sin(tWithPhase * springFreq1 * 2.1 + 1.5) * damping * 0.4; // Higher harmonic
+    float oscillation3 = sin(tWithPhase * springFreq1 * 2.1 + 1.5) * damping * 0.4;
     
-    // Combined vibration (multiple frequencies create spring-like behavior)
+    // Combined vibration with multi-scale noise
     float vibration = (oscillation1 + oscillation2 + oscillation3) * movementIntensity;
+    vibration += (multiScale1 + multiScale2 + multiScale3) * movementIntensity;
     
-    // Calculate offset direction for movement
-    // Use a direction based on cell ID for consistent per-dot movement
-    vec2 offsetDirection = vec2(cos(perDotPhase), sin(perDotPhase));
-    
-    // Calculate the offset vector (used for both center position and UV sampling)
-    float movementStrength = uMovementStrength > 0.0 ? uMovementStrength : 1.3; // Default to 1.3 if not set
+    // 7. FINAL MOVEMENT VECTOR
+    // Direction from blended sources, magnitude from staggered oscillation
+    float movementStrength = uMovementStrength > 0.0 ? uMovementStrength : 1.3;
     vec2 movementOffset = offsetDirection * vibration * gridSpacing * movementStrength;
+    
+    // Calculate vibration magnitude for rotation
+    float vibrationMagnitude = abs(vibration);
     
     // Apply center position offset if enabled
     // This moves the dot's center position in world space
@@ -769,7 +816,7 @@ void main() {
     vec2 centerOffsetInCell = (movementOffset * enableCenterOffset) / gridSpacing;
     
     // Rotation component - dots rotate around their center
-    float rotationAngle = vibration * 0.5; // Increased rotation amount
+    float rotationAngle = vibrationMagnitude * 0.5; // Increased rotation amount
     
     // Apply rotation to cellUV (rotate around center) if UV offset is enabled
     float enableUVOffset = uEnableUVOffset > 0.5 ? 1.0 : 0.0;
@@ -783,13 +830,28 @@ void main() {
         );
     }
     
-    // Add center position offset to cellUV (moves the center point within the cell)
-    vec2 offsetCellUV = rotatedCellUV - centerOffsetInCell;
+    // Apply center position offset to cellUV (moves the center point within the cell)
+    // This is independent of UV offset - both can be active simultaneously
+    // Center offset moves the dot's position, so we subtract it from the cell coordinates
+    vec2 offsetCellUV = rotatedCellUV;
+    if (enableCenterOffset > 0.5) {
+        offsetCellUV = rotatedCellUV - centerOffsetInCell;
+    }
     
     // Add vibration offset to UV sampling if enabled
-    // This shifts the sampling point within the cell
+    // This shifts the sampling point within the cell independently of center offset
+    // UV offset shifts what part of the pattern is sampled, so we add it to the coordinates
+    // Both effects work together: center offset moves the dot, UV offset shifts the sampling
     float uvOffsetStrength = uUVOffsetStrength > 0.0 ? uUVOffsetStrength : 1.0; // Default to 1.0 if not set
-    vec2 uvOffset = (movementOffset / gridSpacing) * enableUVOffset * uvOffsetStrength;
+    // Create independent UV offset - use perpendicular direction to movement
+    // When both are enabled, center offset moves the dot position and UV offset shifts the sampling
+    // Using a perpendicular direction ensures both effects are visible and don't cancel
+    vec2 uvOffsetDirection = vec2(-offsetDirection.y, offsetDirection.x); // Perpendicular (90° phase offset)
+    vec2 uvMovementOffset = uvOffsetDirection * vibrationMagnitude * gridSpacing * movementStrength;
+    vec2 uvOffset = (uvMovementOffset / gridSpacing) * enableUVOffset * uvOffsetStrength;
+    // Combine both effects: center offset moves position, UV offset shifts sampling
+    // Both are applied independently - center offset affects dot position, UV offset affects sampling
+    // Using perpendicular directions ensures both effects are visible when enabled simultaneously
     vec2 modulatedCellUV = offsetCellUV + uvOffset;
     
     // Get frequency value for pulsation (still based on vertical position)

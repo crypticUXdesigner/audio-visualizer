@@ -52,7 +52,7 @@ export default {
         },
         enableUVOffset: {
             type: 'float',
-            default: 0.0,  // Disabled by default for testing
+            default: 1.0,  // Disabled by default for testing
             min: 0.0,
             max: 1.0,
             step: 1.0,  // Binary: 0 or 1
@@ -68,7 +68,7 @@ export default {
         },
         uvOffsetStrength: {
             type: 'float',
-            default: 1.0,  // Multiplier for UV sampling offset
+            default: 2.0,  // Multiplier for UV sampling offset
             min: 0.0,
             max: 3.0,
             step: 0.1,
