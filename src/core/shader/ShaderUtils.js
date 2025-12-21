@@ -88,6 +88,61 @@ export function compileShader(gl, source, type) {
 }
 
 /**
+ * Processes #include directives in shader source
+ * Recursively loads and inlines included files
+ * @param {string} source - Shader source code with #include directives
+ * @param {number} retries - Number of retry attempts for loading includes
+ * @param {Set<string>} included - Set of already included files (prevents circular includes)
+ * @param {string} basePath - Base path of the current shader file (for relative includes)
+ * @returns {Promise<string>} Shader source with includes inlined
+ */
+export async function processIncludes(source, retries = 3, included = new Set(), basePath = '') {
+    const includeRegex = /#include\s+"([^"]+)"/g;
+    let match;
+    const includes = new Map();
+    
+    // Find all includes
+    while ((match = includeRegex.exec(source)) !== null) {
+        let includePath = match[1];
+        
+        // If include path is relative and we have a base path, resolve it
+        if (!includePath.startsWith('/') && !includePath.startsWith('shaders/') && basePath) {
+            // Relative path: resolve relative to base path
+            const baseDir = basePath.substring(0, basePath.lastIndexOf('/') + 1);
+            includePath = baseDir + includePath;
+        } else if (!includePath.startsWith('/') && !includePath.startsWith('shaders/')) {
+            // Relative path without base: assume it's relative to shaders/
+            includePath = 'shaders/' + includePath;
+        }
+        
+        if (!included.has(includePath)) {
+            includes.set(includePath, match[0]);
+        }
+    }
+    
+    // Load and replace includes
+    for (const [includePath, includeDirective] of includes) {
+        if (included.has(includePath)) {
+            // Skip circular includes
+            source = source.replace(includeDirective, '');
+            continue;
+        }
+        
+        included.add(includePath);
+        const includeSource = await loadShader(includePath, retries);
+        
+        // Recursively process includes in the included file
+        const processedInclude = await processIncludes(includeSource, retries, included, includePath);
+        
+        // Replace the include directive with the processed source
+        const escapedDirective = includeDirective.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        source = source.replace(new RegExp(escapedDirective, 'g'), processedInclude);
+    }
+    
+    return source;
+}
+
+/**
  * Creates a WebGL program from vertex and fragment shader sources
  * @param {WebGLRenderingContext} gl - WebGL context
  * @param {string} vertexSource - Vertex shader source

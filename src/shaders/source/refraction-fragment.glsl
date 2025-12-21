@@ -1,23 +1,14 @@
 precision highp float;
 
-uniform vec3  uColor;
-uniform vec3  uColor2;
-uniform vec3  uColor3;
-uniform vec3  uColor4;
-uniform vec3  uColor5;
-uniform vec3  uColor6;
-uniform vec3  uColor7;
-uniform vec3  uColor8;
-uniform vec3  uColor9;
-uniform vec3  uColor10;
-uniform float uSteps;
-uniform vec2  uResolution;
-uniform vec4  uMouse;
-uniform float uTime;
-uniform float uTimeOffset;
-uniform float uPixelSize;
+// Include common code
+#include "common/uniforms.glsl"
+#include "common/noise.glsl"
+#include "common/audio.glsl"
+#include "common/color-mapping.glsl"
+#include "common/ripples.glsl"
+#include "common/screen-adaptation.glsl"
 
-// Refraction parameters
+// Refraction-specific uniforms
 uniform float uOuterGridSize;  // Number of cells in outer grid (e.g., 8.0 = 8x8 grid)
 uniform float uInnerGridSize;  // Number of cells in inner grid (e.g., 8.0 = 8x8 sub-grid)
 uniform float uBlurStrength;   // Strength of blur effect (0.0-2.0)
@@ -37,82 +28,7 @@ uniform float uDistortionEasing; // Easing type for bass interpolation (0.0 = li
 uniform float uSmoothedVolumeScale;      // Smoothed volume scale (0.3 to 1.0) - replaces instant calculation
 uniform float uSmoothedFbmZoom;             // Smoothed FBM zoom factor (1.0 to maxZoom)
 
-// Audio uniforms
-uniform float uBass;
-uniform float uMid;
-uniform float uTreble;
-uniform float uVolume;
-
-// Frequency bands for color mapping
-uniform float uFreq1;
-uniform float uFreq2;
-uniform float uFreq3;
-uniform float uFreq4;
-uniform float uFreq5;
-uniform float uFreq6;
-uniform float uFreq7;
-uniform float uFreq8;
-uniform float uFreq9;
-uniform float uFreq10;
-
-// Stereo balance uniforms
-uniform float uBassStereo;
-uniform float uMidStereo;
-uniform float uTrebleStereo;
-
-// Temporal and beat detection uniforms
-uniform float uSmoothedBass;
-uniform float uSmoothedMid;
-uniform float uSmoothedTreble;
-uniform float uPeakBass;
-uniform float uBeatTime;
-uniform float uBeatIntensity;
-uniform float uBPM;
-
-// Multi-frequency ripple uniforms
-uniform float uBeatTimeBass;
-uniform float uBeatTimeMid;
-uniform float uBeatTimeTreble;
-uniform float uBeatIntensityBass;
-uniform float uBeatIntensityMid;
-uniform float uBeatIntensityTreble;
-uniform float uBeatStereoBass;
-uniform float uBeatStereoMid;
-uniform float uBeatStereoTreble;
-
-// Multiple ripple tracking uniforms
-#define MAX_RIPPLES 16
-uniform float uRippleCenterX[MAX_RIPPLES];
-uniform float uRippleCenterY[MAX_RIPPLES];
-uniform float uRippleTimes[MAX_RIPPLES];
-uniform float uRippleIntensities[MAX_RIPPLES];
-uniform float uRippleWidths[MAX_RIPPLES];
-uniform float uRippleMinRadii[MAX_RIPPLES];
-uniform float uRippleMaxRadii[MAX_RIPPLES];
-uniform float uRippleIntensityMultipliers[MAX_RIPPLES];
-uniform float uRippleActive[MAX_RIPPLES];
-uniform int uRippleCount;
-
-// Ripple effect parameters
-uniform float uRippleSpeed;
-uniform float uRippleWidth;
-uniform float uRippleMinRadius;
-uniform float uRippleMaxRadius;
-uniform float uRippleIntensityThreshold;
-uniform float uRippleIntensity;
-
-// Threshold uniforms - calculated from thresholdCurve bezier
-uniform float uThreshold1;
-uniform float uThreshold2;
-uniform float uThreshold3;
-uniform float uThreshold4;
-uniform float uThreshold5;
-uniform float uThreshold6;
-uniform float uThreshold7;
-uniform float uThreshold8;
-uniform float uThreshold9;
-uniform float uThreshold10;
-
+// Shader-specific constants
 #define FBM_OCTAVES     6
 #define FBM_LACUNARITY  1.35
 #define FBM_GAIN        0.65
@@ -141,63 +57,7 @@ uniform float uThreshold10;
 // Distortion constants
 #define DISTORTION_MAX_STRENGTH 0.15  // Maximum distortion strength (15% of screen)
 
-// Hash function for random values
-float hash11(float n) { 
-    return fract(sin(n) * 43758.5453); 
-}
-
-// 2D hash for vec2
-vec2 hash22(vec2 p) {
-    vec3 p3 = fract(vec3(p.xyx) * vec3(.1031, .1030, .0973));
-    p3 += dot(p3, p3.yzx + 33.33);
-    return fract((p3.xx + p3.yz) * p3.zy);
-}
-
-float vnoise(vec3 p)
-{
-    vec3 ip = floor(p);
-    vec3 fp = fract(p);
-
-    float n000 = hash11(dot(ip + vec3(0.0,0.0,0.0), vec3(1.0,57.0,113.0)));
-    float n100 = hash11(dot(ip + vec3(1.0,0.0,0.0), vec3(1.0,57.0,113.0)));
-    float n010 = hash11(dot(ip + vec3(0.0,1.0,0.0), vec3(1.0,57.0,113.0)));
-    float n110 = hash11(dot(ip + vec3(1.0,1.0,0.0), vec3(1.0,57.0,113.0)));
-    float n001 = hash11(dot(ip + vec3(0.0,0.0,1.0), vec3(1.0,57.0,113.0)));
-    float n101 = hash11(dot(ip + vec3(1.0,0.0,1.0), vec3(1.0,57.0,113.0)));
-    float n011 = hash11(dot(ip + vec3(0.0,1.0,1.0), vec3(1.0,57.0,113.0)));
-    float n111 = hash11(dot(ip + vec3(1.0,1.0,1.0), vec3(1.0,57.0,113.0)));
-
-    vec3 w = fp*fp*fp*(fp*(fp*6.0-15.0)+10.0);   // smootherstep
-
-    float x00 = mix(n000, n100, w.x);
-    float x10 = mix(n010, n110, w.x);
-    float x01 = mix(n001, n101, w.x);
-    float x11 = mix(n011, n111, w.x);
-
-    float y0  = mix(x00, x10, w.y);
-    float y1  = mix(x01, x11, w.y);
-
-    return mix(y0, y1, w.z) * 2.0 - 1.0;         // [-1,1]
-}
-
-// Stable fBm – no default args, loop fully static
-float fbm2(vec2 uv, float t)
-{
-    vec3 p   = vec3(uv * FBM_SCALE, t);
-    float amp  = 1.;
-    float freq = 1.;
-    float sum  = 0.;
-
-    for (int i = 0; i < FBM_OCTAVES; ++i)
-    {
-        sum  += amp * vnoise(p * freq);
-        freq *= FBM_LACUNARITY;
-        amp  *= FBM_GAIN;
-    }
-    
-    return sum * 0.5 + 0.5;   // [0,1]
-}
-
+// Refraction-specific functions
 // Quantize/pixelize a value into discrete steps
 float pixelize(float value, float levels) {
     if (levels <= 0.0) return value; // No pixelization if levels is 0 or negative
@@ -292,32 +152,6 @@ vec2 applyBassDistortion(vec2 uv, float aspectRatio, float bassIntensity) {
     return distortedUV;
 }
 
-// Function to create a ripple at a specific position
-float createRipple(vec2 uv, vec2 center, float beatTime, float intensity, float speed, float width, float minRadius, float maxRadius) {
-    if (beatTime < 0.0 || beatTime > 2.0 || intensity <= 0.0) return 0.0;
-    
-    float dist = length(uv - center);
-    
-    float targetRadius = minRadius + (maxRadius - minRadius) * intensity;
-    float radiusRange = targetRadius - minRadius;
-    float distanceTraveled = beatTime * speed;
-    float waveRadius = minRadius + min(distanceTraveled, radiusRange);
-    
-    float movementDuration = radiusRange / speed;
-    float distFromRing = abs(dist - waveRadius);
-    float ripple = exp(-distFromRing / width);
-    
-    float normalizedTime = beatTime / movementDuration;
-    normalizedTime = min(normalizedTime, 1.0);
-    float fade = pow(1.0 - normalizedTime, 3.0);
-    
-    if (beatTime >= movementDuration) {
-        fade = 0.0;
-    }
-    
-    return ripple * fade * intensity;
-}
-
 // Sample noise with refraction distortion
 // Applies blur and offset at two grid levels
 // Each cell acts like a separate pane of glass viewing the noise from a different angle
@@ -389,7 +223,7 @@ float sampleNoiseWithRefraction(vec2 uv, float aspectRatio, float t) {
     
     // Apply pixelization BEFORE blur so each sample is quantized first
     // This creates visible banding when blur averages the quantized samples
-    float sampleNoise = fbm2(sampleUV, t);
+    float sampleNoise = fbm2_standard(sampleUV, t, FBM_SCALE, FBM_OCTAVES, FBM_LACUNARITY, FBM_GAIN);
     if (uPixelizeLevels > 0.0) {
         sampleNoise = pixelize(sampleNoise, uPixelizeLevels);
     }
@@ -413,10 +247,10 @@ float sampleNoiseWithRefraction(vec2 uv, float aspectRatio, float t) {
         float weight = BLUR_WEIGHT; // Reduced weight to preserve cell boundaries
         
         // Sample and pixelize each blur direction
-        float sample1 = fbm2(sampleUV + blurOffset, t);
-        float sample2 = fbm2(sampleUV - blurOffset, t);
-        float sample3 = fbm2(sampleUV + vec2(-blurOffset.y, blurOffset.x), t);
-        float sample4 = fbm2(sampleUV + vec2(blurOffset.y, -blurOffset.x), t);
+        float sample1 = fbm2_standard(sampleUV + blurOffset, t, FBM_SCALE, FBM_OCTAVES, FBM_LACUNARITY, FBM_GAIN);
+        float sample2 = fbm2_standard(sampleUV - blurOffset, t, FBM_SCALE, FBM_OCTAVES, FBM_LACUNARITY, FBM_GAIN);
+        float sample3 = fbm2_standard(sampleUV + vec2(-blurOffset.y, blurOffset.x), t, FBM_SCALE, FBM_OCTAVES, FBM_LACUNARITY, FBM_GAIN);
+        float sample4 = fbm2_standard(sampleUV + vec2(blurOffset.y, -blurOffset.x), t, FBM_SCALE, FBM_OCTAVES, FBM_LACUNARITY, FBM_GAIN);
         
         // Pixelize each sample if pixelization is enabled
         if (uPixelizeLevels > 0.0) {
@@ -440,7 +274,7 @@ float sampleNoiseWithRefraction(vec2 uv, float aspectRatio, float t) {
 
 void main() {
     vec2 fragCoord = gl_FragCoord.xy;
-    float aspectRatio = uResolution.x / uResolution.y;
+    float aspectRatio = getAspectRatio();
     
     // Calculate UV coordinates
     vec2 uv = fragCoord / uResolution;
@@ -451,50 +285,14 @@ void main() {
     float bassIntensity = uBass; // Use raw bass for immediate response
     uv = applyBassDistortion(uv, aspectRatio, bassIntensity);
     
-    // Position-dependent spatial stereo mapping
-    float horizontalPos = (uv.x / aspectRatio) * 2.0;
-    
-    float bassStereoContribution = uBassStereo * uBass;
-    float midStereoContribution = uMidStereo * uMid;
-    float trebleStereoContribution = uTrebleStereo * uTreble;
-    
-    float leftWeight = max(-horizontalPos, 0.0);
-    float rightWeight = max(horizontalPos, 0.0);
-    float centerWeight = 1.0 - abs(horizontalPos);
-    
-    float stereoModulation = 
-        (bassStereoContribution + midStereoContribution + trebleStereoContribution) * 0.3 +
-        (leftWeight * (bassStereoContribution + midStereoContribution + trebleStereoContribution) * -0.2) +
-        (rightWeight * (bassStereoContribution + midStereoContribution + trebleStereoContribution) * 0.2);
-    
-    float stereoBrightness = 1.0 + stereoModulation * 0.15;
-
-    // Animated fbm feed with time offset
+    // Calculate modulated time using shared function
     float staticTimeOffset = 105.0;
-    
-    float tempoSpeed = 1.0;
-    if (uBPM > 0.0) {
-        float normalizedBPM = clamp((uBPM - 60.0) / 120.0, 0.0, 1.0);
-        tempoSpeed = 1.0 + normalizedBPM * 1.0;
-    }
-    
-    float baseTimeSpeed = 0.08 * tempoSpeed;
-    
-    float volumeSensitivity = 0.0;
-    if (uVolume > 0.0) {
-        float lowVolumeRange = 0.3;
-        if (uVolume < lowVolumeRange) {
-            volumeSensitivity = 2.0 - (uVolume / lowVolumeRange);
-        } else {
-            float highVolumeT = (uVolume - lowVolumeRange) / (1.0 - lowVolumeRange);
-            volumeSensitivity = 1.0 - (highVolumeT * 0.7);
-        }
-    } else {
-        volumeSensitivity = 2.0;
-    }
-    
-    float volumeModulation = (uVolume + uBass * 0.3 + uMid * 0.2 + uTreble * 0.1) * volumeSensitivity;
-    float modulatedTime = (uTime + staticTimeOffset + uTimeOffset) * baseTimeSpeed + volumeModulation * 0.15;
+    float baseTimeSpeed = 0.08;
+    float modulatedTime = calculateModulatedTime(
+        uTime, uTimeOffset, uVolume,
+        uBass, uMid, uTreble, uBPM,
+        staticTimeOffset, baseTimeSpeed
+    );
     
     // Sample noise with refraction effect
     float feed = sampleNoiseWithRefraction(uv, aspectRatio, modulatedTime);
@@ -504,11 +302,6 @@ void main() {
     // Fallback to instant calculation only if uniform not available (defaults to 0.0)
     float volumeScale = (uSmoothedVolumeScale > 0.001 || uSmoothedVolumeScale < -0.001) ? uSmoothedVolumeScale : (0.3 + uVolume * 0.7);
     feed = feed * volumeScale;
-    
-    // Debug: Store feed value for brightness calculation (will be used later)
-    // This ensures feed is available when we calculate brightness
-    
-    // Stereo brightness modulation removed - was causing global brightness changes on beats
     
     // Soft compression for high values
     if (feed > 0.7) {
@@ -554,66 +347,38 @@ void main() {
     
     float t = feed;
     
-    // Frequency-based color mapping
-    float freq1Min = 0.20;
-    float freq2Min = 0.20;
-    float freq3Min = 0.25;
-    float freq4Min = 0.30;
-    float freq5Min = 0.30;
-    float freq6Min = 0.25;
-    float freq7Min = 0.20;
-    float freq8Min = 0.15;
-    float freq9Min = 0.10;
-    float freq10Min = 0.10;
+    // Calculate frequency active states using shared function
+    float freq1Active, freq2Active, freq3Active, freq4Active, freq5Active;
+    float freq6Active, freq7Active, freq8Active, freq9Active, freq10Active;
+    calculateFrequencyActiveStates(
+        freq1Active, freq2Active, freq3Active, freq4Active, freq5Active,
+        freq6Active, freq7Active, freq8Active, freq9Active, freq10Active
+    );
     
-    float freq1Active = smoothstep(freq1Min - 0.05, freq1Min + 0.05, uFreq1);
-    float freq2Active = smoothstep(freq2Min - 0.05, freq2Min + 0.05, uFreq2);
-    float freq3Active = smoothstep(freq3Min - 0.05, freq3Min + 0.05, uFreq3);
-    float freq4Active = smoothstep(freq4Min - 0.05, freq4Min + 0.05, uFreq4);
-    float freq5Active = smoothstep(freq5Min - 0.05, freq5Min + 0.05, uFreq5);
-    float freq6Active = smoothstep(freq6Min - 0.05, freq6Min + 0.05, uFreq6);
-    float freq7Active = smoothstep(freq7Min - 0.05, freq7Min + 0.05, uFreq7);
-    float freq8Active = smoothstep(freq8Min - 0.05, freq8Min + 0.05, uFreq8);
-    float freq9Active = smoothstep(freq9Min - 0.05, freq9Min + 0.05, uFreq9);
-    float freq10Active = smoothstep(freq10Min - 0.05, freq10Min + 0.05, uFreq10);
+    // Calculate thresholds using shared function (NO frequency modulation for refraction)
+    float threshold1, threshold2, threshold3, threshold4, threshold5;
+    float threshold6, threshold7, threshold8, threshold9, threshold10;
+    // For refraction, we use constant thresholds (no bayer dithering in color mapping)
+    // But we still need to call the function to get the thresholds
+    calculateFrequencyThresholds(
+        0.0,  // No bayer dithering for refraction
+        freq1Active, freq2Active, freq3Active, freq4Active, freq5Active,
+        freq6Active, freq7Active, freq8Active, freq9Active, freq10Active,
+        false,  // useFrequencyModulation = false for refraction (constant thresholds)
+        threshold1, threshold2, threshold3, threshold4, threshold5,
+        threshold6, threshold7, threshold8, threshold9, threshold10
+    );
     
-    // Threshold distribution - constant thresholds (no frequency-based modification)
+    // Map to color using shared function
     float transitionWidth = 0.003;
+    vec3 color = mapNoiseToColor(
+        t,
+        threshold1, threshold2, threshold3, threshold4, threshold5,
+        threshold6, threshold7, threshold8, threshold9, threshold10,
+        transitionWidth
+    );
     
-    float threshold1 = uThreshold1;
-    float threshold2 = uThreshold2;
-    float threshold3 = uThreshold3;
-    float threshold4 = uThreshold4;
-    float threshold5 = uThreshold5;
-    float threshold6 = uThreshold6;
-    float threshold7 = uThreshold7;
-    float threshold8 = uThreshold8;
-    float threshold9 = uThreshold9;
-    float threshold10 = uThreshold10;
-    
-    vec3 color;
     float coverage = 1.0;
-    
-    // Color selection with smooth transitions
-    float w1 = smoothstep(threshold1 - transitionWidth, threshold1 + transitionWidth, t);
-    float w2 = smoothstep(threshold2 - transitionWidth, threshold2 + transitionWidth, t) * (1.0 - w1);
-    float w3 = smoothstep(threshold3 - transitionWidth, threshold3 + transitionWidth, t) * (1.0 - w1 - w2);
-    float w4 = smoothstep(threshold4 - transitionWidth, threshold4 + transitionWidth, t) * (1.0 - w1 - w2 - w3);
-    float w5 = smoothstep(threshold5 - transitionWidth, threshold5 + transitionWidth, t) * (1.0 - w1 - w2 - w3 - w4);
-    float w6 = smoothstep(threshold6 - transitionWidth, threshold6 + transitionWidth, t) * (1.0 - w1 - w2 - w3 - w4 - w5);
-    float w7 = smoothstep(threshold7 - transitionWidth, threshold7 + transitionWidth, t) * (1.0 - w1 - w2 - w3 - w4 - w5 - w6);
-    float w8 = smoothstep(threshold8 - transitionWidth, threshold8 + transitionWidth, t) * (1.0 - w1 - w2 - w3 - w4 - w5 - w6 - w7);
-    float w9 = smoothstep(threshold9 - transitionWidth, threshold9 + transitionWidth, t) * (1.0 - w1 - w2 - w3 - w4 - w5 - w6 - w7 - w8);
-    float w10 = smoothstep(threshold10 - transitionWidth, threshold10 + transitionWidth, t) * (1.0 - w1 - w2 - w3 - w4 - w5 - w6 - w7 - w8 - w9);
-    float w0 = 1.0 - w1 - w2 - w3 - w4 - w5 - w6 - w7 - w8 - w9 - w10;
-    
-    // Always evaluate all uniforms to prevent optimization
-    color = uColor * w1 + uColor2 * w2 + uColor3 * w3 + uColor4 * w4 + uColor5 * w5 + 
-            uColor6 * w6 + uColor7 * w7 + uColor8 * w8 + uColor9 * w9 + uColor10 * (w10 + w0);
-    
-    float uniformPresence = (uColor.r + uColor2.r + uColor3.r + uColor4.r + uColor5.r + 
-                            uColor6.r + uColor7.r + uColor8.r + uColor9.r + uColor10.r) * 0.0000001;
-    color += vec3(uniformPresence);
     
     // Add subtle brightness variation per cell to make cells more distinct
     // Calculate cell IDs in main() to apply brightness to final color

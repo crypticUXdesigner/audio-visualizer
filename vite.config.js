@@ -7,6 +7,7 @@ const copyShadersPlugin = () => {
   return {
     name: 'copy-shaders',
     writeBundle() {
+      // Copy source shaders
       const shadersDir = join('src', 'shaders', 'source');
       const distShadersDir = join('dist', 'shaders');
       
@@ -19,6 +20,23 @@ const copyShadersPlugin = () => {
         files.forEach(file => {
           const src = join(shadersDir, file);
           const dest = join(distShadersDir, file);
+          copyFileSync(src, dest);
+          console.log(`Copied ${src} to ${dest}`);
+        });
+      }
+      
+      // Copy common shaders
+      const commonDir = join('src', 'shaders', 'common');
+      const distCommonDir = join('dist', 'shaders', 'common');
+      
+      if (existsSync(commonDir)) {
+        mkdirSync(distCommonDir, { recursive: true });
+        const commonFiles = readdirSync(commonDir).filter(file => 
+          file.endsWith('.glsl') && statSync(join(commonDir, file)).isFile()
+        );
+        commonFiles.forEach(file => {
+          const src = join(commonDir, file);
+          const dest = join(distCommonDir, file);
           copyFileSync(src, dest);
           console.log(`Copied ${src} to ${dest}`);
         });
@@ -77,9 +95,15 @@ export default defineConfig(({ command, mode }) => {
     {
       name: 'serve-shaders',
       configureServer(server) {
-        // Register middleware early to intercept shader requests
-        server.middlewares.use('/shaders', (req, res, next) => {
-          // Serve shader files from the shaders directory
+        // Register middleware to intercept shader requests
+        // This runs before Vite's default middleware
+        server.middlewares.use((req, res, next) => {
+          // Only handle shader requests
+          if (!req.url || !req.url.startsWith('/shaders/')) {
+            next();
+            return;
+          }
+          
           let url = req.url;
           
           // Remove query parameters (cache-busting)
@@ -89,13 +113,23 @@ export default defineConfig(({ command, mode }) => {
           
           if (url && url.endsWith('.glsl')) {
             try {
-              // req.url includes the full path like '/shaders/vertex.glsl'
-              // Extract just the filename
-              const filename = url.split('/').pop();
-              const filePath = join(process.cwd(), 'src', 'shaders', 'source', filename);
+              // req.url includes the full path like '/shaders/vertex.glsl' or '/shaders/common/uniforms.glsl'
+              // Handle both source files and common includes
+              const pathParts = url.split('/').filter(p => p);
+              let filePath;
+              
+              if (pathParts.length >= 3 && pathParts[1] === 'common') {
+                // Common include: /shaders/common/uniforms.glsl -> src/shaders/common/uniforms.glsl
+                const filename = pathParts[pathParts.length - 1];
+                filePath = join(process.cwd(), 'src', 'shaders', 'common', filename);
+              } else {
+                // Source file: /shaders/vertex.glsl -> src/shaders/source/vertex.glsl
+                const filename = pathParts[pathParts.length - 1];
+                filePath = join(process.cwd(), 'src', 'shaders', 'source', filename);
+              }
               
               if (!existsSync(filePath)) {
-                console.error(`Shader file not found: ${filePath} (requested: ${req.url})`);
+                console.error(`[Vite] Shader file not found: ${filePath} (requested: ${req.url})`);
                 next();
                 return;
               }
@@ -114,10 +148,12 @@ export default defineConfig(({ command, mode }) => {
               res.setHeader('ETag', etag);
               res.setHeader('Last-Modified', new Date().toUTCString());
               
-              console.log(`Served shader: ${filename}`);
+              console.log(`[Vite] Served shader: ${filePath} (requested: ${req.url})`);
+              res.statusCode = 200;
               res.end(content);
+              // Don't call next() - we've handled the request
             } catch (err) {
-              console.error(`Error serving shader ${req.url}:`, err);
+              console.error(`[Vite] Error serving shader ${req.url}:`, err);
               next();
             }
           } else {

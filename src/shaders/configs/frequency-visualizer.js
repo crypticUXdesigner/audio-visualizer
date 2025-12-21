@@ -10,77 +10,98 @@ export default {
     
     // Default parameters
     parameters: {
+        mode: {
+            type: 'int',
+            default: 1,
+            min: 0,
+            max: 1,
+            step: 1,
+            label: 'Mode',
+            options: {
+                0: 'Bars',
+                1: 'Curve'
+            }
+        },
+        measuredBands: {
+            type: 'int',
+            default: 12,
+            min: 16,
+            max: 64,
+            step: 1,
+            label: 'Measured Bands'
+        },
         numBands: {
             type: 'int',
-            default: 320,
-            min: 16,
+            default: 12,
+            min: 64,
             max: 1024,
             step: 1,
             label: 'Number of Visual Bands'
         },
         maxHeight: {
             type: 'float',
-            default: 0.4,
+            default: 0.42,
             min: 0.1,
             max: 0.5,
             step: 0.05,
             label: 'Max Height'
         },
-        layer1HeightMultiplier: {
-            type: 'float',
-            default: 1.2,
-            min: 1.0,
-            max: 1.5,
-            step: 0.05,
-            label: 'Background Far Height'
-        },
-        layer2HeightMultiplier: {
-            type: 'float',
-            default: 1.1,
-            min: 1.0,
-            max: 1.5,
-            step: 0.05,
-            label: 'Background Near Height'
-        },
-        layer3HeightMultiplier: {
-            type: 'float',
-            default: 1.0,
-            min: 0.8,
-            max: 1.2,
-            step: 0.05,
-            label: 'Foreground Height'
-        },
-        layer1Opacity: {
-            type: 'float',
-            default: 0.4,
-            min: 0.0,
-            max: 1.0,
-            step: 0.05,
-            label: 'Background Far Opacity'
-        },
-        layer2Opacity: {
-            type: 'float',
-            default: 0.6,
-            min: 0.0,
-            max: 1.0,
-            step: 0.05,
-            label: 'Background Near Opacity'
-        },
-        layer3Opacity: {
-            type: 'float',
-            default: 1.0,
-            min: 0.0,
-            max: 1.0,
-            step: 0.05,
-            label: 'Foreground Opacity'
-        },
         barWidth: {
             type: 'float',
-            default: 0.8,
+            default: 0.5,
             min: 0.1,
             max: 1.0,
             step: 0.05,
             label: 'Bar Width'
+        },
+        // Curve mode parameters
+        blurStrength: {
+            type: 'float',
+            default: 8.0,
+            min: 0.0,
+            max: 20.0,
+            step: 0.5,
+            label: 'Blur Strength'
+        },
+        pixelizeLevels: {
+            type: 'float',
+            default: 32.0,
+            min: 0.0,
+            max: 32.0,
+            step: 1.0,
+            label: 'Pixelize Levels'
+        },
+        postBlurStrength: {
+            type: 'float',
+            default: 16.0,
+            min: 0.0,
+            max: 20.0,
+            step: 0.5,
+            label: 'Post Blur Strength'
+        },
+        noiseStrength: {
+            type: 'float',
+            default: 0.05,
+            min: 0.0,
+            max: 0.2,
+            step: 0.01,
+            label: 'Noise Strength'
+        },
+        curveAttackNote: {
+            type: 'float',
+            default: 1.0 / 64.0,  // 128th note - very fast attack
+            min: 1.0 / 128.0,      // 128th note (fastest) = 0.0078125
+            max: 1.0 / 4.0,        // Quarter note (slowest) = 0.25
+            step: 1.0 / 128.0,     // 128th note steps
+            label: 'Curve Attack (1/128 = fast, 1/4 = slow)'
+        },
+        curveReleaseNote: {
+            type: 'float',
+            default: 1.0 / 4.0,   // 16th note - moderate release
+            min: 1.0 / 128.0,      // 128th note (fastest) = 0.0078125
+            max: 1.0 / 2.0,        // Half note (slowest) = 0.5
+            step: 1.0 / 128.0,     // 128th note steps
+            label: 'Curve Release (1/128 = fast, 1/2 = slow)'
         }
     },
     

@@ -1,7 +1,7 @@
 // ShaderInstance - Manages a single shader instance
 // Handles WebGL context, program, uniforms, and rendering for one shader
 
-import { loadShader, createProgram, createQuad } from '../core/shader/ShaderUtils.js';
+import { loadShader, createProgram, createQuad, processIncludes } from '../core/shader/ShaderUtils.js';
 import { safeSentryMetric, isSentryAvailable, safeSetContext } from '../core/monitoring/SentryInit.js';
 import { TempoSmoothingConfig, getTempoRelativeTimeConstant, applyTempoRelativeSmoothing } from '../config/tempoSmoothing.js';
 
@@ -122,6 +122,10 @@ export class ShaderInstance {
             layer2: null,  // Background near
             layer3: null   // Foreground
         };
+        this._curveSmoothing = {
+            left: null,        // Smoothed left channel values (for curve mode)
+            right: null        // Smoothed right channel values (for curve mode)
+        };
         this._lastBandData = null;
         
         // Texture management for frequency visualizer
@@ -131,7 +135,8 @@ export class ShaderInstance {
             layer2: null,      // Layer 2 smoothed heights
             layer3: null       // Layer 3 smoothed heights
         };
-        this._measuredBands = 64;  // Number of bands we actually measure
+        // Will be set from config parameter
+        this._measuredBands = 24;  // Default number of bands we actually measure
         
         // Tempo-based smoothing for refraction shader
         this._refractionSmoothing = {
@@ -295,6 +300,9 @@ export class ShaderInstance {
         const vertexSource = await loadShader(this.config.vertexPath, 3);
         let fragmentSource = await loadShader(this.config.fragmentPath, 3);
         
+        // Process #include directives in fragment shader (pass base path for relative includes)
+        fragmentSource = await processIncludes(fragmentSource, 3, new Set(), this.config.fragmentPath);
+        
         // Replace FWIDTH macro based on extension availability
         if (hasDerivatives) {
             // Extension available - enable it and use real fwidth
@@ -369,6 +377,7 @@ export class ShaderInstance {
             uTime: gl.getUniformLocation(program, 'uTime'),
             uTimeOffset: gl.getUniformLocation(program, 'uTimeOffset'),
             uPixelSize: gl.getUniformLocation(program, 'uPixelSize'),
+            uDevicePixelRatio: gl.getUniformLocation(program, 'uDevicePixelRatio'),
             uSteps: gl.getUniformLocation(program, 'uSteps'),
             uMouse: gl.getUniformLocation(program, 'uMouse'),
             uShapeType: gl.getUniformLocation(program, 'uShapeType'),
@@ -503,11 +512,16 @@ export class ShaderInstance {
             a_position: gl.getAttribLocation(program, 'a_position'),
             
             // Frequency visualizer uniforms
+            uMode: gl.getUniformLocation(program, 'uMode'),
             uNumBands: gl.getUniformLocation(program, 'uNumBands'),
             uMeasuredBands: gl.getUniformLocation(program, 'uMeasuredBands'),
             uMaxHeight: gl.getUniformLocation(program, 'uMaxHeight'),
             uCenterY: gl.getUniformLocation(program, 'uCenterY'),
             uBarWidth: gl.getUniformLocation(program, 'uBarWidth'),
+            uBlurStrength: gl.getUniformLocation(program, 'uBlurStrength'),
+            uPixelizeLevels: gl.getUniformLocation(program, 'uPixelizeLevels'),
+            uPostBlurStrength: gl.getUniformLocation(program, 'uPostBlurStrength'),
+            uNoiseStrength: gl.getUniformLocation(program, 'uNoiseStrength'),
             uFrequencyTexture: gl.getUniformLocation(program, 'uFrequencyTexture'),
             uLayer1Texture: gl.getUniformLocation(program, 'uLayer1Texture'),
             uLayer2Texture: gl.getUniformLocation(program, 'uLayer2Texture'),
@@ -752,6 +766,14 @@ export class ShaderInstance {
             if (this.uniformLocations.uPixelSize) {
                 gl.uniform1f(this.uniformLocations.uPixelSize, scaledPixelSize);
                 this._lastUniformValues.uPixelSize = scaledPixelSize;
+            }
+        }
+        
+        // DevicePixelRatio - only update if changed
+        if (this._lastUniformValues.uDevicePixelRatio !== dpr) {
+            if (this.uniformLocations.uDevicePixelRatio) {
+                gl.uniform1f(this.uniformLocations.uDevicePixelRatio, dpr);
+                this._lastUniformValues.uDevicePixelRatio = dpr;
             }
         }
         
@@ -1739,8 +1761,13 @@ export class ShaderInstance {
      * @param {number} deltaTime - Time since last frame (seconds)
      */
     updateFrequencyVisualizerLayers(audioData, deltaTime) {
-        const measuredBands = this._measuredBands;  // Always measure 64 bands
-        const visualBands = this.parameters.numBands || 320;  // Display 320 bands
+        // Get measured bands from config (default to 24 for performance)
+        const measuredBands = this.parameters.measuredBands !== undefined 
+            ? this.parameters.measuredBands 
+            : (this._measuredBands || 24);
+        this._measuredBands = measuredBands;  // Store for consistency
+        
+        const visualBands = this.parameters.numBands || 400;  // Display bands
         const bpm = audioData.estimatedBPM || 0;
         
         // Calculate configurable bands (measure 64 bands)
@@ -1771,11 +1798,15 @@ export class ShaderInstance {
                 const rightBands = new Float32Array(measuredBands);
                 
                 for (let i = 0; i < measuredBands; i++) {
-                    const t = i / (numBands - 1);
+                    // Logarithmic spacing: ensure last band covers up to Nyquist
+                    const t = i / (measuredBands - 1);
                     const freqStart = minFreq * Math.pow(maxFreq / minFreq, t);
-                    const freqEnd = minFreq * Math.pow(maxFreq / minFreq, (i + 1) / (numBands - 1));
+                    // For last band, use maxFreq (Nyquist) to ensure full coverage
+                    const freqEnd = (i === measuredBands - 1) 
+                        ? maxFreq 
+                        : minFreq * Math.pow(maxFreq / minFreq, (i + 1) / (measuredBands - 1));
                     const binStart = hzToBin(freqStart);
-                    const binEnd = hzToBin(freqEnd);
+                    const binEnd = Math.min(hzToBin(freqEnd), audioData.leftFrequencyData.length - 1);
                     leftBands[i] = getAverage(audioData.leftFrequencyData, binStart, binEnd);
                     rightBands[i] = getAverage(audioData.rightFrequencyData, binStart, binEnd);
                 }
@@ -1789,11 +1820,20 @@ export class ShaderInstance {
             return;
         }
         
-        // Initialize smoothing arrays if needed (always 64 measured bands)
+        // Initialize smoothing arrays if needed
         if (!this._layerSmoothing.layer1 || this._layerSmoothing.layer1.length !== measuredBands) {
             this._layerSmoothing.layer1 = new Float32Array(measuredBands);
             this._layerSmoothing.layer2 = new Float32Array(measuredBands);
             this._layerSmoothing.layer3 = new Float32Array(measuredBands);
+        }
+        
+        // Initialize curve smoothing arrays if needed (for curve mode)
+        const useCurveMode = (this.parameters.mode === 1);
+        if (useCurveMode) {
+            if (!this._curveSmoothing.left || this._curveSmoothing.left.length !== measuredBands) {
+                this._curveSmoothing.left = new Float32Array(measuredBands);
+                this._curveSmoothing.right = new Float32Array(measuredBands);
+            }
         }
         
         // Get time constants for each layer (already in seconds)
@@ -1809,7 +1849,41 @@ export class ShaderInstance {
         const layer3Attack = getTempoRelativeTimeConstant(1.0 / 128.0, bpm, 50.0);
         const layer3Release = getTempoRelativeTimeConstant(1.0 / 8.0, bpm, 300.0);
         
-        // Smooth each band for each layer (64 measured bands)
+        // Apply curve smoothing if in curve mode
+        if (useCurveMode) {
+            // Get attack/release note fractions (for curve mode)
+            const curveAttackNote = this.parameters.curveAttackNote !== undefined 
+                ? this.parameters.curveAttackNote 
+                : (1.0 / 128.0); // 128th note default
+            const curveReleaseNote = this.parameters.curveReleaseNote !== undefined 
+                ? this.parameters.curveReleaseNote 
+                : (1.0 / 16.0); // 16th note default
+            
+            // Convert note fractions to time constants using BPM
+            const curveAttack = getTempoRelativeTimeConstant(curveAttackNote, bpm, 10.0);
+            const curveRelease = getTempoRelativeTimeConstant(curveReleaseNote, bpm, 50.0);
+            
+            // Smooth each band separately for left and right channels
+            for (let i = 0; i < measuredBands; i++) {
+                this._curveSmoothing.left[i] = applyTempoRelativeSmoothing(
+                    this._curveSmoothing.left[i],
+                    bandData.leftBands[i],
+                    deltaTime,
+                    curveAttack,
+                    curveRelease
+                );
+                
+                this._curveSmoothing.right[i] = applyTempoRelativeSmoothing(
+                    this._curveSmoothing.right[i],
+                    bandData.rightBands[i],
+                    deltaTime,
+                    curveAttack,
+                    curveRelease
+                );
+            }
+        }
+        
+        // Smooth each band for each layer (for bar mode layers)
         for (let i = 0; i < measuredBands; i++) {
             // Use max of left and right for smoothing target
             const targetValue = Math.max(bandData.leftBands[i], bandData.rightBands[i]);
@@ -1848,17 +1922,32 @@ export class ShaderInstance {
         const layer3Data = new Float32Array(measuredBands * 2);
         
         for (let i = 0; i < measuredBands; i++) {
-            // Left/right raw frequency data
-            leftRightData[i * 2] = bandData.leftBands[i];      // LUMINANCE = left
-            leftRightData[i * 2 + 1] = bandData.rightBands[i]; // ALPHA = right
+            // Left/right frequency data - use smoothed values for curve mode, raw for bar mode
+            if (useCurveMode) {
+                // Curve mode: use smoothed values for shape
+                leftRightData[i * 2] = this._curveSmoothing.left[i];      // LUMINANCE = left (smoothed)
+                leftRightData[i * 2 + 1] = this._curveSmoothing.right[i]; // ALPHA = right (smoothed)
+                
+                // Store raw values in layer1 texture for coloring (curve mode doesn't use layers)
+                layer1Data[i * 2] = bandData.leftBands[i];      // LUMINANCE = left (raw)
+                layer1Data[i * 2 + 1] = bandData.rightBands[i]; // ALPHA = right (raw)
+            } else {
+                // Bar mode: use raw values
+                leftRightData[i * 2] = bandData.leftBands[i];      // LUMINANCE = left
+                leftRightData[i * 2 + 1] = bandData.rightBands[i]; // ALPHA = right
+                
+                // Layer heights (use same channel for both, we'll use separate textures)
+                layer1Data[i * 2] = this._layerSmoothing.layer1[i];
+                layer1Data[i * 2 + 1] = this._layerSmoothing.layer1[i];
+            }
             
-            // Layer heights (use same channel for both, we'll use separate textures)
-            layer1Data[i * 2] = this._layerSmoothing.layer1[i];
-            layer1Data[i * 2 + 1] = this._layerSmoothing.layer1[i];
-            layer2Data[i * 2] = this._layerSmoothing.layer2[i];
-            layer2Data[i * 2 + 1] = this._layerSmoothing.layer2[i];
-            layer3Data[i * 2] = this._layerSmoothing.layer3[i];
-            layer3Data[i * 2 + 1] = this._layerSmoothing.layer3[i];
+            // Layer heights for bar mode (curve mode doesn't use these)
+            if (!useCurveMode) {
+                layer2Data[i * 2] = this._layerSmoothing.layer2[i];
+                layer2Data[i * 2 + 1] = this._layerSmoothing.layer2[i];
+                layer3Data[i * 2] = this._layerSmoothing.layer3[i];
+                layer3Data[i * 2 + 1] = this._layerSmoothing.layer3[i];
+            }
         }
         
         // Create or update textures
@@ -1936,7 +2025,33 @@ export class ShaderInstance {
         
         // Set barWidth
         if (this.uniformLocations.uBarWidth) {
-            gl.uniform1f(this.uniformLocations.uBarWidth, this.parameters.barWidth || 0.8);
+            gl.uniform1f(this.uniformLocations.uBarWidth, this.parameters.barWidth || 0.6);
+        }
+        
+        // Set mode (0 = bars, 1 = curve)
+        if (this.uniformLocations.uMode) {
+            const mode = this.parameters.mode !== undefined ? this.parameters.mode : 0;
+            gl.uniform1i(this.uniformLocations.uMode, mode);
+        }
+        
+        // Set blur strength (for curve mode)
+        if (this.uniformLocations.uBlurStrength) {
+            gl.uniform1f(this.uniformLocations.uBlurStrength, this.parameters.blurStrength || 8.0);
+        }
+        
+        // Set pixelize levels (for curve mode)
+        if (this.uniformLocations.uPixelizeLevels) {
+            gl.uniform1f(this.uniformLocations.uPixelizeLevels, this.parameters.pixelizeLevels || 8.0);
+        }
+        
+        // Set post blur strength (for curve mode)
+        if (this.uniformLocations.uPostBlurStrength) {
+            gl.uniform1f(this.uniformLocations.uPostBlurStrength, this.parameters.postBlurStrength || 4.0);
+        }
+        
+        // Set noise strength (for curve mode)
+        if (this.uniformLocations.uNoiseStrength) {
+            gl.uniform1f(this.uniformLocations.uNoiseStrength, this.parameters.noiseStrength || 0.05);
         }
         
         // Set layer parameters

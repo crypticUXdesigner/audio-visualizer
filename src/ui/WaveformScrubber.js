@@ -90,8 +90,13 @@ export class WaveformScrubber {
     // Setup resize observer
     this.setupResize();
     
-    // Initial resize
-    this.resize();
+    // Initial resize - wait for layout to settle
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        // Double RAF ensures layout has fully settled
+        this.resize();
+      });
+    });
     
     // Start animation loop
     this.startAnimationLoop();
@@ -109,28 +114,131 @@ export class WaveformScrubber {
   }
   
   setupResize() {
-    const resizeObserver = new ResizeObserver(() => {
-      this.resize();
+    // Store reference to resize function with proper binding
+    const handleResize = () => {
+      // Use requestAnimationFrame to ensure layout has settled
+      requestAnimationFrame(() => {
+        this.resize();
+      });
+    };
+    
+    // Simplified ResizeObserver - just trigger resize on any size change
+    this.resizeObserver = new ResizeObserver(() => {
+      handleResize();
     });
-    resizeObserver.observe(this.container);
+    
+    // Observe container (this will catch all size changes)
+    if (this.container) {
+      this.resizeObserver.observe(this.container);
+    }
+    
+    // Also observe canvas directly to catch size changes (after it's in DOM)
+    if (this.canvas) {
+      // Wait a frame to ensure canvas is fully laid out
+      requestAnimationFrame(() => {
+        if (this.canvas && this.resizeObserver) {
+          this.resizeObserver.observe(this.canvas);
+        }
+      });
+    }
+    
+    // Add window resize listener as primary fallback (works on all platforms)
+    this.windowResizeHandler = () => {
+      // Debounce resize calls
+      if (this.resizeTimeout) {
+        clearTimeout(this.resizeTimeout);
+      }
+      this.resizeTimeout = setTimeout(() => {
+        handleResize();
+      }, 50); // Reduced debounce for faster response
+    };
+    window.addEventListener('resize', this.windowResizeHandler);
+    
+    // Visual viewport API for mobile (better than window resize)
+    if (window.visualViewport) {
+      this.visualViewportHandler = () => {
+        if (this.resizeTimeout) {
+          clearTimeout(this.resizeTimeout);
+        }
+        this.resizeTimeout = setTimeout(() => {
+          handleResize();
+        }, 50);
+      };
+      window.visualViewport.addEventListener('resize', this.visualViewportHandler);
+      window.visualViewport.addEventListener('scroll', this.visualViewportHandler);
+    }
+    
+    // Also listen for orientation changes on mobile
+    this.orientationChangeHandler = () => {
+      // Longer delay for orientation change as layout takes time
+      setTimeout(() => {
+        handleResize();
+      }, 300);
+    };
+    window.addEventListener('orientationchange', this.orientationChangeHandler);
   }
   
   resize() {
-    // Use canvas element's bounding rect instead of container
-    // This accounts for container padding since canvas is sized via CSS (width: 100%)
-    const canvasRect = this.canvas.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
+    if (!this.canvas || !this.ctx) return;
     
-    // Set canvas size
-    this.canvas.width = canvasRect.width * dpr;
-    this.canvas.height = 60 * dpr; // Fixed height in logical pixels
-    this.canvas.style.width = `${canvasRect.width}px`;
-    this.canvas.style.height = '60px';
-    
-    // Scale context for high DPI
-    this.ctx.scale(dpr, dpr);
-    
-    this.draw();
+    try {
+      // Let CSS handle the display size (width: 100%, height from CSS)
+      // We only need to set the internal canvas resolution to match the display size
+      
+      // Use getBoundingClientRect to get the actual rendered size after CSS has applied
+      const canvasRect = this.canvas.getBoundingClientRect();
+      const displayWidth = canvasRect.width;
+      const displayHeight = canvasRect.height;
+      
+      // Skip if canvas has no size yet
+      if (displayWidth <= 0 || displayHeight <= 0) {
+        // Retry after a short delay if no size yet
+        if (!this.resizeRetryCount) {
+          this.resizeRetryCount = 0;
+        }
+        if (this.resizeRetryCount < 5) {
+          this.resizeRetryCount++;
+          setTimeout(() => {
+            this.resize();
+          }, 50);
+        }
+        return;
+      }
+      
+      // Reset retry count on successful resize
+      this.resizeRetryCount = 0;
+      
+      const dpr = window.devicePixelRatio || 1;
+      
+      // Calculate new internal dimensions (must match display size * DPR)
+      const newWidth = Math.max(1, Math.floor(displayWidth * dpr));
+      const newHeight = Math.max(1, Math.floor(displayHeight * dpr));
+      
+      // Get current internal dimensions
+      const currentWidth = this.canvas.width;
+      const currentHeight = this.canvas.height;
+      
+      // Always update if dimensions changed (no tolerance needed, we want exact match)
+      if (currentWidth !== newWidth || currentHeight !== newHeight) {
+        // Set canvas internal resolution (this clears the canvas)
+        // This is the actual pixel resolution of the canvas buffer
+        this.canvas.width = newWidth;
+        this.canvas.height = newHeight;
+        
+        // DO NOT set style.width/height - let CSS handle the display size
+        // CSS already has width: 100% which will make it fill the container
+        // Setting explicit pixel values would override that and break responsive sizing
+        
+        // Reset and scale context for high DPI
+        this.ctx.setTransform(1, 0, 0, 1, 0, 0);
+        this.ctx.scale(dpr, dpr);
+      }
+      
+      // Always redraw after resize check
+      this.draw();
+    } catch (error) {
+      console.error('Error in waveform resize:', error);
+    }
   }
   
   setupInteraction() {
@@ -633,6 +741,38 @@ export class WaveformScrubber {
    */
   destroy() {
     this.stopAnimationLoop();
+    
+    // Clean up resize observer
+    if (this.resizeObserver) {
+      this.resizeObserver.disconnect();
+      this.resizeObserver = null;
+    }
+    
+    // Clean up window resize listener
+    if (this.windowResizeHandler) {
+      window.removeEventListener('resize', this.windowResizeHandler);
+      this.windowResizeHandler = null;
+    }
+    
+    // Clean up visual viewport listeners
+    if (this.visualViewportHandler && window.visualViewport) {
+      window.visualViewport.removeEventListener('resize', this.visualViewportHandler);
+      window.visualViewport.removeEventListener('scroll', this.visualViewportHandler);
+      this.visualViewportHandler = null;
+    }
+    
+    // Clean up orientation change listener
+    if (this.orientationChangeHandler) {
+      window.removeEventListener('orientationchange', this.orientationChangeHandler);
+      this.orientationChangeHandler = null;
+    }
+    
+    // Clear resize timeout
+    if (this.resizeTimeout) {
+      clearTimeout(this.resizeTimeout);
+      this.resizeTimeout = null;
+    }
+    
     if (this.canvas && this.canvas.parentNode) {
       this.canvas.parentNode.removeChild(this.canvas);
     }

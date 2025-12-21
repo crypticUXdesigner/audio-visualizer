@@ -1069,13 +1069,16 @@ export class AudioAnalyzer {
         const rightBands = new Float32Array(numBands);
         
         for (let i = 0; i < numBands; i++) {
-            // Logarithmic spacing
+            // Logarithmic spacing: ensure last band covers up to Nyquist
             const t = i / (numBands - 1);
             const freqStart = minFreq * Math.pow(maxFreq / minFreq, t);
-            const freqEnd = minFreq * Math.pow(maxFreq / minFreq, (i + 1) / (numBands - 1));
+            // For last band, use maxFreq (Nyquist) to ensure full coverage
+            const freqEnd = (i === numBands - 1) 
+                ? maxFreq 
+                : minFreq * Math.pow(maxFreq / minFreq, (i + 1) / (numBands - 1));
             
             const binStart = hzToBin(freqStart);
-            const binEnd = hzToBin(freqEnd);
+            const binEnd = Math.min(hzToBin(freqEnd), this.frequencyData.length - 1);
             
             // Calculate average for main channel
             const avg = getAverage(this.frequencyData, binStart, binEnd);
