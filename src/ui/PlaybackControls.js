@@ -935,6 +935,7 @@ export class AudioControls {
             // Create new track option button with name
             const trackOption = document.createElement('button');
             trackOption.className = 'track-option';
+            trackOption.setAttribute('tabindex', '0'); // Make focusable for keyboard navigation
             
             // Create cover image element (always show, placeholder if no image)
             const coverUrl = track.cover_url || track.coverUrl;
@@ -1207,6 +1208,12 @@ export class AudioControls {
             
             // Filter tracks
             this.filterTracks(query);
+            
+            // Clear focus from track options when searching
+            const focusedTrack = this.trackList.querySelector('.track-option:focus');
+            if (focusedTrack) {
+                focusedTrack.blur();
+            }
         });
         
         // Handle clear button
@@ -1235,18 +1242,27 @@ export class AudioControls {
         });
         observer.observe(this.trackDropdown, { attributes: true, attributeFilter: ['class'] });
         
-        // Keyboard navigation
+        // Keyboard navigation from search input
         searchInput.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
                 this.closeDropdown();
             } else if (e.key === 'ArrowDown') {
                 e.preventDefault();
-                const firstVisibleTrack = this.trackList.querySelector('.track-option:not([style*="display: none"])');
-                if (firstVisibleTrack) {
-                    firstVisibleTrack.focus();
+                this.focusFirstVisibleTrack();
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                // If there's only one visible track, select it
+                const visibleTracks = this.getVisibleTracks();
+                if (visibleTracks.length === 1) {
+                    visibleTracks[0].click();
+                } else {
+                    this.focusFirstVisibleTrack();
                 }
             }
         });
+        
+        // Setup keyboard navigation for track list
+        this.setupTrackListKeyboardNavigation();
     }
     
     filterTracks(query) {
@@ -1272,6 +1288,131 @@ export class AudioControls {
         } else {
             noResultsMsg.style.display = 'none';
         }
+    }
+    
+    // Setup keyboard navigation for track list
+    setupTrackListKeyboardNavigation() {
+        if (!this.trackList) return;
+        
+        // Make all track options focusable
+        this.updateTrackOptionsFocusability();
+        
+        // Add keyboard event listener to track list
+        this.trackList.addEventListener('keydown', (e) => {
+            const focusedTrack = this.trackList.querySelector('.track-option:focus');
+            
+            if (!focusedTrack) return;
+            
+            switch (e.key) {
+                case 'ArrowDown':
+                    e.preventDefault();
+                    this.focusNextTrack(focusedTrack);
+                    break;
+                case 'ArrowUp':
+                    e.preventDefault();
+                    this.focusPreviousTrack(focusedTrack);
+                    break;
+                case 'Home':
+                    e.preventDefault();
+                    this.focusFirstVisibleTrack();
+                    break;
+                case 'End':
+                    e.preventDefault();
+                    this.focusLastVisibleTrack();
+                    break;
+                case 'Enter':
+                case ' ':
+                    e.preventDefault();
+                    focusedTrack.click();
+                    break;
+                case 'Escape':
+                    e.preventDefault();
+                    this.closeDropdown();
+                    break;
+            }
+        });
+        
+        // Update focusability when tracks are added dynamically
+        const trackListObserver = new MutationObserver(() => {
+            this.updateTrackOptionsFocusability();
+        });
+        trackListObserver.observe(this.trackList, { childList: true, subtree: true });
+    }
+    
+    // Update track options to be focusable
+    updateTrackOptionsFocusability() {
+        const tracks = this.trackList.querySelectorAll('.track-option');
+        tracks.forEach(track => {
+            // Make focusable if not already
+            if (!track.hasAttribute('tabindex')) {
+                track.setAttribute('tabindex', '0');
+            }
+        });
+    }
+    
+    // Get all visible tracks
+    getVisibleTracks() {
+        return Array.from(this.trackList.querySelectorAll('.track-option')).filter(track => {
+            return track.style.display !== 'none' && 
+                   !track.classList.contains('hidden') &&
+                   track.offsetParent !== null;
+        });
+    }
+    
+    // Focus first visible track
+    focusFirstVisibleTrack() {
+        const visibleTracks = this.getVisibleTracks();
+        if (visibleTracks.length > 0) {
+            visibleTracks[0].focus();
+            this.scrollTrackIntoView(visibleTracks[0]);
+        }
+    }
+    
+    // Focus last visible track
+    focusLastVisibleTrack() {
+        const visibleTracks = this.getVisibleTracks();
+        if (visibleTracks.length > 0) {
+            visibleTracks[visibleTracks.length - 1].focus();
+            this.scrollTrackIntoView(visibleTracks[visibleTracks.length - 1]);
+        }
+    }
+    
+    // Focus next track
+    focusNextTrack(currentTrack) {
+        const visibleTracks = this.getVisibleTracks();
+        if (visibleTracks.length === 0) return;
+        
+        const currentIndex = visibleTracks.indexOf(currentTrack);
+        const nextIndex = currentIndex < visibleTracks.length - 1 ? currentIndex + 1 : 0; // Wrap around
+        const nextTrack = visibleTracks[nextIndex];
+        
+        nextTrack.focus();
+        this.scrollTrackIntoView(nextTrack);
+    }
+    
+    // Focus previous track
+    focusPreviousTrack(currentTrack) {
+        const visibleTracks = this.getVisibleTracks();
+        if (visibleTracks.length === 0) return;
+        
+        const currentIndex = visibleTracks.indexOf(currentTrack);
+        const previousIndex = currentIndex > 0 ? currentIndex - 1 : visibleTracks.length - 1; // Wrap around
+        const previousTrack = visibleTracks[previousIndex];
+        
+        previousTrack.focus();
+        this.scrollTrackIntoView(previousTrack);
+    }
+    
+    // Scroll track into view
+    scrollTrackIntoView(track) {
+        if (!track || !this.trackList) return;
+        
+        // Use scrollIntoView with smooth behavior
+        track.scrollIntoView({
+            behavior: 'smooth',
+            block: 'nearest',
+            inline: 'nearest'
+        });
     }
     
     async playRandomTrack() {

@@ -97,6 +97,7 @@ export default defineConfig(({ command, mode }) => {
       configureServer(server) {
         // Register middleware to intercept shader requests
         // This runs before Vite's default middleware
+        const isDev = command === 'serve';
         server.middlewares.use((req, res, next) => {
           // Only handle shader requests
           if (!req.url || !req.url.startsWith('/shaders/')) {
@@ -129,7 +130,11 @@ export default defineConfig(({ command, mode }) => {
               }
               
               if (!existsSync(filePath)) {
-                console.error(`[Vite] Shader file not found: ${filePath} (requested: ${req.url})`);
+                // Silently handle missing shader files (likely from cached requests)
+                // Only log as warning in development for debugging
+                if (isDev) {
+                  console.warn(`[Vite] Shader file not found: ${filePath} (requested: ${req.url})`);
+                }
                 next();
                 return;
               }

@@ -66,6 +66,30 @@ export const TempoSmoothingConfig = {
         releaseNote: 1.0 / 16.0,    // 8th note - moderate release
         attackTimeFallback: 10.0,  // milliseconds fallback
         releaseTimeFallback: 100.0  // milliseconds fallback
+    },
+    
+    // String animation smoothing (swing amplitude and pulse intensity)
+    strings: {
+        attackNote: 1.0 / 64.0,   // 64th note - fast attack for responsive feel
+        releaseNote: 1.0 / 8.0,   // 8th note - moderate release for smooth decay
+        attackTimeFallback: 10.0,  // milliseconds fallback
+        releaseTimeFallback: 100.0 // milliseconds fallback
+    },
+    
+    // Noise brightness smoothing (background noise audio reactivity)
+    noiseBrightness: {
+        attackNote: 1.0 / 128.0,   // 128th note - very fast attack
+        releaseNote: 1.0 / 16.0,   // 8th note - moderate release
+        attackTimeFallback: 5.0,   // milliseconds fallback
+        releaseTimeFallback: 100.0 // milliseconds fallback
+    },
+    
+    // Arc shader smoothing (radius animation)
+    arc: {
+        attackNote: 1.0 / 128.0,   // 128th note - very fast attack
+        releaseNote: 1.0 / 16.0,   // 16th note - moderate release
+        attackTimeFallback: 10.0,  // milliseconds fallback
+        releaseTimeFallback: 100.0 // milliseconds fallback
     }
 };
 

@@ -9,6 +9,8 @@ import dotsConfig from '../shaders/configs/dots.js';
 import refractionConfig from '../shaders/configs/refraction.js';
 import frequencyVisualizerConfig from '../shaders/configs/frequency-visualizer.js';
 import synthwaveConfig from '../shaders/configs/synthwave.js';
+import stringsConfig from '../shaders/configs/strings.js';
+import arcConfig from '../shaders/configs/arc.js';
 import { ColorModulator } from './color/ColorModulator.js';
 
 /**
@@ -49,6 +51,8 @@ export async function initializeApp(app) {
                 app.shaderManager.registerShader(refractionConfig);
                 app.shaderManager.registerShader(frequencyVisualizerConfig);
                 app.shaderManager.registerShader(synthwaveConfig);
+                app.shaderManager.registerShader(stringsConfig);
+                app.shaderManager.registerShader(arcConfig);
                 
                 // 4. Initialize color system
                 app.colorConfig = { ...dotsConfig.colorConfig };

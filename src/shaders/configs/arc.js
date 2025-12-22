@@ -1,30 +1,18 @@
-// Frequency Visualizer Shader Configuration
-// Classic frequency visualizer with configurable bands and multi-layer rendering
+// Arc Shader Configuration
+// Stereo frequency visualizer with half-circle arcs (left and right channels)
 
 export default {
-    name: 'frequency-visualizer',
-    displayName: 'draft: Frequency Visualizer',
+    name: 'arc',
+    displayName: 'draft: Arc',
     canvasId: 'backgroundCanvas',
     vertexPath: 'shaders/vertex.glsl',
-    fragmentPath: 'shaders/frequency-visualizer-fragment.glsl',
+    fragmentPath: 'shaders/arc-fragment.glsl',
     
     // Default parameters
     parameters: {
-        mode: {
-            type: 'int',
-            default: 1,
-            min: 0,
-            max: 1,
-            step: 1,
-            label: 'Mode',
-            options: {
-                0: 'Bars',
-                1: 'Curve'
-            }
-        },
         measuredBands: {
             type: 'int',
-            default: 12,
+            default: 24,
             min: 16,
             max: 64,
             step: 1,
@@ -32,80 +20,71 @@ export default {
         },
         numBands: {
             type: 'int',
-            default: 12,
-            min: 64,
-            max: 1024,
+            default: 64,
+            min: 32,
+            max: 256,
             step: 1,
             label: 'Number of Visual Bands'
         },
-        maxHeight: {
+        baseRadius: {
             type: 'float',
-            default: 0.42,
+            default: 0.3,
             min: 0.1,
             max: 0.5,
-            step: 0.05,
-            label: 'Max Height'
-        },
-        barWidth: {
-            type: 'float',
-            default: 0.5,
-            min: 0.1,
-            max: 1.0,
-            step: 0.05,
-            label: 'Bar Width'
-        },
-        // Curve mode parameters
-        blurStrength: {
-            type: 'float',
-            default: 8.0,
-            min: 0.0,
-            max: 20.0,
-            step: 0.5,
-            label: 'Blur Strength'
-        },
-        pixelizeLevels: {
-            type: 'float',
-            default: 32.0,
-            min: 0.0,
-            max: 32.0,
-            step: 1.0,
-            label: 'Pixelize Levels'
-        },
-        postBlurStrength: {
-            type: 'float',
-            default: 16.0,
-            min: 0.0,
-            max: 20.0,
-            step: 0.5,
-            label: 'Post Blur Strength'
-        },
-        noiseStrength: {
-            type: 'float',
-            default: 0.05,
-            min: 0.0,
-            max: 0.2,
             step: 0.01,
-            label: 'Noise Strength'
+            label: 'Base Radius'
         },
-        curveAttackNote: {
+        maxRadiusOffset: {
             type: 'float',
-            default: 1.0 / 64.0,  // 128th note - very fast attack
-            min: 1.0 / 128.0,      // 128th note (fastest) = 0.0078125
-            max: 1.0 / 4.0,        // Quarter note (slowest) = 0.25
-            step: 1.0 / 128.0,     // 128th note steps
-            label: 'Curve Attack (1/128 = fast, 1/4 = slow)'
+            default: 0.2,
+            min: 0.05,
+            max: 0.4,
+            step: 0.01,
+            label: 'Max Radius Offset'
         },
-        curveReleaseNote: {
+        arcAttackNote: {
+            type: 'float',
+            default: 1.0 / 128.0,  // 128th note - very fast attack
+            min: 1.0 / 256.0,      // 256th note (very fast) = 0.00390625
+            max: 1.0 / 4.0,        // Quarter note (slow) = 0.25
+            step: 1.0 / 256.0,     // 256th note steps
+            label: 'Arc Attack (1/256 = very fast, 1/4 = slow)'
+        },
+        arcReleaseNote: {
             type: 'float',
             default: 1.0 / 16.0,   // 16th note - moderate release
-            min: 1.0 / 128.0,      // 128th note (fastest) = 0.0078125
-            max: 1.0 / 2.0,        // Half note (slowest) = 0.5
-            step: 1.0 / 128.0,     // 128th note steps
-            label: 'Curve Release (1/128 = fast, 1/2 = slow)'
+            min: 1.0 / 128.0,      // 128th note (very fast) = 0.0078125
+            max: 1.0 / 2.0,        // Half note (slow) = 0.5
+            step: 1.0 / 256.0,     // 256th note steps
+            label: 'Arc Release (1/128 = fast, 1/2 = slow)'
+        },
+        centerX: {
+            type: 'float',
+            default: 0.5,
+            min: 0.0,
+            max: 1.0,
+            step: 0.01,
+            label: 'Center X Position'
+        },
+        centerY: {
+            type: 'float',
+            default: 0.5,
+            min: 0.0,
+            max: 1.0,
+            step: 0.01,
+            label: 'Center Y Position'
+        },
+        colorTransitionWidth: {
+            type: 'float',
+            default: 0.003,
+            min: 0.0,
+            max: 0.1,
+            step: 0.001,
+            label: 'Color Transition Width (smoothstep blend between colors)'
         }
     },
     
-    // Color configuration (can reuse or customize)
+    // Color configuration
     colorConfig: {
         baseHue: '#18191f',
         darkest: {

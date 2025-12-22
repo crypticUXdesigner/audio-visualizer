@@ -974,6 +974,22 @@ html.debug-mode {
       border: 1px solid var(--list-hub-border-hover);
     }
 
+    /* Focus styles for keyboard navigation */
+    &:focus {
+      outline: 2px solid var(--list-hub-cover-border-active);
+      outline-offset: 2px;
+      background: var(--list-hub-bg-hover);
+    }
+
+    &:focus:not(:focus-visible) {
+      outline: none;
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--list-hub-cover-border-active);
+      outline-offset: 2px;
+    }
+
     &.active, &:active {
       background: var(--list-hub-bg-active);
       color: var(--list-hub-print-active);
