@@ -4,6 +4,9 @@
 import { loadShader, createProgram, createQuad, processIncludes } from '../core/shader/ShaderUtils.js';
 import { safeSentryMetric, isSentryAvailable, safeSetContext } from '../core/monitoring/SentryInit.js';
 import { TempoSmoothingConfig, getTempoRelativeTimeConstant, applyTempoRelativeSmoothing } from '../config/tempoSmoothing.js';
+import { createShaderPlugin } from './plugins/pluginFactory.js';
+import { UniformManager } from './managers/UniformManager.js';
+import { TextureManager } from './managers/TextureManager.js';
 
 export class ShaderInstance {
     constructor(canvasId, config) {
@@ -22,10 +25,6 @@ export class ShaderInstance {
             });
         }
         
-        // Apply adaptive numBands for strings shader on mobile devices
-        if (config.name === 'strings' && this.parameters.numBands !== undefined) {
-            this.parameters.numBands = this.getAdaptiveNumBands(this.parameters.numBands);
-        }
         this.startTime = Date.now();
         this.isInitialized = false;
         this.renderLoopId = null;
@@ -133,7 +132,7 @@ export class ShaderInstance {
         };
         this._lastBandData = null;
         
-        // Texture management for frequency visualizer
+        // Texture management for frequency visualizer (legacy - may be moved to plugins)
         this._frequencyTextures = {
             leftRight: null,   // RG texture: R=left, G=right (raw frequency data)
             layer1: null,      // Layer 1 smoothed heights
@@ -143,27 +142,11 @@ export class ShaderInstance {
         // Will be set from config parameter
         this._measuredBands = 24;  // Default number of bands we actually measure
         
-        // Tempo-based smoothing for refraction shader
-        this._refractionSmoothing = {
-            smoothedVolumeScale: 0.3,      // Smoothed volume scale (0.3 to 1.0)
-            smoothedFbmZoom: 1.0          // Smoothed FBM zoom factor (1.0 = normal)
-        };
+        // Create shader plugin for shader-specific functionality
+        this.plugin = createShaderPlugin(this, config);
         
-        // Tempo-based smoothing for strings shader (per-band smoothed values)
-        this._stringsSmoothing = {
-            smoothedLeftBands: null,   // Will be initialized when we know band count (for swing)
-            smoothedRightBands: null,  // Will be initialized when we know band count (for swing)
-            smoothedHeightLeftBands: null,   // Will be initialized when we know band count (for height)
-            smoothedHeightRightBands: null,  // Will be initialized when we know band count (for height)
-            smoothedNoiseAudioLevel: 0.0,  // Smoothed audio level for noise brightness
-            smoothedContrastAudioLevel: 0.0  // Smoothed audio level for contrast
-        };
-        
-        // Tempo-based smoothing for arc shader (per-band smoothed values)
-        this._arcSmoothing = {
-            smoothedLeftBands: null,   // Will be initialized when we know band count
-            smoothedRightBands: null   // Will be initialized when we know band count
-        };
+        // Uniform manager will be initialized after WebGL context is available
+        this.uniformManager = null;
     }
     
     /**
@@ -378,6 +361,14 @@ export class ShaderInstance {
         // Get uniform locations
         this.cacheUniformLocations();
         
+        // Initialize uniform manager
+        this.uniformManager = new UniformManager(this.gl, this.uniformLocations);
+        // Share lastValues reference for compatibility
+        this.uniformManager.lastValues = this._lastUniformValues;
+        
+        // Initialize texture manager
+        this.textureManager = new TextureManager(this.gl);
+        
         // Setup resize handler
         this.resize();
         window.addEventListener('resize', () => this.resize());
@@ -385,6 +376,11 @@ export class ShaderInstance {
         // Call custom init hook if provided
         if (this.config.onInit) {
             this.config.onInit(this);
+        }
+        
+        // Call plugin init hook
+        if (this.plugin) {
+            this.plugin.onInit();
         }
         
         this.isInitialized = true;
@@ -838,654 +834,62 @@ export class ShaderInstance {
         gl.useProgram(this.program);
         gl.viewport(0, 0, this.canvas.width, this.canvas.height);
         
-        // Set standard uniforms (with optimization: only update when values change)
-        const resolution = [this.canvas.width, this.canvas.height];
-        if (!this._lastUniformValues.uResolution || 
-            this._lastUniformValues.uResolution[0] !== resolution[0] ||
-            this._lastUniformValues.uResolution[1] !== resolution[1]) {
-            if (this.uniformLocations.uResolution) {
-                gl.uniform2f(this.uniformLocations.uResolution, resolution[0], resolution[1]);
-                this._lastUniformValues.uResolution = resolution;
-            }
-        }
-        
-        // Time always changes, so always update
-        if (this.uniformLocations.uTime) {
-            gl.uniform1f(this.uniformLocations.uTime, currentTime);
-        }
-        
-        // TimeOffset - use smoothed value to reduce jitter
-        const newTimeOffset = this.smoothedTimeOffset;
-        if (this._lastUniformValues.uTimeOffset !== newTimeOffset) {
-            if (this.uniformLocations.uTimeOffset) {
-                gl.uniform1f(this.uniformLocations.uTimeOffset, newTimeOffset);
-                this._lastUniformValues.uTimeOffset = newTimeOffset;
-            }
-        }
-        
-        // PixelSize - only update if changed
-        const dpr = window.devicePixelRatio || 1;
-        const basePixelSize = this.parameters.pixelSize || 1.0;
-        const scaledPixelSize = basePixelSize * this.pixelSizeMultiplier * dpr;
-        if (this._lastUniformValues.uPixelSize !== scaledPixelSize) {
-            if (this.uniformLocations.uPixelSize) {
-                gl.uniform1f(this.uniformLocations.uPixelSize, scaledPixelSize);
-                this._lastUniformValues.uPixelSize = scaledPixelSize;
-            }
-        }
-        
-        // DevicePixelRatio - only update if changed
-        if (this._lastUniformValues.uDevicePixelRatio !== dpr) {
-            if (this.uniformLocations.uDevicePixelRatio) {
-                gl.uniform1f(this.uniformLocations.uDevicePixelRatio, dpr);
-                this._lastUniformValues.uDevicePixelRatio = dpr;
-            }
-        }
-        
-        // Steps - hardcoded (no longer user-configurable)
-        const stepsValue = 5.0;
-        if (this._lastUniformValues.uSteps !== stepsValue) {
-            if (this.uniformLocations.uSteps) {
-                gl.uniform1f(this.uniformLocations.uSteps, stepsValue);
-                this._lastUniformValues.uSteps = stepsValue;
-            }
-        }
-        
-        // Dither strength - only update if parameter changed
-        const ditherStrengthValue = this.parameters.ditherStrength !== undefined ? this.parameters.ditherStrength : 3.0;
-        if (this._lastUniformValues.uDitherStrength !== ditherStrengthValue) {
-            if (this.uniformLocations.uDitherStrength) {
-                gl.uniform1f(this.uniformLocations.uDitherStrength, ditherStrengthValue);
-                this._lastUniformValues.uDitherStrength = ditherStrengthValue;
-            }
-        }
-        
-        // Transition width - only update if parameter changed
-        const transitionWidthValue = this.parameters.transitionWidth !== undefined ? this.parameters.transitionWidth : 0.005;
-        if (this._lastUniformValues.uTransitionWidth !== transitionWidthValue) {
-            if (this.uniformLocations.uTransitionWidth) {
-                gl.uniform1f(this.uniformLocations.uTransitionWidth, transitionWidthValue);
-                this._lastUniformValues.uTransitionWidth = transitionWidthValue;
-            }
-        }
-        
-        
-        // Mouse - always 0,0,0,0, but check if we need to update
-        if (!this._lastUniformValues.uMouse || 
-            this._lastUniformValues.uMouse[0] !== 0.0 ||
-            this._lastUniformValues.uMouse[1] !== 0.0 ||
-            this._lastUniformValues.uMouse[2] !== 0.0 ||
-            this._lastUniformValues.uMouse[3] !== 0.0) {
-            if (this.uniformLocations.uMouse) {
-                gl.uniform4f(this.uniformLocations.uMouse, 0.0, 0.0, 0.0, 0.0);
-                this._lastUniformValues.uMouse = [0.0, 0.0, 0.0, 0.0];
-            }
-        }
-        
-        // ShapeType - always 0, but check if we need to update
-        if (this._lastUniformValues.uShapeType !== 0) {
-            if (this.uniformLocations.uShapeType) {
-                gl.uniform1i(this.uniformLocations.uShapeType, 0);
-                this._lastUniformValues.uShapeType = 0;
-            }
-        }
-        
-        // Set ripple effect parameters - hardcoded (no longer user-configurable)
-        const rippleSpeed = 0.3;
-        if (this._lastUniformValues.uRippleSpeed !== rippleSpeed) {
-            if (this.uniformLocations.uRippleSpeed) {
-                gl.uniform1f(this.uniformLocations.uRippleSpeed, rippleSpeed);
-                this._lastUniformValues.uRippleSpeed = rippleSpeed;
-            }
-        }
-        
-        const rippleWidth = 0.1;
-        if (this._lastUniformValues.uRippleWidth !== rippleWidth) {
-            if (this.uniformLocations.uRippleWidth) {
-                gl.uniform1f(this.uniformLocations.uRippleWidth, rippleWidth);
-                this._lastUniformValues.uRippleWidth = rippleWidth;
-            }
-        }
-        
-        const rippleMinRadius = 0.15;
-        if (this._lastUniformValues.uRippleMinRadius !== rippleMinRadius) {
-            if (this.uniformLocations.uRippleMinRadius) {
-                gl.uniform1f(this.uniformLocations.uRippleMinRadius, rippleMinRadius);
-                this._lastUniformValues.uRippleMinRadius = rippleMinRadius;
-            }
-        }
-        
-        const rippleMaxRadius = 3.0;
-        if (this._lastUniformValues.uRippleMaxRadius !== rippleMaxRadius) {
-            if (this.uniformLocations.uRippleMaxRadius) {
-                gl.uniform1f(this.uniformLocations.uRippleMaxRadius, rippleMaxRadius);
-                this._lastUniformValues.uRippleMaxRadius = rippleMaxRadius;
-            }
-        }
-        
-        const rippleIntensityThreshold = 0.75;
-        if (this._lastUniformValues.uRippleIntensityThreshold !== rippleIntensityThreshold) {
-            if (this.uniformLocations.uRippleIntensityThreshold) {
-                gl.uniform1f(this.uniformLocations.uRippleIntensityThreshold, rippleIntensityThreshold);
-                this._lastUniformValues.uRippleIntensityThreshold = rippleIntensityThreshold;
-            }
-        }
-        
-        const rippleIntensity = 0.25;
-        if (this._lastUniformValues.uRippleIntensity !== rippleIntensity) {
-            if (this.uniformLocations.uRippleIntensity) {
-                gl.uniform1f(this.uniformLocations.uRippleIntensity, rippleIntensity);
-                this._lastUniformValues.uRippleIntensity = rippleIntensity;
-            }
-        }
-        
-        // Refraction shader parameters - only update if changed
-        // Use config defaults as fallback to match config file
-        if (this.uniformLocations.uOuterGridSize) {
-            const paramConfig = this.config.parameters?.outerGridSize;
-            const outerGridSize = this.parameters.outerGridSize !== undefined ? this.parameters.outerGridSize : (paramConfig?.default ?? 15.0);
-            if (this._lastUniformValues.uOuterGridSize !== outerGridSize) {
-                gl.uniform1f(this.uniformLocations.uOuterGridSize, outerGridSize);
-                this._lastUniformValues.uOuterGridSize = outerGridSize;
-            }
-        }
-        
-        if (this.uniformLocations.uInnerGridSize) {
-            const paramConfig = this.config.parameters?.innerGridSize;
-            const innerGridSize = this.parameters.innerGridSize !== undefined ? this.parameters.innerGridSize : (paramConfig?.default ?? 3.0);
-            if (this._lastUniformValues.uInnerGridSize !== innerGridSize) {
-                gl.uniform1f(this.uniformLocations.uInnerGridSize, innerGridSize);
-                this._lastUniformValues.uInnerGridSize = innerGridSize;
-            }
-        }
-        
-        if (this.uniformLocations.uBlurStrength) {
-            const paramConfig = this.config.parameters?.blurStrength;
-            const blurStrength = this.parameters.blurStrength !== undefined ? this.parameters.blurStrength : (paramConfig?.default ?? 18.0);
-            if (this._lastUniformValues.uBlurStrength !== blurStrength) {
-                gl.uniform1f(this.uniformLocations.uBlurStrength, blurStrength);
-                this._lastUniformValues.uBlurStrength = blurStrength;
-            }
-        }
-        
-        if (this.uniformLocations.uOffsetStrength) {
-            const paramConfig = this.config.parameters?.offsetStrength;
-            const offsetStrength = this.parameters.offsetStrength !== undefined ? this.parameters.offsetStrength : (paramConfig?.default ?? 0.2);
-            if (this._lastUniformValues.uOffsetStrength !== offsetStrength) {
-                gl.uniform1f(this.uniformLocations.uOffsetStrength, offsetStrength);
-                this._lastUniformValues.uOffsetStrength = offsetStrength;
-            }
-        }
-        
-        if (this.uniformLocations.uPixelizeLevels) {
-            const paramConfig = this.config.parameters?.pixelizeLevels;
-            const pixelizeLevels = this.parameters.pixelizeLevels !== undefined ? this.parameters.pixelizeLevels : (paramConfig?.default ?? 4.0);
-            if (this._lastUniformValues.uPixelizeLevels !== pixelizeLevels) {
-                gl.uniform1f(this.uniformLocations.uPixelizeLevels, pixelizeLevels);
-                this._lastUniformValues.uPixelizeLevels = pixelizeLevels;
-            }
-        }
-        
-        if (this.uniformLocations.uCellBrightnessVariation) {
-            const paramConfig = this.config.parameters?.cellBrightnessVariation;
-            const cellBrightnessVariation = this.parameters.cellBrightnessVariation !== undefined ? this.parameters.cellBrightnessVariation : (paramConfig?.default ?? 0.025);
-            if (this._lastUniformValues.uCellBrightnessVariation !== cellBrightnessVariation) {
-                gl.uniform1f(this.uniformLocations.uCellBrightnessVariation, cellBrightnessVariation);
-                this._lastUniformValues.uCellBrightnessVariation = cellBrightnessVariation;
-            }
-        }
-        
-        if (this.uniformLocations.uCellAnimNote1) {
-            const paramConfig = this.config.parameters?.cellAnimNote1;
-            const cellAnimNote1 = this.parameters.cellAnimNote1 !== undefined ? this.parameters.cellAnimNote1 : (paramConfig?.default ?? 4.0);
-            if (this._lastUniformValues.uCellAnimNote1 !== cellAnimNote1) {
-                gl.uniform1f(this.uniformLocations.uCellAnimNote1, cellAnimNote1);
-                this._lastUniformValues.uCellAnimNote1 = cellAnimNote1;
-            }
-        }
-        
-        if (this.uniformLocations.uCellAnimNote2) {
-            const paramConfig = this.config.parameters?.cellAnimNote2;
-            const cellAnimNote2 = this.parameters.cellAnimNote2 !== undefined ? this.parameters.cellAnimNote2 : (paramConfig?.default ?? 2.0);
-            if (this._lastUniformValues.uCellAnimNote2 !== cellAnimNote2) {
-                gl.uniform1f(this.uniformLocations.uCellAnimNote2, cellAnimNote2);
-                this._lastUniformValues.uCellAnimNote2 = cellAnimNote2;
-            }
-        }
-        
-        if (this.uniformLocations.uCellAnimNote3) {
-            const paramConfig = this.config.parameters?.cellAnimNote3;
-            const cellAnimNote3 = this.parameters.cellAnimNote3 !== undefined ? this.parameters.cellAnimNote3 : (paramConfig?.default ?? 1.0);
-            if (this._lastUniformValues.uCellAnimNote3 !== cellAnimNote3) {
-                gl.uniform1f(this.uniformLocations.uCellAnimNote3, cellAnimNote3);
-                this._lastUniformValues.uCellAnimNote3 = cellAnimNote3;
-            }
-        }
-        
-        if (this.uniformLocations.uDistortionStrength) {
-            const paramConfig = this.config.parameters?.distortionStrength;
-            const distortionStrength = this.parameters.distortionStrength !== undefined ? this.parameters.distortionStrength : (paramConfig?.default ?? 1.0);
-            if (this._lastUniformValues.uDistortionStrength !== distortionStrength) {
-                gl.uniform1f(this.uniformLocations.uDistortionStrength, distortionStrength);
-                this._lastUniformValues.uDistortionStrength = distortionStrength;
-            }
-        }
-        
-        if (this.uniformLocations.uDistortionSize) {
-            const paramConfig = this.config.parameters?.distortionSize;
-            const distortionSize = this.parameters.distortionSize !== undefined ? this.parameters.distortionSize : (paramConfig?.default ?? 1.0);
-            if (this._lastUniformValues.uDistortionSize !== distortionSize) {
-                gl.uniform1f(this.uniformLocations.uDistortionSize, distortionSize);
-                this._lastUniformValues.uDistortionSize = distortionSize;
-            }
-        }
-        
-        if (this.uniformLocations.uDistortionFalloff) {
-            const paramConfig = this.config.parameters?.distortionFalloff;
-            const distortionFalloff = this.parameters.distortionFalloff !== undefined ? this.parameters.distortionFalloff : (paramConfig?.default ?? 2.0);
-            if (this._lastUniformValues.uDistortionFalloff !== distortionFalloff) {
-                gl.uniform1f(this.uniformLocations.uDistortionFalloff, distortionFalloff);
-                this._lastUniformValues.uDistortionFalloff = distortionFalloff;
-            }
-        }
-        
-        if (this.uniformLocations.uDistortionPerspectiveStrength) {
-            const paramConfig = this.config.parameters?.distortionPerspectiveStrength;
-            const distortionPerspectiveStrength = this.parameters.distortionPerspectiveStrength !== undefined ? this.parameters.distortionPerspectiveStrength : (paramConfig?.default ?? 1.0);
-            if (this._lastUniformValues.uDistortionPerspectiveStrength !== distortionPerspectiveStrength) {
-                gl.uniform1f(this.uniformLocations.uDistortionPerspectiveStrength, distortionPerspectiveStrength);
-                this._lastUniformValues.uDistortionPerspectiveStrength = distortionPerspectiveStrength;
-            }
-        }
-        
-        if (this.uniformLocations.uDistortionEasing) {
-            const paramConfig = this.config.parameters?.distortionEasing;
-            const distortionEasing = this.parameters.distortionEasing !== undefined ? this.parameters.distortionEasing : (paramConfig?.default ?? 1.0);
-            if (this._lastUniformValues.uDistortionEasing !== distortionEasing) {
-                gl.uniform1f(this.uniformLocations.uDistortionEasing, distortionEasing);
-                this._lastUniformValues.uDistortionEasing = distortionEasing;
-            }
-        }
-        
-        
-        // Set multiple ripple arrays (if available from audioData)
-        // Use pooled arrays instead of creating new ones (performance optimization)
-        if (audioData && audioData.rippleData) {
-            const rippleData = audioData.rippleData;
-            const maxRipples = 12;
+        // Update uniforms using UniformManager
+        if (this.uniformManager) {
+            const resolution = [this.canvas.width, this.canvas.height];
             
-            // Reuse pooled arrays
-            const centerX = this._rippleArrays.centerX;
-            const centerY = this._rippleArrays.centerY;
-            const times = this._rippleArrays.times;
-            const intensities = this._rippleArrays.intensities;
-            const widths = this._rippleArrays.widths;
-            const minRadii = this._rippleArrays.minRadii;
-            const maxRadii = this._rippleArrays.maxRadii;
-            const intensityMultipliers = this._rippleArrays.intensityMultipliers;
-            const active = this._rippleArrays.active;
-            
-            // Zero out arrays first
-            centerX.fill(0);
-            centerY.fill(0);
-            times.fill(0);
-            intensities.fill(0);
-            widths.fill(0);
-            minRadii.fill(0);
-            maxRadii.fill(0);
-            intensityMultipliers.fill(0);
-            active.fill(0);
-            
-            // Split centers array into separate x and y arrays
-            for (let i = 0; i < maxRipples; i++) {
-                const idx = i * 2;
-                centerX[i] = rippleData.centers[idx] || 0;
-                centerY[i] = rippleData.centers[idx + 1] || 0;
-            }
-            
-            // Fill arrays from ripple data
-            const rippleTimes = rippleData.times || [];
-            const rippleIntensities = rippleData.intensities || [];
-            const rippleWidths = rippleData.widths || [];
-            const rippleMinRadii = rippleData.minRadii || [];
-            const rippleMaxRadii = rippleData.maxRadii || [];
-            const rippleIntensityMultipliers = rippleData.intensityMultipliers || [];
-            const rippleActive = rippleData.active || [];
-            
-            for (let i = 0; i < maxRipples; i++) {
-                times[i] = rippleTimes[i] || 0;
-                intensities[i] = rippleIntensities[i] || 0;
-                widths[i] = rippleWidths[i] || 0;
-                minRadii[i] = rippleMinRadii[i] || 0;
-                maxRadii[i] = rippleMaxRadii[i] || 0;
-                intensityMultipliers[i] = rippleIntensityMultipliers[i] || 0;
-                active[i] = rippleActive[i] || 0;
-            }
-            
-            // Always update ripple arrays (they change every frame)
-            if (this.uniformLocations.uRippleCenterX) {
-                gl.uniform1fv(this.uniformLocations.uRippleCenterX, centerX);
-            }
-            if (this.uniformLocations.uRippleCenterY) {
-                gl.uniform1fv(this.uniformLocations.uRippleCenterY, centerY);
-            }
-            if (this.uniformLocations.uRippleTimes) {
-                gl.uniform1fv(this.uniformLocations.uRippleTimes, times);
-            }
-            if (this.uniformLocations.uRippleIntensities) {
-                gl.uniform1fv(this.uniformLocations.uRippleIntensities, intensities);
-            }
-            if (this.uniformLocations.uRippleWidths) {
-                gl.uniform1fv(this.uniformLocations.uRippleWidths, widths);
-            }
-            if (this.uniformLocations.uRippleMinRadii) {
-                gl.uniform1fv(this.uniformLocations.uRippleMinRadii, minRadii);
-            }
-            if (this.uniformLocations.uRippleMaxRadii) {
-                gl.uniform1fv(this.uniformLocations.uRippleMaxRadii, maxRadii);
-            }
-            if (this.uniformLocations.uRippleIntensityMultipliers) {
-                gl.uniform1fv(this.uniformLocations.uRippleIntensityMultipliers, intensityMultipliers);
-            }
-            if (this.uniformLocations.uRippleActive) {
-                gl.uniform1fv(this.uniformLocations.uRippleActive, active);
-            }
-            if (this.uniformLocations.uRippleCount) {
-                gl.uniform1i(this.uniformLocations.uRippleCount, rippleData.count || 0);
-            }
-        } else {
-            // Set empty arrays if no ripple data (reuse pooled arrays)
-            const emptyArray = this._rippleArrays.centerX; // Reuse any pooled array
-            emptyArray.fill(0);
-            if (this.uniformLocations.uRippleCenterX) {
-                gl.uniform1fv(this.uniformLocations.uRippleCenterX, emptyArray);
-            }
-            if (this.uniformLocations.uRippleCenterY) {
-                gl.uniform1fv(this.uniformLocations.uRippleCenterY, emptyArray);
-            }
-            if (this.uniformLocations.uRippleTimes) {
-                gl.uniform1fv(this.uniformLocations.uRippleTimes, emptyArray);
-            }
-            if (this.uniformLocations.uRippleIntensities) {
-                gl.uniform1fv(this.uniformLocations.uRippleIntensities, emptyArray);
-            }
-            if (this.uniformLocations.uRippleActive) {
-                gl.uniform1fv(this.uniformLocations.uRippleActive, emptyArray);
-            }
-            if (this.uniformLocations.uRippleCount) {
-                gl.uniform1i(this.uniformLocations.uRippleCount, 0);
-            }
-        }
-        
-        // Set color uniforms with smooth transitions
-        if (colors) {
-            // Get interpolated colors (handles smooth transitions)
-            const activeColors = this.getInterpolatedColors();
-            
-            const colorUniforms = ['uColor', 'uColor2', 'uColor3', 'uColor4', 'uColor5', 
-                                  'uColor6', 'uColor7', 'uColor8', 'uColor9', 'uColor10'];
-            const colorKeys = ['color', 'color2', 'color3', 'color4', 'color5', 
-                              'color6', 'color7', 'color8', 'color9', 'color10'];
-            
-            colorUniforms.forEach((uniformName, index) => {
-                const location = this.uniformLocations[uniformName];
-                const colorKey = colorKeys[index];
-                if (location && activeColors[colorKey]) {
-                    const color = activeColors[colorKey];
-                    // During transition, always update colors (they change every frame)
-                    // When not transitioning, only update if changed
-                    const lastColor = this._lastUniformValues[uniformName];
-                    const shouldUpdate = this._colorTransition.isTransitioning || 
-                                       !lastColor || 
-                                       lastColor[0] !== color[0] || 
-                                       lastColor[1] !== color[1] || 
-                                       lastColor[2] !== color[2];
-                    
-                    if (shouldUpdate) {
-                        gl.uniform3f(location, color[0], color[1], color[2]);
-                        this._lastUniformValues[uniformName] = [color[0], color[1], color[2]];
-                    }
-                }
-            });
-        }
-        
-        // Handle strings shader frequency texture
-        if (this.config.name === 'strings' && audioData && audioData.audioContext) {
-            const deltaTime = elapsed / 1000.0;
-            this.updateStringsFrequencyTexture(audioData, deltaTime);
-        }
-        
-        // Handle arc shader frequency texture
-        if (this.config.name === 'arc' && audioData && audioData.audioContext) {
-            const deltaTime = elapsed / 1000.0;
-            this.updateArcsFrequencyTexture(audioData, deltaTime);
-        }
-        
-        // Handle strings tempo-based smoothing (noise brightness)
-        if (this.config.name === 'strings' && audioData) {
-            const deltaTime = elapsed / 1000.0;
-            const bpm = audioData.estimatedBPM || 0;
-            
-            // Smooth noise audio level for brightness modulation
-            let targetAudioLevel = 0.0;
-            const audioSource = this.parameters.backgroundNoiseAudioSource !== undefined 
-                ? this.parameters.backgroundNoiseAudioSource : 0;
-            
-            if (audioSource === 0) {
-                targetAudioLevel = audioData.volume || 0;
-            } else if (audioSource === 1) {
-                targetAudioLevel = audioData.bass || 0;
-            } else if (audioSource === 2) {
-                targetAudioLevel = audioData.mid || 0;
-            } else if (audioSource === 3) {
-                targetAudioLevel = audioData.treble || 0;
-            }
-            targetAudioLevel = Math.max(0, Math.min(1, targetAudioLevel));
-            
-            // Get attack/release from config parameters (NEW - use config instead of global)
-            const noiseAttackNote = this.parameters.noiseAudioAttackNote !== undefined
-                ? this.parameters.noiseAudioAttackNote
-                : TempoSmoothingConfig.noiseBrightness.attackNote;
-            const noiseReleaseNote = this.parameters.noiseAudioReleaseNote !== undefined
-                ? this.parameters.noiseAudioReleaseNote
-                : TempoSmoothingConfig.noiseBrightness.releaseNote;
-            
-            const attackTime = getTempoRelativeTimeConstant(
-                noiseAttackNote,
-                bpm,
-                TempoSmoothingConfig.noiseBrightness.attackTimeFallback
-            );
-            const releaseTime = getTempoRelativeTimeConstant(
-                noiseReleaseNote,
-                bpm,
-                TempoSmoothingConfig.noiseBrightness.releaseTimeFallback
-            );
-            this._stringsSmoothing.smoothedNoiseAudioLevel = applyTempoRelativeSmoothing(
-                this._stringsSmoothing.smoothedNoiseAudioLevel,
-                targetAudioLevel,
-                deltaTime,
-                attackTime,
-                releaseTime
+            // Update standard uniforms
+            this.uniformManager.updateStandardUniforms(
+                this.parameters,
+                currentTime,
+                this.smoothedTimeOffset,
+                this.pixelSizeMultiplier,
+                resolution
             );
             
-            // Validate smoothedNoiseAudioLevel to prevent NaN/infinity
-            if (!isFinite(this._stringsSmoothing.smoothedNoiseAudioLevel)) {
-                this._stringsSmoothing.smoothedNoiseAudioLevel = 0.0;
-            }
-            // Clamp to valid range
-            this._stringsSmoothing.smoothedNoiseAudioLevel = Math.max(0, Math.min(1, this._stringsSmoothing.smoothedNoiseAudioLevel));
+            // Update parameter uniforms
+            this.uniformManager.updateParameterUniforms(this.parameters, this.config);
             
-            // Smooth contrast audio level for contrast modulation
-            let targetContrastAudioLevel = 0.0;
-            const contrastAudioSource = this.parameters.contrastAudioSource !== undefined 
-                ? this.parameters.contrastAudioSource : 0;
-            
-            if (contrastAudioSource === 0) {
-                targetContrastAudioLevel = audioData.volume || 0;
-            } else if (contrastAudioSource === 1) {
-                targetContrastAudioLevel = audioData.bass || 0;
-            } else if (contrastAudioSource === 2) {
-                targetContrastAudioLevel = audioData.mid || 0;
-            } else if (contrastAudioSource === 3) {
-                targetContrastAudioLevel = audioData.treble || 0;
-            }
-            targetContrastAudioLevel = Math.max(0, Math.min(1, targetContrastAudioLevel));
-            
-            // Get attack/release from config parameters
-            const contrastAttackNote = this.parameters.contrastAudioAttackNote !== undefined
-                ? this.parameters.contrastAudioAttackNote
-                : TempoSmoothingConfig.contrast.attackNote;
-            const contrastReleaseNote = this.parameters.contrastAudioReleaseNote !== undefined
-                ? this.parameters.contrastAudioReleaseNote
-                : TempoSmoothingConfig.contrast.releaseNote;
-            
-            const contrastAttackTime = getTempoRelativeTimeConstant(
-                contrastAttackNote,
-                bpm,
-                TempoSmoothingConfig.contrast.attackTimeFallback
-            );
-            const contrastReleaseTime = getTempoRelativeTimeConstant(
-                contrastReleaseNote,
-                bpm,
-                TempoSmoothingConfig.contrast.releaseTimeFallback
+            // Update ripple uniforms
+            this.uniformManager.updateRippleUniforms(
+                audioData?.rippleData,
+                this._rippleArrays
             );
             
-            this._stringsSmoothing.smoothedContrastAudioLevel = applyTempoRelativeSmoothing(
-                this._stringsSmoothing.smoothedContrastAudioLevel,
-                targetContrastAudioLevel,
-                deltaTime,
-                contrastAttackTime,
-                contrastReleaseTime
+            // Update color uniforms
+            this.uniformManager.updateColorUniforms(
+                colors,
+                () => this.getInterpolatedColors(),
+                this._colorTransition
             );
             
-            // Validate to prevent NaN/infinity
-            if (!isFinite(this._stringsSmoothing.smoothedContrastAudioLevel)) {
-                this._stringsSmoothing.smoothedContrastAudioLevel = 0.0;
-            }
-            // Clamp to valid range
-            this._stringsSmoothing.smoothedContrastAudioLevel = Math.max(0, Math.min(1, this._stringsSmoothing.smoothedContrastAudioLevel));
+            // Update audio uniforms
+            this.uniformManager.updateAudioUniforms(
+                audioData,
+                this.config.uniformMapping,
+                this.parameters
+            );
         }
         
-        // Handle refraction tempo-based smoothing
-        if (this.config.name === 'refraction' && audioData) {
-            const deltaTime = elapsed / 1000.0;
-            const bpm = audioData.estimatedBPM || 0;
-            
-            // Smooth volume scale (0.3 + volume * 0.7)
-            const targetVolumeScale = 0.3 + (audioData.volume || 0) * 0.7;
-            const feedConfig = TempoSmoothingConfig.feed;
-            const feedAttackTime = getTempoRelativeTimeConstant(
-                feedConfig.attackNote,
-                bpm,
-                feedConfig.attackTimeFallback
-            );
-            const feedReleaseTime = getTempoRelativeTimeConstant(
-                feedConfig.releaseNote,
-                bpm,
-                feedConfig.releaseTimeFallback
-            );
-            this._refractionSmoothing.smoothedVolumeScale = applyTempoRelativeSmoothing(
-                this._refractionSmoothing.smoothedVolumeScale,
-                targetVolumeScale,
-                deltaTime,
-                feedAttackTime,
-                feedReleaseTime
-            );
-            
-            // Smooth FBM zoom factor (1.0 = normal, maxZoom = zoomed out)
-            // Calculate target zoom based on recent beats with intensity-based scaling
-            const maxZoom = 2.0; // Maximum zoom factor (zoomed out)
-            
-            // Check for recent bass or mid beats and get their intensities
-            let maxBeatIntensity = 0.0;
-            const bassBeatAge = audioData.beatTimeBass || 999.0;
-            const midBeatAge = audioData.beatTimeMid || 999.0;
-            
-            // Check bass beat (primary trigger)
-            if (bassBeatAge < 0.3 && audioData.beatIntensityBass > 0.5) {
-                maxBeatIntensity = Math.max(maxBeatIntensity, audioData.beatIntensityBass);
-            }
-            
-            // Check mid beat (secondary trigger)
-            if (midBeatAge < 0.3 && audioData.beatIntensityMid > 0.5) {
-                maxBeatIntensity = Math.max(maxBeatIntensity, audioData.beatIntensityMid);
-            }
-            
-            // Scale zoom from 1.0 (no beat) to maxZoom (strong beat) based on intensity
-            // Intensity is 0.5-1.0, so map it to 0.0-1.0 range, then scale to zoom range
-            const intensityFactor = maxBeatIntensity > 0.0 
-                ? (maxBeatIntensity - 0.5) / 0.5  // Map 0.5-1.0 to 0.0-1.0
-                : 0.0;
-            const targetZoom = 1.0 + (maxZoom - 1.0) * intensityFactor;
-            
-            const zoomConfig = TempoSmoothingConfig.fbmZoom;
-            const zoomAttackTime = getTempoRelativeTimeConstant(
-                zoomConfig.attackNote,
-                bpm,
-                zoomConfig.attackTimeFallback
-            );
-            const zoomReleaseTime = getTempoRelativeTimeConstant(
-                zoomConfig.releaseNote,
-                bpm,
-                zoomConfig.releaseTimeFallback
-            );
-            this._refractionSmoothing.smoothedFbmZoom = applyTempoRelativeSmoothing(
-                this._refractionSmoothing.smoothedFbmZoom,
-                targetZoom,
-                deltaTime,
-                zoomAttackTime,
-                zoomReleaseTime
-            );
-            
-            // Set smoothed uniforms
-            if (this.uniformLocations.uSmoothedVolumeScale) {
-                gl.uniform1f(this.uniformLocations.uSmoothedVolumeScale, this._refractionSmoothing.smoothedVolumeScale);
-            }
-            if (this.uniformLocations.uSmoothedFbmZoom) {
-                gl.uniform1f(this.uniformLocations.uSmoothedFbmZoom, this._refractionSmoothing.smoothedFbmZoom);
-            }
+        // Call plugin hooks for shader-specific updates
+        const deltaTime = elapsed / 1000.0;
+        
+        // Update textures (frequency textures, etc.)
+        if (this.plugin && audioData) {
+            this.plugin.onUpdateTextures(audioData, deltaTime);
         }
         
-        // Set audio uniforms using uniform mapping (only update when values change)
-        if (audioData && this.config.uniformMapping) {
-            Object.entries(this.config.uniformMapping).forEach(([uniformName, mapper]) => {
-                const location = this.uniformLocations[uniformName];
-                // Calculate value (mappers may have side effects, so always call)
-                const value = mapper(audioData, this.parameters);
-                
-                if (location !== null && location !== undefined) {
-                    // Check if value has changed
-                    const lastValue = this._lastUniformValues[uniformName];
-                    let valueChanged = true;
-                    
-                    if (typeof value === 'number') {
-                        valueChanged = lastValue !== value;
-                        if (valueChanged) {
-                            gl.uniform1f(location, value);
-                            this._lastUniformValues[uniformName] = value;
-                        }
-                    } else if (Array.isArray(value) && value.length === 2) {
-                        valueChanged = !lastValue || lastValue[0] !== value[0] || lastValue[1] !== value[1];
-                        if (valueChanged) {
-                            gl.uniform2f(location, value[0], value[1]);
-                            this._lastUniformValues[uniformName] = [value[0], value[1]];
-                        }
-                    } else if (Array.isArray(value) && value.length === 3) {
-                        valueChanged = !lastValue || lastValue[0] !== value[0] || lastValue[1] !== value[1] || lastValue[2] !== value[2];
-                        if (valueChanged) {
-                            gl.uniform3f(location, value[0], value[1], value[2]);
-                            this._lastUniformValues[uniformName] = [value[0], value[1], value[2]];
-                        }
-                    } else if (Array.isArray(value) && value.length === 4) {
-                        valueChanged = !lastValue || lastValue[0] !== value[0] || lastValue[1] !== value[1] || lastValue[2] !== value[2] || lastValue[3] !== value[3];
-                        if (valueChanged) {
-                            gl.uniform4f(location, value[0], value[1], value[2], value[3]);
-                            this._lastUniformValues[uniformName] = [value[0], value[1], value[2], value[3]];
-                        }
-                    }
-                }
-            });
+        // Update smoothing (tempo-based smoothing)
+        if (this.plugin && audioData) {
+            this.plugin.updateSmoothing(audioData, deltaTime);
         }
+        
+        // Update plugin-specific uniforms
+        if (this.plugin) {
+            this.plugin.onUpdateUniforms(audioData, colors, deltaTime);
+        }
+        
+        // Audio uniforms are now handled by UniformManager above
         // Setup quad
         gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer);
         const positionLocation = this.uniformLocations.a_position;
@@ -1783,700 +1187,13 @@ export class ShaderInstance {
         }
     }
     
-    /**
-     * Create or update a frequency data texture
-     * @param {WebGLRenderingContext} gl - WebGL context
-     * @param {Float32Array} data - Texture data (interleaved RG channels)
-     * @param {number} width - Texture width (number of bands)
-     * @param {WebGLTexture} existingTexture - Existing texture to update, or null to create new
-     * @returns {WebGLTexture} The texture
-     */
-    _createFrequencyTexture(gl, data, width, existingTexture = null) {
-        // Check for float texture support
-        const floatTextureExt = gl.getExtension('OES_texture_float');
-        const useFloat = !!floatTextureExt;
-        
-        const texture = existingTexture || gl.createTexture();
-        gl.bindTexture(gl.TEXTURE_2D, texture);
-        
-        if (useFloat) {
-            // Use LUMINANCE_ALPHA format with FLOAT: LUMINANCE = left channel, ALPHA = right channel
-            if (!existingTexture) {
-                gl.texImage2D(
-                    gl.TEXTURE_2D,
-                    0,
-                    gl.LUMINANCE_ALPHA,
-                    width,
-                    1,
-                    0,
-                    gl.LUMINANCE_ALPHA,
-                    gl.FLOAT,
-                    data
-                );
-            } else {
-                gl.texSubImage2D(
-                    gl.TEXTURE_2D,
-                    0,
-                    0, 0,
-                    width,
-                    1,
-                    gl.LUMINANCE_ALPHA,
-                    gl.FLOAT,
-                    data
-                );
-            }
-        } else {
-            // Fallback: convert to UNSIGNED_BYTE (0-255 range)
-            const byteData = new Uint8Array(data.length);
-            for (let i = 0; i < data.length; i++) {
-                byteData[i] = Math.floor(Math.max(0, Math.min(255, data[i] * 255.0)));
-            }
-            
-            if (!existingTexture) {
-                gl.texImage2D(
-                    gl.TEXTURE_2D,
-                    0,
-                    gl.LUMINANCE_ALPHA,
-                    width,
-                    1,
-                    0,
-                    gl.LUMINANCE_ALPHA,
-                    gl.UNSIGNED_BYTE,
-                    byteData
-                );
-            } else {
-                gl.texSubImage2D(
-                    gl.TEXTURE_2D,
-                    0,
-                    0, 0,
-                    width,
-                    1,
-                    gl.LUMINANCE_ALPHA,
-                    gl.UNSIGNED_BYTE,
-                    byteData
-                );
-            }
-        }
-        
-        // Enable linear filtering for smooth interpolation
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-        
-        return texture;
-    }
-    
-    /**
-     * Update frequency texture for strings shader
-     * @param {Object} audioData - Audio data from AudioAnalyzer
-     * @param {number} deltaTime - Time since last update in seconds
-     */
-    updateStringsFrequencyTexture(audioData, deltaTime = 0.016) {
-        // Get measured bands from config
-        const measuredBands = this.parameters.measuredBands !== undefined 
-            ? this.parameters.measuredBands 
-            : (this._measuredBands || 32);
-        this._measuredBands = measuredBands;
-        
-        // Initialize smoothed band arrays if needed
-        if (!this._stringsSmoothing.smoothedLeftBands || 
-            this._stringsSmoothing.smoothedLeftBands.length !== measuredBands) {
-            this._stringsSmoothing.smoothedLeftBands = new Float32Array(measuredBands);
-            this._stringsSmoothing.smoothedRightBands = new Float32Array(measuredBands);
-            // Add separate arrays for height smoothing
-            this._stringsSmoothing.smoothedHeightLeftBands = new Float32Array(measuredBands);
-            this._stringsSmoothing.smoothedHeightRightBands = new Float32Array(measuredBands);
-        }
-        
-        // Calculate configurable bands
-        let bandData;
-        if (audioData.audioContext && audioData.frequencyData) {
-            if (this._audioAnalyzer && typeof this._audioAnalyzer.calculateConfigurableBands === 'function') {
-                bandData = this._audioAnalyzer.calculateConfigurableBands(measuredBands);
-            } else if (audioData.leftFrequencyData && audioData.rightFrequencyData) {
-                // Fallback: calculate directly
-                const sampleRate = audioData.audioContext?.sampleRate || 44100;
-                const nyquist = sampleRate / 2;
-                const binSize = nyquist / audioData.frequencyData.length;
-                const hzToBin = (hz) => Math.floor(hz / binSize);
-                const getAverage = (data, start, end) => {
-                    let sum = 0;
-                    const count = Math.min(end, data.length - 1) - start + 1;
-                    if (count <= 0) return 0;
-                    for (let i = start; i <= end && i < data.length; i++) {
-                        sum += data[i];
-                    }
-                    return sum / count / 255.0;
-                };
-                
-                const minFreq = 20;
-                const maxFreq = nyquist;
-                const leftBands = new Float32Array(measuredBands);
-                const rightBands = new Float32Array(measuredBands);
-                
-                for (let i = 0; i < measuredBands; i++) {
-                    const t = i / (measuredBands - 1);
-                    const freqStart = minFreq * Math.pow(maxFreq / minFreq, t);
-                    const freqEnd = (i === measuredBands - 1) 
-                        ? maxFreq 
-                        : minFreq * Math.pow(maxFreq / minFreq, (i + 1) / (measuredBands - 1));
-                    const binStart = hzToBin(freqStart);
-                    const binEnd = Math.min(hzToBin(freqEnd), audioData.leftFrequencyData.length - 1);
-                    leftBands[i] = getAverage(audioData.leftFrequencyData, binStart, binEnd);
-                    rightBands[i] = getAverage(audioData.rightFrequencyData, binStart, binEnd);
-                }
-                
-                bandData = { leftBands, rightBands, numBands: measuredBands };
-            } else {
-                return;
-            }
-        } else {
-            return;
-        }
-        
-        // Get attack/release note values for string swing (existing)
-        const swingAttackNote = this.parameters.stringSwingAttackNote !== undefined
-            ? this.parameters.stringSwingAttackNote
-            : TempoSmoothingConfig.strings.attackNote;
-        const swingReleaseNote = this.parameters.stringSwingReleaseNote !== undefined
-            ? this.parameters.stringSwingReleaseNote
-            : TempoSmoothingConfig.strings.releaseNote;
-        
-        // Get attack/release note values for string height (NEW)
-        const heightAttackNote = this.parameters.stringHeightAttackNote !== undefined
-            ? this.parameters.stringHeightAttackNote
-            : TempoSmoothingConfig.strings.attackNote; // fallback to strings default
-        const heightReleaseNote = this.parameters.stringHeightReleaseNote !== undefined
-            ? this.parameters.stringHeightReleaseNote
-            : TempoSmoothingConfig.strings.releaseNote; // fallback to strings default
-        
-        // Calculate tempo-relative time constants for swing
-        const bpm = audioData.estimatedBPM || 0;
-        const swingAttackTimeConstant = getTempoRelativeTimeConstant(
-            swingAttackNote,
-            bpm,
-            TempoSmoothingConfig.strings.attackTimeFallback
-        );
-        const swingReleaseTimeConstant = getTempoRelativeTimeConstant(
-            swingReleaseNote,
-            bpm,
-            TempoSmoothingConfig.strings.releaseTimeFallback
-        );
-        
-        // Calculate tempo-relative time constants for height (NEW)
-        const heightAttackTimeConstant = getTempoRelativeTimeConstant(
-            heightAttackNote,
-            bpm,
-            TempoSmoothingConfig.strings.attackTimeFallback
-        );
-        const heightReleaseTimeConstant = getTempoRelativeTimeConstant(
-            heightReleaseNote,
-            bpm,
-            TempoSmoothingConfig.strings.releaseTimeFallback
-        );
-        
-        // Apply smoothing to each band
-        for (let i = 0; i < measuredBands; i++) {
-            // Smooth left channel for swing
-            this._stringsSmoothing.smoothedLeftBands[i] = applyTempoRelativeSmoothing(
-                this._stringsSmoothing.smoothedLeftBands[i],
-                bandData.leftBands[i],
-                deltaTime,
-                swingAttackTimeConstant,
-                swingReleaseTimeConstant
-            );
-            
-            // Smooth right channel for swing
-            this._stringsSmoothing.smoothedRightBands[i] = applyTempoRelativeSmoothing(
-                this._stringsSmoothing.smoothedRightBands[i],
-                bandData.rightBands[i],
-                deltaTime,
-                swingAttackTimeConstant,
-                swingReleaseTimeConstant
-            );
-            
-            // Smooth left channel for height (NEW)
-            this._stringsSmoothing.smoothedHeightLeftBands[i] = applyTempoRelativeSmoothing(
-                this._stringsSmoothing.smoothedHeightLeftBands[i],
-                bandData.leftBands[i],
-                deltaTime,
-                heightAttackTimeConstant,
-                heightReleaseTimeConstant
-            );
-            
-            // Smooth right channel for height (NEW)
-            this._stringsSmoothing.smoothedHeightRightBands[i] = applyTempoRelativeSmoothing(
-                this._stringsSmoothing.smoothedHeightRightBands[i],
-                bandData.rightBands[i],
-                deltaTime,
-                heightAttackTimeConstant,
-                heightReleaseTimeConstant
-            );
-        }
-        
-        // Create texture data: LUMINANCE = left, ALPHA = right (using smoothed values)
-        const leftRightData = new Float32Array(measuredBands * 2);
-        for (let i = 0; i < measuredBands; i++) {
-            leftRightData[i * 2] = this._stringsSmoothing.smoothedLeftBands[i];      // LUMINANCE = left
-            leftRightData[i * 2 + 1] = this._stringsSmoothing.smoothedRightBands[i]; // ALPHA = right
-        }
-        
-        // Create or update texture
-        const gl = this.gl;
-        this._frequencyTextures.leftRight = this._createFrequencyTexture(
-            gl, 
-            leftRightData, 
-            measuredBands,
-            this._frequencyTextures.leftRight
-        );
-        
-        // Set texture uniform
-        gl.activeTexture(gl.TEXTURE0);
-        gl.bindTexture(gl.TEXTURE_2D, this._frequencyTextures.leftRight);
-        if (this.uniformLocations.uFrequencyTexture) {
-            gl.uniform1i(this.uniformLocations.uFrequencyTexture, 0);
-        }
-        
-        // Create separate texture for height: LUMINANCE = left (height), ALPHA = right (height) (NEW)
-        const heightData = new Float32Array(measuredBands * 2);
-        for (let i = 0; i < measuredBands; i++) {
-            heightData[i * 2] = this._stringsSmoothing.smoothedHeightLeftBands[i];
-            heightData[i * 2 + 1] = this._stringsSmoothing.smoothedHeightRightBands[i];
-        }
-        
-        // Create or update height texture
-        this._frequencyTextures.height = this._createFrequencyTexture(
-            gl, 
-            heightData, 
-            measuredBands,
-            this._frequencyTextures.height
-        );
-        
-        // Set height texture uniform
-        gl.activeTexture(gl.TEXTURE1);
-        gl.bindTexture(gl.TEXTURE_2D, this._frequencyTextures.height);
-        if (this.uniformLocations.uHeightTexture) {
-            gl.uniform1i(this.uniformLocations.uHeightTexture, 1);
-        }
-        
-        // Set measured bands uniform
-        if (this.uniformLocations.uMeasuredBands) {
-            gl.uniform1f(this.uniformLocations.uMeasuredBands, measuredBands);
-        }
-        
-        // Set visual bands uniform (use adaptive value for strings shader)
-        let visualBands = this.parameters.numBands || 64;
-        if (this.parameters.numBands !== undefined) {
-            visualBands = this.getAdaptiveNumBands(this.parameters.numBands);
-        }
-        if (this.uniformLocations.uNumBands) {
-            gl.uniform1i(this.uniformLocations.uNumBands, visualBands);
-        }
-        
-        // Set arc parameters
-        if (this.uniformLocations.uBaseRadius) {
-            gl.uniform1f(this.uniformLocations.uBaseRadius, this.parameters.baseRadius !== undefined ? this.parameters.baseRadius : 0.3);
-        }
-        if (this.uniformLocations.uMaxRadiusOffset) {
-            gl.uniform1f(this.uniformLocations.uMaxRadiusOffset, this.parameters.maxRadiusOffset !== undefined ? this.parameters.maxRadiusOffset : 0.2);
-        }
-        if (this.uniformLocations.uCenterX) {
-            gl.uniform1f(this.uniformLocations.uCenterX, this.parameters.centerX !== undefined ? this.parameters.centerX : 0.5);
-        }
-        if (this.uniformLocations.uCenterY) {
-            gl.uniform1f(this.uniformLocations.uCenterY, this.parameters.centerY !== undefined ? this.parameters.centerY : 0.5);
-        }
-        
-        // Set arc parameters (already set above, but keeping for consistency)
-        
-        // Set string parameters
-        if (this.uniformLocations.uMinStringWidth) {
-            gl.uniform1f(this.uniformLocations.uMinStringWidth, this.parameters.minStringWidth !== undefined ? this.parameters.minStringWidth : 1.0);
-        }
-        if (this.uniformLocations.uMaxStringWidth) {
-            gl.uniform1f(this.uniformLocations.uMaxStringWidth, this.parameters.maxStringWidth !== undefined ? this.parameters.maxStringWidth : 5.0);
-        }
-        if (this.uniformLocations.uMaxAmplitude) {
-            gl.uniform1f(this.uniformLocations.uMaxAmplitude, this.parameters.maxAmplitude || 0.05);
-        }
-        if (this.uniformLocations.uWaveNote) {
-            gl.uniform1f(this.uniformLocations.uWaveNote, this.parameters.waveNote !== undefined ? this.parameters.waveNote : (1.0 / 4.0));
-        }
-        if (this.uniformLocations.uStringTop) {
-            // Fix: Use !== undefined check instead of || to allow 0.0 values
-            const stringTop = this.parameters.stringTop !== undefined ? this.parameters.stringTop : 1.0;
-            gl.uniform1f(this.uniformLocations.uStringTop, stringTop);
-        }
-        if (this.uniformLocations.uStringBottom) {
-            // Fix: Use !== undefined check instead of || to allow 0.0 values
-            const stringBottom = this.parameters.stringBottom !== undefined ? this.parameters.stringBottom : 0.0;
-            gl.uniform1f(this.uniformLocations.uStringBottom, stringBottom);
-        }
-        if (this.uniformLocations.uPaddingLeft) {
-            gl.uniform1f(this.uniformLocations.uPaddingLeft, this.parameters.paddingLeft || 0.05);
-        }
-        if (this.uniformLocations.uPaddingRight) {
-            gl.uniform1f(this.uniformLocations.uPaddingRight, this.parameters.paddingRight || 0.05);
-        }
-        if (this.uniformLocations.uStringEndFadeMinAlpha) {
-            gl.uniform1f(this.uniformLocations.uStringEndFadeMinAlpha, this.parameters.stringEndFadeMinAlpha !== undefined ? this.parameters.stringEndFadeMinAlpha : 0.1);
-        }
-        if (this.uniformLocations.uMaxHeight) {
-            gl.uniform1f(this.uniformLocations.uMaxHeight, this.parameters.maxHeight !== undefined ? this.parameters.maxHeight : 1.0);
-        }
-        if (this.uniformLocations.uWaveCycles) {
-            gl.uniform1f(this.uniformLocations.uWaveCycles, this.parameters.waveCycles !== undefined ? this.parameters.waveCycles : 3.0);
-        }
-        if (this.uniformLocations.uShowBars) {
-            gl.uniform1f(this.uniformLocations.uShowBars, this.parameters.showBars !== undefined ? this.parameters.showBars : 0.0);
-        }
-        if (this.uniformLocations.uShowStrings) {
-            gl.uniform1f(this.uniformLocations.uShowStrings, this.parameters.showStrings !== undefined ? this.parameters.showStrings : 1.0);
-        }
-        if (this.uniformLocations.uWaveAmplitude) {
-            gl.uniform1f(this.uniformLocations.uWaveAmplitude, this.parameters.waveAmplitude !== undefined ? this.parameters.waveAmplitude : 1.0);
-        }
-        if (this.uniformLocations.uMaxStrings) {
-            gl.uniform1i(this.uniformLocations.uMaxStrings, this.parameters.maxStrings !== undefined ? this.parameters.maxStrings : 2);
-        }
-        if (this.uniformLocations.uThreshold2Strings) {
-            gl.uniform1f(this.uniformLocations.uThreshold2Strings, this.parameters.threshold2Strings !== undefined ? this.parameters.threshold2Strings : 0.3);
-        }
-        if (this.uniformLocations.uThreshold3Strings) {
-            gl.uniform1f(this.uniformLocations.uThreshold3Strings, this.parameters.threshold3Strings !== undefined ? this.parameters.threshold3Strings : 0.7);
-        }
-        if (this.uniformLocations.uBandMinHeight) {
-            gl.uniform1f(this.uniformLocations.uBandMinHeight, this.parameters.bandMinHeight !== undefined ? this.parameters.bandMinHeight : 0.0);
-        }
-        if (this.uniformLocations.uBandMaxHeight) {
-            gl.uniform1f(this.uniformLocations.uBandMaxHeight, this.parameters.bandMaxHeight !== undefined ? this.parameters.bandMaxHeight : 1.0);
-        }
-        if (this.uniformLocations.uBandHeightCurveX1) {
-            gl.uniform1f(this.uniformLocations.uBandHeightCurveX1, this.parameters.bandHeightCurveX1 !== undefined ? this.parameters.bandHeightCurveX1 : 0.25);
-        }
-        if (this.uniformLocations.uBandHeightCurveY1) {
-            gl.uniform1f(this.uniformLocations.uBandHeightCurveY1, this.parameters.bandHeightCurveY1 !== undefined ? this.parameters.bandHeightCurveY1 : 0.1);
-        }
-        if (this.uniformLocations.uBandHeightCurveX2) {
-            gl.uniform1f(this.uniformLocations.uBandHeightCurveX2, this.parameters.bandHeightCurveX2 !== undefined ? this.parameters.bandHeightCurveX2 : 0.25);
-        }
-        if (this.uniformLocations.uBandHeightCurveY2) {
-            gl.uniform1f(this.uniformLocations.uBandHeightCurveY2, this.parameters.bandHeightCurveY2 !== undefined ? this.parameters.bandHeightCurveY2 : 1.0);
-        }
-        if (this.uniformLocations.uStringHeightMultiplier) {
-            gl.uniform1f(this.uniformLocations.uStringHeightMultiplier, this.parameters.stringHeightMultiplier !== undefined ? this.parameters.stringHeightMultiplier : 1.2);
-        }
-        
-        // Background noise parameters
-        if (this.uniformLocations.uBackgroundNoiseScale) {
-            gl.uniform1f(this.uniformLocations.uBackgroundNoiseScale, this.parameters.backgroundNoiseScale !== undefined ? this.parameters.backgroundNoiseScale : 1.0);
-        }
-        if (this.uniformLocations.uBackgroundNoiseIntensity) {
-            gl.uniform1f(this.uniformLocations.uBackgroundNoiseIntensity, this.parameters.backgroundNoiseIntensity !== undefined ? this.parameters.backgroundNoiseIntensity : 0.3);
-        }
-        if (this.uniformLocations.uBackgroundNoiseTimeSpeed) {
-            gl.uniform1f(this.uniformLocations.uBackgroundNoiseTimeSpeed, this.parameters.backgroundNoiseTimeSpeed !== undefined ? this.parameters.backgroundNoiseTimeSpeed : 0.1);
-        }
-        if (this.uniformLocations.uBackgroundNoiseTimeOffset) {
-            gl.uniform1f(this.uniformLocations.uBackgroundNoiseTimeOffset, this.parameters.backgroundNoiseTimeOffset !== undefined ? this.parameters.backgroundNoiseTimeOffset : 105.0);
-        }
-        if (this.uniformLocations.uBackgroundNoiseAudioReactive) {
-            gl.uniform1f(this.uniformLocations.uBackgroundNoiseAudioReactive, this.parameters.backgroundNoiseAudioReactive !== undefined ? this.parameters.backgroundNoiseAudioReactive : 1.0);
-        }
-        if (this.uniformLocations.uBackgroundNoiseAudioSource) {
-            gl.uniform1i(this.uniformLocations.uBackgroundNoiseAudioSource, this.parameters.backgroundNoiseAudioSource !== undefined ? this.parameters.backgroundNoiseAudioSource : 0);
-        }
-        if (this.uniformLocations.uBackgroundNoiseBrightnessCurveX1) {
-            gl.uniform1f(this.uniformLocations.uBackgroundNoiseBrightnessCurveX1, this.parameters.backgroundNoiseBrightnessCurveX1 !== undefined ? this.parameters.backgroundNoiseBrightnessCurveX1 : 0.25);
-        }
-        if (this.uniformLocations.uBackgroundNoiseBrightnessCurveY1) {
-            gl.uniform1f(this.uniformLocations.uBackgroundNoiseBrightnessCurveY1, this.parameters.backgroundNoiseBrightnessCurveY1 !== undefined ? this.parameters.backgroundNoiseBrightnessCurveY1 : 0.0);
-        }
-        if (this.uniformLocations.uBackgroundNoiseBrightnessCurveX2) {
-            gl.uniform1f(this.uniformLocations.uBackgroundNoiseBrightnessCurveX2, this.parameters.backgroundNoiseBrightnessCurveX2 !== undefined ? this.parameters.backgroundNoiseBrightnessCurveX2 : 0.75);
-        }
-        if (this.uniformLocations.uBackgroundNoiseBrightnessCurveY2) {
-            gl.uniform1f(this.uniformLocations.uBackgroundNoiseBrightnessCurveY2, this.parameters.backgroundNoiseBrightnessCurveY2 !== undefined ? this.parameters.backgroundNoiseBrightnessCurveY2 : 1.0);
-        }
-        if (this.uniformLocations.uBackgroundNoiseBrightnessMin) {
-            gl.uniform1f(this.uniformLocations.uBackgroundNoiseBrightnessMin, this.parameters.backgroundNoiseBrightnessMin !== undefined ? this.parameters.backgroundNoiseBrightnessMin : 0.0);
-        }
-        if (this.uniformLocations.uBackgroundNoiseBrightnessMax) {
-            gl.uniform1f(this.uniformLocations.uBackgroundNoiseBrightnessMax, this.parameters.backgroundNoiseBrightnessMax !== undefined ? this.parameters.backgroundNoiseBrightnessMax : 1.0);
-        }
-        if (this.uniformLocations.uSmoothedNoiseAudioLevel) {
-            gl.uniform1f(this.uniformLocations.uSmoothedNoiseAudioLevel, this._stringsSmoothing.smoothedNoiseAudioLevel);
-        }
-        if (this.uniformLocations.uSmoothedContrastAudioLevel) {
-            gl.uniform1f(this.uniformLocations.uSmoothedContrastAudioLevel, this._stringsSmoothing.smoothedContrastAudioLevel);
-        }
-        if (this.uniformLocations.uColorTransitionWidth) {
-            gl.uniform1f(this.uniformLocations.uColorTransitionWidth, this.parameters.colorTransitionWidth !== undefined ? this.parameters.colorTransitionWidth : 0.003);
-        }
-        if (this.uniformLocations.uBarAlphaMin) {
-            gl.uniform1f(this.uniformLocations.uBarAlphaMin, this.parameters.barAlphaMin !== undefined ? this.parameters.barAlphaMin : 0.1);
-        }
-        if (this.uniformLocations.uBarAlphaMax) {
-            gl.uniform1f(this.uniformLocations.uBarAlphaMax, this.parameters.barAlphaMax !== undefined ? this.parameters.barAlphaMax : 0.8);
-        }
-        if (this.uniformLocations.uBandWidthThreshold) {
-            gl.uniform1f(this.uniformLocations.uBandWidthThreshold, this.parameters.bandWidthThreshold !== undefined ? this.parameters.bandWidthThreshold : 0.3);
-        }
-        if (this.uniformLocations.uBandWidthMinMultiplier) {
-            gl.uniform1f(this.uniformLocations.uBandWidthMinMultiplier, this.parameters.bandWidthMinMultiplier !== undefined ? this.parameters.bandWidthMinMultiplier : 0.95);
-        }
-        if (this.uniformLocations.uBandWidthMaxMultiplier) {
-            gl.uniform1f(this.uniformLocations.uBandWidthMaxMultiplier, this.parameters.bandWidthMaxMultiplier !== undefined ? this.parameters.bandWidthMaxMultiplier : 1.5);
-        }
-        if (this.uniformLocations.uContrast) {
-            const contrast = this.parameters.contrast !== undefined ? this.parameters.contrast : 1.0;
-            if (this._lastUniformValues.uContrast !== contrast) {
-                gl.uniform1f(this.uniformLocations.uContrast, contrast);
-                this._lastUniformValues.uContrast = contrast;
-            }
-        }
-        if (this.uniformLocations.uContrastAudioReactive) {
-            const contrastAudioReactive = this.parameters.contrastAudioReactive !== undefined ? this.parameters.contrastAudioReactive : 0.0;
-            if (this._lastUniformValues.uContrastAudioReactive !== contrastAudioReactive) {
-                gl.uniform1f(this.uniformLocations.uContrastAudioReactive, contrastAudioReactive);
-                this._lastUniformValues.uContrastAudioReactive = contrastAudioReactive;
-            }
-        }
-        if (this.uniformLocations.uContrastAudioSource) {
-            const contrastAudioSource = this.parameters.contrastAudioSource !== undefined ? this.parameters.contrastAudioSource : 1;
-            if (this._lastUniformValues.uContrastAudioSource !== contrastAudioSource) {
-                gl.uniform1i(this.uniformLocations.uContrastAudioSource, contrastAudioSource);
-                this._lastUniformValues.uContrastAudioSource = contrastAudioSource;
-            }
-        }
-        if (this.uniformLocations.uContrastMin) {
-            const contrastMin = this.parameters.contrastMin !== undefined ? this.parameters.contrastMin : 1.0;
-            if (this._lastUniformValues.uContrastMin !== contrastMin) {
-                gl.uniform1f(this.uniformLocations.uContrastMin, contrastMin);
-                this._lastUniformValues.uContrastMin = contrastMin;
-            }
-        }
-        if (this.uniformLocations.uContrastMax) {
-            const contrastMax = this.parameters.contrastMax !== undefined ? this.parameters.contrastMax : 1.5;
-            if (this._lastUniformValues.uContrastMax !== contrastMax) {
-                gl.uniform1f(this.uniformLocations.uContrastMax, contrastMax);
-                this._lastUniformValues.uContrastMax = contrastMax;
-            }
-        }
-        if (this.uniformLocations.uGlowIntensity && this.config.name === 'strings') {
-            const glowIntensity = this.parameters.glowIntensity !== undefined ? this.parameters.glowIntensity : 0.0;
-            if (this._lastUniformValues.uGlowIntensity !== glowIntensity) {
-                gl.uniform1f(this.uniformLocations.uGlowIntensity, glowIntensity);
-                this._lastUniformValues.uGlowIntensity = glowIntensity;
-            }
-        }
-        if (this.uniformLocations.uGlowRadius) {
-            const glowRadius = this.parameters.glowRadius !== undefined ? this.parameters.glowRadius : 2.0;
-            if (this._lastUniformValues.uGlowRadius !== glowRadius) {
-                gl.uniform1f(this.uniformLocations.uGlowRadius, glowRadius);
-                this._lastUniformValues.uGlowRadius = glowRadius;
-            }
-        }
-        if (this.uniformLocations.uMaskExpansion) {
-            gl.uniform1f(this.uniformLocations.uMaskExpansion, this.parameters.maskExpansion !== undefined ? this.parameters.maskExpansion : 0.5);
-        }
-        if (this.uniformLocations.uMaskCutoutIntensity) {
-            gl.uniform1f(this.uniformLocations.uMaskCutoutIntensity, this.parameters.maskCutoutIntensity !== undefined ? this.parameters.maskCutoutIntensity : 1.0);
-        }
-        if (this.uniformLocations.uMaskFeathering) {
-            gl.uniform1f(this.uniformLocations.uMaskFeathering, this.parameters.maskFeathering !== undefined ? this.parameters.maskFeathering : 0.1);
-        }
-        if (this.uniformLocations.uMaskNoiseStrength) {
-            gl.uniform1f(this.uniformLocations.uMaskNoiseStrength, this.parameters.maskNoiseStrength !== undefined ? this.parameters.maskNoiseStrength : 0.0);
-        }
-        if (this.uniformLocations.uMaskNoiseScale) {
-            gl.uniform1f(this.uniformLocations.uMaskNoiseScale, this.parameters.maskNoiseScale !== undefined ? this.parameters.maskNoiseScale : 5.0);
-        }
-        if (this.uniformLocations.uMaskNoiseSpeed) {
-            gl.uniform1f(this.uniformLocations.uMaskNoiseSpeed, this.parameters.maskNoiseSpeed !== undefined ? this.parameters.maskNoiseSpeed : 0.5);
-        }
-        
-        // Glitch effect parameters
-        // Glitch effect parameters
-        if (this.uniformLocations.uGlitchColumnCount) {
-            gl.uniform1f(this.uniformLocations.uGlitchColumnCount, this.parameters.glitchColumnCount !== undefined ? this.parameters.glitchColumnCount : 8.0);
-        }
-        if (this.uniformLocations.uGlitchRandomSeed) {
-            gl.uniform1f(this.uniformLocations.uGlitchRandomSeed, this.parameters.glitchRandomSeed !== undefined ? this.parameters.glitchRandomSeed : 0.0);
-        }
-        if (this.uniformLocations.uGlitchFlipProbability) {
-            gl.uniform1f(this.uniformLocations.uGlitchFlipProbability, this.parameters.glitchFlipProbability !== undefined ? this.parameters.glitchFlipProbability : 0.3);
-        }
-        if (this.uniformLocations.uGlitchIntensity) {
-            gl.uniform1f(this.uniformLocations.uGlitchIntensity, this.parameters.glitchIntensity !== undefined ? this.parameters.glitchIntensity : 1.0);
-        }
-        if (this.uniformLocations.uGlitchBlurAmount) {
-            gl.uniform1f(this.uniformLocations.uGlitchBlurAmount, this.parameters.glitchBlurAmount !== undefined ? this.parameters.glitchBlurAmount : 0.0);
-        }
-        if (this.uniformLocations.uGlitchPixelSize) {
-            gl.uniform1f(this.uniformLocations.uGlitchPixelSize, this.parameters.glitchPixelSize !== undefined ? this.parameters.glitchPixelSize : 0.0);
-        }
-    }
-    
-    updateArcsFrequencyTexture(audioData, deltaTime = 0.016) {
-        // Get measured bands from config
-        const measuredBands = this.parameters.measuredBands !== undefined 
-            ? this.parameters.measuredBands 
-            : (this._measuredBands || 24);
-        this._measuredBands = measuredBands;
-        
-        // Initialize smoothed band arrays if needed
-        if (!this._arcSmoothing.smoothedLeftBands || 
-            this._arcSmoothing.smoothedLeftBands.length !== measuredBands) {
-            this._arcSmoothing.smoothedLeftBands = new Float32Array(measuredBands);
-            this._arcSmoothing.smoothedRightBands = new Float32Array(measuredBands);
-        }
-        
-        // Calculate configurable bands
-        let bandData;
-        if (audioData.audioContext && audioData.frequencyData) {
-            if (this._audioAnalyzer && typeof this._audioAnalyzer.calculateConfigurableBands === 'function') {
-                bandData = this._audioAnalyzer.calculateConfigurableBands(measuredBands);
-            } else if (audioData.leftFrequencyData && audioData.rightFrequencyData) {
-                // Fallback: calculate directly
-                const sampleRate = audioData.audioContext?.sampleRate || 44100;
-                const nyquist = sampleRate / 2;
-                const binSize = nyquist / audioData.frequencyData.length;
-                const hzToBin = (hz) => Math.floor(hz / binSize);
-                const getAverage = (data, start, end) => {
-                    let sum = 0;
-                    const count = Math.min(end, data.length - 1) - start + 1;
-                    if (count <= 0) return 0;
-                    for (let i = start; i <= end && i < data.length; i++) {
-                        sum += data[i];
-                    }
-                    return sum / count / 255.0;
-                };
-                
-                const minFreq = 20;
-                const maxFreq = nyquist;
-                const leftBands = new Float32Array(measuredBands);
-                const rightBands = new Float32Array(measuredBands);
-                
-                for (let i = 0; i < measuredBands; i++) {
-                    const t = i / (measuredBands - 1);
-                    const freqStart = minFreq * Math.pow(maxFreq / minFreq, t);
-                    const freqEnd = (i === measuredBands - 1) 
-                        ? maxFreq 
-                        : minFreq * Math.pow(maxFreq / minFreq, (i + 1) / (measuredBands - 1));
-                    const binStart = hzToBin(freqStart);
-                    const binEnd = Math.min(hzToBin(freqEnd), audioData.leftFrequencyData.length - 1);
-                    leftBands[i] = getAverage(audioData.leftFrequencyData, binStart, binEnd);
-                    rightBands[i] = getAverage(audioData.rightFrequencyData, binStart, binEnd);
-                }
-                
-                bandData = { leftBands, rightBands, numBands: measuredBands };
-            } else {
-                return;
-            }
-        } else {
-            return;
-        }
-        
-        // Get attack/release note values from config
-        const arcAttackNote = this.parameters.arcAttackNote !== undefined
-            ? this.parameters.arcAttackNote
-            : TempoSmoothingConfig.arc.attackNote;
-        const arcReleaseNote = this.parameters.arcReleaseNote !== undefined
-            ? this.parameters.arcReleaseNote
-            : TempoSmoothingConfig.arc.releaseNote;
-        
-        // Calculate tempo-relative time constants
-        const bpm = audioData.estimatedBPM || 0;
-        const attackTimeConstant = getTempoRelativeTimeConstant(
-            arcAttackNote,
-            bpm,
-            TempoSmoothingConfig.arc.attackTimeFallback
-        );
-        const releaseTimeConstant = getTempoRelativeTimeConstant(
-            arcReleaseNote,
-            bpm,
-            TempoSmoothingConfig.arc.releaseTimeFallback
-        );
-        
-        // Apply smoothing to each band
-        for (let i = 0; i < measuredBands; i++) {
-            // Smooth left channel
-            this._arcSmoothing.smoothedLeftBands[i] = applyTempoRelativeSmoothing(
-                this._arcSmoothing.smoothedLeftBands[i],
-                bandData.leftBands[i],
-                deltaTime,
-                attackTimeConstant,
-                releaseTimeConstant
-            );
-            
-            // Smooth right channel
-            this._arcSmoothing.smoothedRightBands[i] = applyTempoRelativeSmoothing(
-                this._arcSmoothing.smoothedRightBands[i],
-                bandData.rightBands[i],
-                deltaTime,
-                attackTimeConstant,
-                releaseTimeConstant
-            );
-        }
-        
-        // Create texture data: LUMINANCE = left, ALPHA = right (using smoothed values)
-        const leftRightData = new Float32Array(measuredBands * 2);
-        for (let i = 0; i < measuredBands; i++) {
-            leftRightData[i * 2] = this._arcSmoothing.smoothedLeftBands[i];      // LUMINANCE = left
-            leftRightData[i * 2 + 1] = this._arcSmoothing.smoothedRightBands[i]; // ALPHA = right
-        }
-        
-        // Create or update texture
-        const gl = this.gl;
-        this._frequencyTextures.leftRight = this._createFrequencyTexture(
-            gl, 
-            leftRightData, 
-            measuredBands,
-            this._frequencyTextures.leftRight
-        );
-        
-        // Set texture uniform
-        gl.activeTexture(gl.TEXTURE0);
-        gl.bindTexture(gl.TEXTURE_2D, this._frequencyTextures.leftRight);
-        if (this.uniformLocations.uFrequencyTexture) {
-            gl.uniform1i(this.uniformLocations.uFrequencyTexture, 0);
-        }
-        
-        // Set measured bands uniform
-        if (this.uniformLocations.uMeasuredBands) {
-            gl.uniform1f(this.uniformLocations.uMeasuredBands, measuredBands);
-        }
-        
-        // Set visual bands uniform
-        const visualBands = this.parameters.numBands || 64;
-        if (this.uniformLocations.uNumBands) {
-            gl.uniform1i(this.uniformLocations.uNumBands, visualBands);
-        }
-        
-        // Set arc parameters
-        if (this.uniformLocations.uBaseRadius) {
-            gl.uniform1f(this.uniformLocations.uBaseRadius, this.parameters.baseRadius !== undefined ? this.parameters.baseRadius : 0.3);
-        }
-        if (this.uniformLocations.uMaxRadiusOffset) {
-            gl.uniform1f(this.uniformLocations.uMaxRadiusOffset, this.parameters.maxRadiusOffset !== undefined ? this.parameters.maxRadiusOffset : 0.2);
-        }
-        if (this.uniformLocations.uCenterX) {
-            gl.uniform1f(this.uniformLocations.uCenterX, this.parameters.centerX !== undefined ? this.parameters.centerX : 0.5);
-        }
-        if (this.uniformLocations.uCenterY) {
-            gl.uniform1f(this.uniformLocations.uCenterY, this.parameters.centerY !== undefined ? this.parameters.centerY : 0.5);
-        }
-        
-        // Set color transition width
-        if (this.uniformLocations.uColorTransitionWidth) {
-            gl.uniform1f(this.uniformLocations.uColorTransitionWidth, this.parameters.colorTransitionWidth !== undefined ? this.parameters.colorTransitionWidth : 0.003);
-        }
-    }
-    
     destroy() {
         this.stopRenderLoop();
+        
+        // Call plugin destroy hook
+        if (this.plugin) {
+            this.plugin.onDestroy();
+        }
         
         if (this.gl && this.program) {
             this.gl.deleteProgram(this.program);
@@ -2487,6 +1204,11 @@ export class ShaderInstance {
         }
         
         // Clean up textures
+        if (this.textureManager) {
+            this.textureManager.destroyAll();
+        }
+        
+        // Legacy cleanup (for deprecated _frequencyTextures)
         if (this.gl) {
             Object.values(this._frequencyTextures).forEach(texture => {
                 if (texture) {

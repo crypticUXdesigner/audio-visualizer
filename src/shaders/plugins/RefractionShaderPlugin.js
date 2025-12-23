@@ -1,0 +1,118 @@
+// RefractionShaderPlugin - Plugin for refraction shader
+// Handles tempo-based smoothing for volume scale and FBM zoom
+
+import { BaseShaderPlugin } from './BaseShaderPlugin.js';
+import { TempoSmoothingConfig, getTempoRelativeTimeConstant, applyTempoRelativeSmoothing } from '../../config/tempoSmoothing.js';
+
+export class RefractionShaderPlugin extends BaseShaderPlugin {
+    constructor(shaderInstance, config) {
+        super(shaderInstance, config);
+        
+        // Smoothing state for refraction shader
+        this.smoothing = {
+            smoothedVolumeScale: 0.3,
+            smoothedFbmZoom: 1.0
+        };
+    }
+    
+    getSmoothingState() {
+        return this.smoothing;
+    }
+    
+    /**
+     * Update tempo-based smoothing for refraction shader
+     */
+    updateSmoothing(audioData, deltaTime) {
+        if (!audioData) return;
+        
+        const bpm = audioData.estimatedBPM || 0;
+        
+        // Smooth volume scale (0.3 + volume * 0.7)
+        const targetVolumeScale = 0.3 + (audioData.volume || 0) * 0.7;
+        const feedConfig = TempoSmoothingConfig.feed;
+        const feedAttackTime = getTempoRelativeTimeConstant(
+            feedConfig.attackNote,
+            bpm,
+            feedConfig.attackTimeFallback
+        );
+        const feedReleaseTime = getTempoRelativeTimeConstant(
+            feedConfig.releaseNote,
+            bpm,
+            feedConfig.releaseTimeFallback
+        );
+        this.smoothing.smoothedVolumeScale = applyTempoRelativeSmoothing(
+            this.smoothing.smoothedVolumeScale,
+            targetVolumeScale,
+            deltaTime,
+            feedAttackTime,
+            feedReleaseTime
+        );
+        
+        // Smooth FBM zoom factor (1.0 = normal, maxZoom = zoomed out)
+        // Calculate target zoom based on recent beats with intensity-based scaling
+        const maxZoom = 2.0; // Maximum zoom factor (zoomed out)
+        
+        // Check for recent bass or mid beats and get their intensities
+        let maxBeatIntensity = 0.0;
+        const bassBeatAge = audioData.beatTimeBass || 999.0;
+        const midBeatAge = audioData.beatTimeMid || 999.0;
+        
+        // Check bass beat (primary trigger)
+        if (bassBeatAge < 0.3 && audioData.beatIntensityBass > 0.5) {
+            maxBeatIntensity = Math.max(maxBeatIntensity, audioData.beatIntensityBass);
+        }
+        
+        // Check mid beat (secondary trigger)
+        if (midBeatAge < 0.3 && audioData.beatIntensityMid > 0.5) {
+            maxBeatIntensity = Math.max(maxBeatIntensity, audioData.beatIntensityMid);
+        }
+        
+        // Scale zoom from 1.0 (no beat) to maxZoom (strong beat) based on intensity
+        // Intensity is 0.5-1.0, so map it to 0.0-1.0 range, then scale to zoom range
+        const intensityFactor = maxBeatIntensity > 0.0 
+            ? (maxBeatIntensity - 0.5) / 0.5  // Map 0.5-1.0 to 0.0-1.0
+            : 0.0;
+        const targetZoom = 1.0 + (maxZoom - 1.0) * intensityFactor;
+        
+        const zoomConfig = TempoSmoothingConfig.fbmZoom;
+        const zoomAttackTime = getTempoRelativeTimeConstant(
+            zoomConfig.attackNote,
+            bpm,
+            zoomConfig.attackTimeFallback
+        );
+        const zoomReleaseTime = getTempoRelativeTimeConstant(
+            zoomConfig.releaseNote,
+            bpm,
+            zoomConfig.releaseTimeFallback
+        );
+        this.smoothing.smoothedFbmZoom = applyTempoRelativeSmoothing(
+            this.smoothing.smoothedFbmZoom,
+            targetZoom,
+            deltaTime,
+            zoomAttackTime,
+            zoomReleaseTime
+        );
+    }
+    
+    /**
+     * Update shader-specific uniforms
+     */
+    onUpdateUniforms(audioData, colors, deltaTime) {
+        const gl = this.shaderInstance.gl;
+        if (!gl) return;
+        
+        // Set smoothed uniforms
+        if (this.shaderInstance.uniformLocations.uSmoothedVolumeScale) {
+            gl.uniform1f(
+                this.shaderInstance.uniformLocations.uSmoothedVolumeScale,
+                this.smoothing.smoothedVolumeScale
+            );
+        }
+        if (this.shaderInstance.uniformLocations.uSmoothedFbmZoom) {
+            gl.uniform1f(
+                this.shaderInstance.uniformLocations.uSmoothedFbmZoom,
+                this.smoothing.smoothedFbmZoom
+            );
+        }
+    }
+}
