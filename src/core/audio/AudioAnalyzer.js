@@ -2,6 +2,10 @@
 // Handles audio context, analysis, and provides structured audio data
 
 import { TempoSmoothingConfig, getTempoRelativeTimeConstant, applyTempoRelativeSmoothing } from '../../config/tempoSmoothing.js';
+import { VolumeAnalyzer } from './VolumeAnalyzer.js';
+import { FrequencyAnalyzer } from './FrequencyAnalyzer.js';
+import { SmoothingProcessor } from './SmoothingProcessor.js';
+import { AudioLoader } from './AudioLoader.js';
 
 export class AudioAnalyzer {
     constructor() {
@@ -9,6 +13,10 @@ export class AudioAnalyzer {
         this.analyser = null;
         this.source = null;
         this.audioElement = null;
+        
+        // Audio loader (will be initialized after audio context is ready)
+        this.audioLoader = null;
+        this._isInitialized = false;
         
         // Frequency data
         this.frequencyData = null;
@@ -21,41 +29,19 @@ export class AudioAnalyzer {
         this.leftFrequencyData = null;
         this.rightFrequencyData = null;
         
-        // Processed values (updated every frame)
-        this.bass = 0;
-        this.mid = 0;
-        this.treble = 0;
-        this.volume = 0;
-        this.peakVolume = 0;
+        // Volume analyzer
+        this.volumeAnalyzer = new VolumeAnalyzer();
         
-        // Volume smoothing (asymmetric: fast attack, slow release)
-        // Tempo-relative attack/release (musical note values) - adapts to song BPM
-        this.smoothedVolume = 0.0;
+        // Frequency analyzer (will be initialized after audio context is ready)
+        this.frequencyAnalyzer = null;
+        
+        // Smoothing processor
+        this.smoothingProcessor = new SmoothingProcessor(this.estimatedBPM);
+        
         this.lastUpdateTime = null;  // Track frame time for deltaTime calculation
         
-        // Frequency bands for color mapping (0.0 to 1.0) - 10 bands, octave-spaced
-        // freq1: 10.24k-20k Hz (brightest - high treble)
-        // freq2: 5.12k-10.24k Hz (upper treble)
-        // freq3: 2.56k-5.12k Hz (treble)
-        // freq4: 1.28k-2.56k Hz (upper mid)
-        // freq5: 640-1280 Hz (mid)
-        // freq6: 320-640 Hz (lower mid)
-        // freq7: 160-320 Hz (upper bass)
-        // freq8: 80-160 Hz (bass)
-        // freq9: 40-80 Hz (sub-bass)
-        // freq10: 20-40 Hz (darkest - deep sub-bass)
-        this.freq1 = 0;
-        this.freq2 = 0;
-        this.freq3 = 0;
-        this.freq4 = 0;
-        this.freq5 = 0;
-        this.freq6 = 0;
-        this.freq7 = 0;
-        this.freq8 = 0;
-        this.freq9 = 0;
-        this.freq10 = 0;
-        
-        // Smoothed frequency bands
+        // Smoothed frequency bands (exposed for getData() API compatibility)
+        // Values are updated from SmoothingProcessor in update() method
         this.smoothedFreq1 = 0;
         this.smoothedFreq2 = 0;
         this.smoothedFreq3 = 0;
@@ -67,18 +53,14 @@ export class AudioAnalyzer {
         this.smoothedFreq9 = 0;
         this.smoothedFreq10 = 0;
         
-        // Stereo balance per frequency band (-1 = left, 0 = center, 1 = right)
-        this.bassStereo = 0;
-        this.midStereo = 0;
-        this.trebleStereo = 0;
-        
-        // Temporal smoothing and beat detection
+        // Smoothed main bands (exposed for getData() API compatibility)
+        // Values are updated from SmoothingProcessor in update() method
         this.smoothedBass = 0;
         this.smoothedMid = 0;
         this.smoothedTreble = 0;
-        this.peakBass = 0;
-        this.peakMid = 0;
-        this.peakTreble = 0;
+        
+        // Stereo balance is now managed by FrequencyAnalyzer
+        // Peak values are now managed by VolumeAnalyzer
         this.beatTime = 0;        // Time since last beat (in seconds)
         this.beatIntensity = 0;   // Intensity of last beat (0-1)
         this.lastBeatTime = 0;    // Timestamp of last beat (milliseconds)
@@ -196,9 +178,29 @@ export class AudioAnalyzer {
             this.leftFrequencyData = new Uint8Array(bufferLength);
             this.rightFrequencyData = new Uint8Array(bufferLength);
             
+            // Initialize frequency analyzer
+            const sampleRate = this.audioContext.sampleRate || 44100;
+            this.frequencyAnalyzer = new FrequencyAnalyzer(
+                this.analyser,
+                this.leftAnalyser,
+                this.rightAnalyser,
+                sampleRate
+            );
+            
+            // Initialize audio loader (must be done after splitter is created)
+            if (this.audioContext && this.splitter) {
+                this.audioLoader = new AudioLoader(this.audioContext, this.splitter);
+            } else {
+                throw new Error('AudioContext or splitter not available for AudioLoader initialization');
+            }
+            
+            this._isInitialized = true;
             console.log('AudioAnalyzer initialized with stereo support');
         } catch (error) {
             console.error('Error initializing AudioAnalyzer:', error);
+            // Reset initialization flag on error
+            this._isInitialized = false;
+            this.audioLoader = null;
             // Show user-friendly error message
             this.showAudioError(error);
             throw error; // Re-throw to allow caller to handle
@@ -252,6 +254,7 @@ export class AudioAnalyzer {
         if (typeof bpm === 'number' && bpm > 0 && bpm <= 300) {
             this.metadataBPM = bpm;
             this.estimatedBPM = bpm;  // Use metadata BPM as initial estimate
+            this.smoothingProcessor.setBPM(bpm);  // Update smoothing processor
             console.log(`[BPM] Using metadata BPM: ${bpm}`);
         } else {
             // Reset if invalid
@@ -264,19 +267,6 @@ export class AudioAnalyzer {
     
     async loadTrack(filePath, metadata = {}) {
         try {
-            // Resume audio context if suspended (browser autoplay policy)
-            if (this.audioContext.state === 'suspended') {
-                await this.audioContext.resume();
-            }
-            
-            // Stop current if playing
-            if (this.audioElement) {
-                this.audioElement.pause();
-                if (this.source) {
-                    this.source.disconnect();
-                }
-            }
-            
             // Set BPM from metadata if provided (from API or file metadata extraction)
             if (metadata.bpm !== undefined) {
                 this.setMetadataBPM(metadata.bpm);
@@ -285,63 +275,27 @@ export class AudioAnalyzer {
                 this.metadataBPM = 0;
             }
             
-            // Check if it's a full URL (http/https) - use as-is
-            let cleanPath;
-            if (filePath.startsWith('http://') || filePath.startsWith('https://')) {
-                cleanPath = filePath;
-            } else {
-                // Get base URL from Vite (handles both dev and production)
-                const baseUrl = import.meta.env.BASE_URL || '/';
-                
-                // Normalize the path: if it starts with /, remove it; otherwise use as-is
-                // Then prepend base URL
-                const normalizedPath = filePath.startsWith('/') ? filePath.substring(1) : filePath;
-                const absolutePath = baseUrl + normalizedPath;
-                
-                // Ensure base URL doesn't have double slashes
-                cleanPath = absolutePath.replace(/([^:]\/)\/+/g, '$1');
+            // Ensure AudioAnalyzer is initialized
+            if (!this._isInitialized || !this.audioLoader) {
+                // Auto-initialize if not already done
+                if (!this._isInitialized) {
+                    try {
+                        this.init();
+                    } catch (initError) {
+                        console.error('Failed to auto-initialize AudioAnalyzer:', initError);
+                        throw new Error('AudioAnalyzer initialization failed. Please call init() manually first.');
+                    }
+                }
+                // Double-check after init
+                if (!this.audioLoader) {
+                    throw new Error('AudioLoader not initialized. AudioAnalyzer.init() must be called first.');
+                }
             }
             
-            // Remove old listeners if they exist (cleanup before creating new audio element)
-            if (this.audioElement && this._onLoadedMetadata) {
-                this.audioElement.removeEventListener('loadedmetadata', this._onLoadedMetadata);
-                this.audioElement.removeEventListener('error', this._onError);
-                this.audioElement.removeEventListener('canplay', this._onCanPlay);
-            }
+            this.audioElement = await this.audioLoader.loadTrack(filePath);
+            this.source = this.audioLoader.getSource();
             
-            // Create audio element
-            this.audioElement = new Audio(cleanPath);
-            this.audioElement.crossOrigin = 'anonymous'; // For CORS when using API later
-            
-            // Ensure playbackRate is 1.0 (normal speed)
-            if (this.audioElement.playbackRate !== 1.0) {
-                console.warn(`⚠️  Audio playbackRate is ${this.audioElement.playbackRate}, resetting to 1.0`);
-                this.audioElement.playbackRate = 1.0;
-            }
-            
-            // Store event listener references for cleanup
-            this._onLoadedMetadata = () => {
-                // Metadata loaded - audio is ready
-            };
-            
-            this._onError = (e) => {
-                console.error('Audio loading error:', e, this.audioElement.error);
-            };
-            
-            this._onCanPlay = () => {
-                // Audio can start playing
-            };
-            
-            // Add event listeners to track audio loading and metadata
-            this.audioElement.addEventListener('loadedmetadata', this._onLoadedMetadata);
-            this.audioElement.addEventListener('error', this._onError);
-            this.audioElement.addEventListener('canplay', this._onCanPlay);
-            
-            // Create source node
-            this.source = this.audioContext.createMediaElementSource(this.audioElement);
-            
-            // Connect to splitter for stereo analysis
-            this.source.connect(this.splitter);
+            // Connect splitter outputs to analysers (stereo analysis)
             this.splitter.connect(this.leftAnalyser, 0, 0);   // Left channel to left analyser
             this.splitter.connect(this.rightAnalyser, 1, 0); // Right channel to right analyser
             
@@ -381,209 +335,77 @@ export class AudioAnalyzer {
             this.rightAnalyser.getByteFrequencyData(this.rightFrequencyData);
         }
         
-        // Calculate frequency bands using Hz ranges
-        // fftSize = 2048, so frequencyBinCount = 1024
-        // Sample rate typically 44.1kHz, so Nyquist = 22050 Hz
-        // Bin size = 22050 / 1024 ≈ 21.53 Hz per bin
-        const sampleRate = this.audioContext?.sampleRate || 44100;
-        const nyquist = sampleRate / 2;
-        const binSize = nyquist / this.frequencyData.length;
-        
-        // Helper to convert Hz to bin number
-        const hzToBin = (hz) => Math.floor(hz / binSize);
-        
-        // Calculate main frequency bands using Hz ranges
-        // Bass: 20-200 Hz
-        // Mid: 600-2000 Hz
-        // Treble: 3000-6000 Hz
-        this.bass = this.getAverage(this.frequencyData, hzToBin(20), hzToBin(200));
-        this.mid = this.getAverage(this.frequencyData, hzToBin(600), hzToBin(2000));
-        this.treble = this.getAverage(this.frequencyData, hzToBin(3000), hzToBin(6000));
-        
-        // Calculate frequency bands (10 bands, octave-spaced)
-        // freq1: 10.24k-20k Hz (brightest - high treble)
-        // freq2: 5.12k-10.24k Hz (upper treble)
-        // freq3: 2.56k-5.12k Hz (treble)
-        // freq4: 1.28k-2.56k Hz (upper mid)
-        // freq5: 640-1280 Hz (mid)
-        // freq6: 320-640 Hz (lower mid)
-        // freq7: 160-320 Hz (upper bass)
-        // freq8: 80-160 Hz (bass)
-        // freq9: 40-80 Hz (sub-bass)
-        // freq10: 20-40 Hz (darkest - deep sub-bass)
-        this.freq1 = this.getAverage(this.frequencyData, hzToBin(10240), hzToBin(20000));
-        this.freq2 = this.getAverage(this.frequencyData, hzToBin(5120), hzToBin(10240));
-        this.freq3 = this.getAverage(this.frequencyData, hzToBin(2560), hzToBin(5120));
-        this.freq4 = this.getAverage(this.frequencyData, hzToBin(1280), hzToBin(2560));
-        this.freq5 = this.getAverage(this.frequencyData, hzToBin(640), hzToBin(1280));
-        this.freq6 = this.getAverage(this.frequencyData, hzToBin(320), hzToBin(640));
-        this.freq7 = this.getAverage(this.frequencyData, hzToBin(160), hzToBin(320));
-        this.freq8 = this.getAverage(this.frequencyData, hzToBin(80), hzToBin(160));
-        this.freq9 = this.getAverage(this.frequencyData, hzToBin(40), hzToBin(80));
-        this.freq10 = this.getAverage(this.frequencyData, hzToBin(20), hzToBin(40));
-        
-        // Calculate stereo balance per frequency band
-        // Returns -1 (left) to 1 (right), 0 = center
-        // Use same Hz ranges as main frequency bands
-        if (this.leftFrequencyData && this.rightFrequencyData) {
-            const bassLeft = this.getAverage(this.leftFrequencyData, hzToBin(20), hzToBin(200));
-            const bassRight = this.getAverage(this.rightFrequencyData, hzToBin(20), hzToBin(200));
-            this.bassStereo = this.getStereoBalance(bassLeft, bassRight);
+        // Calculate frequency bands using FrequencyAnalyzer
+        if (this.frequencyAnalyzer) {
+            const mainBands = this.frequencyAnalyzer.calculateMainBands(this.frequencyData);
+            this.bass = mainBands.bass;
+            this.mid = mainBands.mid;
+            this.treble = mainBands.treble;
             
-            const midLeft = this.getAverage(this.leftFrequencyData, hzToBin(600), hzToBin(2000));
-            const midRight = this.getAverage(this.rightFrequencyData, hzToBin(600), hzToBin(2000));
-            this.midStereo = this.getStereoBalance(midLeft, midRight);
+            const colorBands = this.frequencyAnalyzer.calculateColorBands(this.frequencyData);
+            this.freq1 = colorBands.freq1;
+            this.freq2 = colorBands.freq2;
+            this.freq3 = colorBands.freq3;
+            this.freq4 = colorBands.freq4;
+            this.freq5 = colorBands.freq5;
+            this.freq6 = colorBands.freq6;
+            this.freq7 = colorBands.freq7;
+            this.freq8 = colorBands.freq8;
+            this.freq9 = colorBands.freq9;
+            this.freq10 = colorBands.freq10;
             
-            const trebleLeft = this.getAverage(this.leftFrequencyData, hzToBin(3000), hzToBin(6000));
-            const trebleRight = this.getAverage(this.rightFrequencyData, hzToBin(3000), hzToBin(6000));
-            this.trebleStereo = this.getStereoBalance(trebleLeft, trebleRight);
-        } else {
-            this.bassStereo = 0;
-            this.midStereo = 0;
-            this.trebleStereo = 0;
+            const stereoBands = this.frequencyAnalyzer.calculateStereoBands(
+                this.leftFrequencyData,
+                this.rightFrequencyData
+            );
+            this.bassStereo = stereoBands.bassStereo;
+            this.midStereo = stereoBands.midStereo;
+            this.trebleStereo = stereoBands.trebleStereo;
         }
         
-        // Calculate volume (RMS from time domain)
-        this.volume = this.getRMS(this.timeData);
+        // Calculate volume using VolumeAnalyzer
+        this.volumeAnalyzer.calculateVolume(this.timeData);
+        this.volumeAnalyzer.smoothVolume(deltaTime, this.estimatedBPM);
         
-        // Calculate peak volume (maximum absolute value from time domain)
-        this.peakVolume = this.getPeakVolume(this.timeData);
+        // Expose volume properties for getData() API
+        this.volume = this.volumeAnalyzer.volume;
+        this.peakVolume = this.volumeAnalyzer.peakVolume;
         
-        // Apply tempo-relative asymmetric smoothing to volume
-        const volumeConfig = TempoSmoothingConfig.volume;
-        const attackTimeConstant = getTempoRelativeTimeConstant(
-            volumeConfig.attackNote,
-            this.estimatedBPM,
-            volumeConfig.attackTimeFallback
-        );
-        const releaseTimeConstant = getTempoRelativeTimeConstant(
-            volumeConfig.releaseNote,
-            this.estimatedBPM,
-            volumeConfig.releaseTimeFallback
-        );
-        this.smoothedVolume = applyTempoRelativeSmoothing(
-            this.smoothedVolume,
-            this.volume,
-            deltaTime,
-            attackTimeConstant,
-            releaseTimeConstant
-        );
+        // Update peak values (use frequencyAnalyzer properties)
+        if (this.frequencyAnalyzer) {
+            this.volumeAnalyzer.updatePeaks(
+                this.frequencyAnalyzer.bass,
+                this.frequencyAnalyzer.mid,
+                this.frequencyAnalyzer.treble
+            );
+        }
         
-        // Apply tempo-relative smoothing to frequency bands (for color mapping)
-        const freqConfig = TempoSmoothingConfig.frequencyBands;
-        const freqAttackTimeConstant = getTempoRelativeTimeConstant(
-            freqConfig.attackNote,
-            this.estimatedBPM,
-            freqConfig.attackTimeFallback
-        );
-        const freqReleaseTimeConstant = getTempoRelativeTimeConstant(
-            freqConfig.releaseNote,
-            this.estimatedBPM,
-            freqConfig.releaseTimeFallback
-        );
+        // Apply tempo-relative smoothing using SmoothingProcessor
+        this.smoothingProcessor.setBPM(this.estimatedBPM);
         
         // Smooth main frequency bands
-        this.smoothedBass = applyTempoRelativeSmoothing(
-            this.smoothedBass,
-            this.bass,
-            deltaTime,
-            freqAttackTimeConstant,
-            freqReleaseTimeConstant
-        );
-        this.smoothedMid = applyTempoRelativeSmoothing(
-            this.smoothedMid,
-            this.mid,
-            deltaTime,
-            freqAttackTimeConstant,
-            freqReleaseTimeConstant
-        );
-        this.smoothedTreble = applyTempoRelativeSmoothing(
-            this.smoothedTreble,
-            this.treble,
-            deltaTime,
-            freqAttackTimeConstant,
-            freqReleaseTimeConstant
-        );
+        const smoothedMain = this.smoothingProcessor.smoothMainBands(this.bass, this.mid, this.treble, deltaTime);
+        this.smoothedBass = smoothedMain.smoothedBass;
+        this.smoothedMid = smoothedMain.smoothedMid;
+        this.smoothedTreble = smoothedMain.smoothedTreble;
         
         // Smooth frequency bands for color mapping
-        this.smoothedFreq1 = applyTempoRelativeSmoothing(
-            this.smoothedFreq1,
-            this.freq1,
-            deltaTime,
-            freqAttackTimeConstant,
-            freqReleaseTimeConstant
-        );
-        this.smoothedFreq2 = applyTempoRelativeSmoothing(
-            this.smoothedFreq2,
-            this.freq2,
-            deltaTime,
-            freqAttackTimeConstant,
-            freqReleaseTimeConstant
-        );
-        this.smoothedFreq3 = applyTempoRelativeSmoothing(
-            this.smoothedFreq3,
-            this.freq3,
-            deltaTime,
-            freqAttackTimeConstant,
-            freqReleaseTimeConstant
-        );
-        this.smoothedFreq4 = applyTempoRelativeSmoothing(
-            this.smoothedFreq4,
-            this.freq4,
-            deltaTime,
-            freqAttackTimeConstant,
-            freqReleaseTimeConstant
-        );
-        this.smoothedFreq5 = applyTempoRelativeSmoothing(
-            this.smoothedFreq5,
-            this.freq5,
-            deltaTime,
-            freqAttackTimeConstant,
-            freqReleaseTimeConstant
-        );
-        this.smoothedFreq6 = applyTempoRelativeSmoothing(
-            this.smoothedFreq6,
-            this.freq6,
-            deltaTime,
-            freqAttackTimeConstant,
-            freqReleaseTimeConstant
-        );
-        this.smoothedFreq7 = applyTempoRelativeSmoothing(
-            this.smoothedFreq7,
-            this.freq7,
-            deltaTime,
-            freqAttackTimeConstant,
-            freqReleaseTimeConstant
-        );
-        this.smoothedFreq8 = applyTempoRelativeSmoothing(
-            this.smoothedFreq8,
-            this.freq8,
-            deltaTime,
-            freqAttackTimeConstant,
-            freqReleaseTimeConstant
-        );
-        this.smoothedFreq9 = applyTempoRelativeSmoothing(
-            this.smoothedFreq9,
-            this.freq9,
-            deltaTime,
-            freqAttackTimeConstant,
-            freqReleaseTimeConstant
-        );
-        this.smoothedFreq10 = applyTempoRelativeSmoothing(
-            this.smoothedFreq10,
-            this.freq10,
-            deltaTime,
-            freqAttackTimeConstant,
-            freqReleaseTimeConstant
-        );
+        const smoothedFreq = this.smoothingProcessor.smoothFrequencyBands({
+            freq1: this.freq1, freq2: this.freq2, freq3: this.freq3, freq4: this.freq4, freq5: this.freq5,
+            freq6: this.freq6, freq7: this.freq7, freq8: this.freq8, freq9: this.freq9, freq10: this.freq10
+        }, deltaTime);
+        this.smoothedFreq1 = smoothedFreq.smoothedFreq1;
+        this.smoothedFreq2 = smoothedFreq.smoothedFreq2;
+        this.smoothedFreq3 = smoothedFreq.smoothedFreq3;
+        this.smoothedFreq4 = smoothedFreq.smoothedFreq4;
+        this.smoothedFreq5 = smoothedFreq.smoothedFreq5;
+        this.smoothedFreq6 = smoothedFreq.smoothedFreq6;
+        this.smoothedFreq7 = smoothedFreq.smoothedFreq7;
+        this.smoothedFreq8 = smoothedFreq.smoothedFreq8;
+        this.smoothedFreq9 = smoothedFreq.smoothedFreq9;
+        this.smoothedFreq10 = smoothedFreq.smoothedFreq10;
         
-        // Peak detection (decay over time)
-        const peakDecay = 0.92;
-        this.peakBass = Math.max(this.peakBass * peakDecay, this.bass);
-        this.peakMid = Math.max(this.peakMid * peakDecay, this.mid);
-        this.peakTreble = Math.max(this.peakTreble * peakDecay, this.treble);
-        
-        // Beat detection (primarily bass-driven)
+        // Beat detection (multi-frequency with ripple tracking)
         this.detectBeat();
     }
     
@@ -631,8 +453,14 @@ export class AudioAnalyzer {
         bands.forEach((band) => {
             // Use peak-based threshold instead of smoothed-based to detect beats
             // Peak decays over time, so when current value exceeds decaying peak, it's a beat
-            const peakKey = band.beatTime.replace('beatTime', 'peak');
-            const peakValue = this[peakKey] || 0;
+            let peakValue = 0;
+            if (band.beatTime === 'beatTimeBass') {
+                peakValue = this.volumeAnalyzer.peakBass;
+            } else if (band.beatTime === 'beatTimeMid') {
+                peakValue = this.volumeAnalyzer.peakMid;
+            } else if (band.beatTime === 'beatTimeTreble') {
+                peakValue = this.volumeAnalyzer.peakTreble;
+            }
             // Threshold: 85% of current peak value, or minimum threshold, whichever is higher
             // This allows beats when value exceeds decaying peak
             const threshold = Math.max(peakValue * 0.85, band.minThreshold);
@@ -691,7 +519,7 @@ export class AudioAnalyzer {
             }
         });
         
-        // Keep existing BPM calculation (based on bass) for backward compatibility
+        // BPM calculation (based on bass beats) for overall beat tracking
         const bassThreshold = this.smoothedBass * 1.4;
         if (this.lastBeatTime > 0) {
             this.beatTime = (currentTime - this.lastBeatTime) / 1000.0;
@@ -720,6 +548,10 @@ export class AudioAnalyzer {
                         this.estimatedBPM = instantBPM;
                     } else {
                         this.estimatedBPM = this.estimatedBPM * 0.7 + instantBPM * 0.3;
+                    }
+                    // Update smoothing processor with new BPM
+                    if (this.smoothingProcessor) {
+                        this.smoothingProcessor.setBPM(this.estimatedBPM);
                     }
                 }
             }
@@ -913,60 +745,31 @@ export class AudioAnalyzer {
         };
     }
     
-    getStereoBalance(left, right) {
-        const total = left + right;
-        if (total < 0.01) return 0; // Too quiet, assume center
-        const raw = (right - left) / total; // -1 to 1 (linear)
-        
-        // Apply exponential curve to emphasize stereo differences
-        // Since full left/right panning is rare, we amplify smaller differences
-        // Sign preserves direction, exponent amplifies the difference
-        // Lower exponent (0.5-0.7) = more emphasis, higher (0.8-1.0) = less emphasis
-        return Math.sign(raw) * Math.pow(Math.abs(raw), this.stereoEmphasisExponent);
-    }
+    // getStereoBalance moved to FrequencyAnalyzer
     
-    getAverage(data, start, end) {
-        let sum = 0;
-        const count = Math.min(end, data.length - 1) - start + 1;
-        if (count <= 0) return 0;
-        
-        for (let i = start; i <= end && i < data.length; i++) {
-            sum += data[i];
-        }
-        return sum / count / 255.0; // Normalize to 0-1
-    }
+    // getAverage moved to FrequencyAnalyzer
     
-    getRMS(data) {
-        let sum = 0;
-        for (let i = 0; i < data.length; i++) {
-            const normalized = (data[i] - 128) / 128.0;
-            sum += normalized * normalized;
-        }
-        return Math.sqrt(sum / data.length);
-    }
-    
-    getPeakVolume(data) {
-        let peak = 0;
-        for (let i = 0; i < data.length; i++) {
-            const normalized = Math.abs((data[i] - 128) / 128.0);
-            peak = Math.max(peak, normalized);
-        }
-        return peak; // Returns 0-1 range
-    }
+    // Volume calculation methods moved to VolumeAnalyzer
     
     isPlaying() {
-        return this.audioElement && !this.audioElement.paused;
+        // Get audioElement from audioLoader if available, otherwise use stored reference
+        const audioEl = this.audioLoader?.getAudioElement() || this.audioElement;
+        return audioEl && !audioEl.paused;
     }
     
     pause() {
-        if (this.audioElement) {
-            this.audioElement.pause();
+        // Get audioElement from audioLoader if available, otherwise use stored reference
+        const audioEl = this.audioLoader?.getAudioElement() || this.audioElement;
+        if (audioEl) {
+            audioEl.pause();
         }
     }
     
-    play() {
-        if (this.audioElement) {
-            this.audioElement.play();
+    async play() {
+        // Get audioElement from audioLoader if available, otherwise use stored reference
+        const audioEl = this.audioLoader?.getAudioElement() || this.audioElement;
+        if (audioEl) {
+            return await audioEl.play();
         }
     }
     
@@ -988,8 +791,8 @@ export class AudioAnalyzer {
             bass: this.bass,
             mid: this.mid,
             treble: this.treble,
-            volume: this.smoothedVolume,  // Use smoothed volume to reduce jittery brightness changes
-            peakVolume: this.peakVolume,  // Peak volume (maximum absolute value, 0-1 range)
+            volume: this.volumeAnalyzer.smoothedVolume,  // Use smoothed volume to reduce jittery brightness changes
+            peakVolume: this.volumeAnalyzer.peakVolume,  // Peak volume (maximum absolute value, 0-1 range)
             freq1: this.freq1,
             freq2: this.freq2,
             freq3: this.freq3,
@@ -1016,9 +819,9 @@ export class AudioAnalyzer {
             smoothedBass: this.smoothedBass,
             smoothedMid: this.smoothedMid,
             smoothedTreble: this.smoothedTreble,
-            peakBass: this.peakBass,
-            peakMid: this.peakMid,
-            peakTreble: this.peakTreble,
+            peakBass: this.volumeAnalyzer.peakBass,
+            peakMid: this.volumeAnalyzer.peakMid,
+            peakTreble: this.volumeAnalyzer.peakTreble,
             beatTime: this.beatTime,
             beatIntensity: this.beatIntensity,
             estimatedBPM: this.estimatedBPM,
@@ -1050,73 +853,16 @@ export class AudioAnalyzer {
      * @returns {Object} Object with leftBands and rightBands Float32Arrays
      */
     calculateConfigurableBands(numBands = 32) {
-        if (!this.frequencyData) {
+        if (!this.frequencyAnalyzer) {
             return { leftBands: new Float32Array(numBands), rightBands: new Float32Array(numBands), numBands };
         }
         
-        const sampleRate = this.audioContext?.sampleRate || 44100;
-        const nyquist = sampleRate / 2;
-        const binSize = nyquist / this.frequencyData.length;
-        
-        // Helper to convert Hz to bin number
-        const hzToBin = (hz) => Math.floor(hz / binSize);
-        
-        // Helper to get average value in a range
-        const getAverage = (data, start, end) => {
-            let sum = 0;
-            const count = Math.min(end, data.length - 1) - start + 1;
-            if (count <= 0) return 0;
-            for (let i = start; i <= end && i < data.length; i++) {
-                sum += data[i];
-            }
-            return sum / count / 255.0; // Normalize to 0-1
-        };
-        
-        // Frequency range: 20 Hz to Nyquist (typically 22050 Hz)
-        const minFreq = 20;
-        const maxFreq = nyquist;
-        
-        // Logarithmic distribution of bands
-        const leftBands = new Float32Array(numBands);
-        const rightBands = new Float32Array(numBands);
-        
-        for (let i = 0; i < numBands; i++) {
-            // Logarithmic spacing: ensure last band covers up to Nyquist
-            const t = i / (numBands - 1);
-            const freqStart = minFreq * Math.pow(maxFreq / minFreq, t);
-            // For last band, use maxFreq (Nyquist) to ensure full coverage
-            const freqEnd = (i === numBands - 1) 
-                ? maxFreq 
-                : minFreq * Math.pow(maxFreq / minFreq, (i + 1) / (numBands - 1));
-            
-            const binStart = hzToBin(freqStart);
-            const binEnd = Math.min(hzToBin(freqEnd), this.frequencyData.length - 1);
-            
-            // Calculate average for main channel
-            const avg = getAverage(this.frequencyData, binStart, binEnd);
-            
-            // Calculate left and right channel averages
-            let leftAvg = 0;
-            let rightAvg = 0;
-            
-            if (this.leftFrequencyData && this.rightFrequencyData) {
-                leftAvg = getAverage(this.leftFrequencyData, binStart, binEnd);
-                rightAvg = getAverage(this.rightFrequencyData, binStart, binEnd);
-            } else {
-                // Fallback: use main channel data split evenly
-                leftAvg = avg * 0.5;
-                rightAvg = avg * 0.5;
-            }
-            
-            leftBands[i] = leftAvg;
-            rightBands[i] = rightAvg;
-        }
-        
-        return {
-            leftBands,
-            rightBands,
+        return this.frequencyAnalyzer.calculateConfigurableBands(
+            this.frequencyData,
+            this.leftFrequencyData,
+            this.rightFrequencyData,
             numBands
-        };
+        );
     }
     
     /**

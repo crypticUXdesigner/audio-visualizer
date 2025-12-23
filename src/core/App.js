@@ -77,8 +77,8 @@ export class VisualPlayer {
         }
         
         // Show controls after initial loading completes
-        if (this.audioControls) {
-            this.audioControls.showControls();
+        if (this.audioControls && this.audioControls.uiControlsManager) {
+            this.audioControls.uiControlsManager.showControls();
         }
     }
     

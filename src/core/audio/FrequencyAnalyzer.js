@@ -1,43 +1,75 @@
-// Frequency Analysis Module
-// Handles frequency band calculations, stereo balance, and volume/RMS calculations
-
-import { TempoSmoothingConfig, getTempoRelativeTimeConstant, applyTempoRelativeSmoothing } from '../../config/tempoSmoothing.js';
+// Frequency Analyzer Module
+// Handles frequency band calculations, stereo analysis, and configurable band generation
 
 export class FrequencyAnalyzer {
-    constructor() {
-        this.audioContext = null;
-        this.analyser = null;
-        this.leftAnalyser = null;
-        this.rightAnalyser = null;
-        
-        // Stereo emphasis factor (0.0-1.0, lower = more emphasis on differences)
-        this.stereoEmphasisExponent = 0.7;
-    }
-    
-    init(audioContext, analyser, leftAnalyser, rightAnalyser) {
-        this.audioContext = audioContext;
+    constructor(analyser, leftAnalyser, rightAnalyser, sampleRate) {
         this.analyser = analyser;
         this.leftAnalyser = leftAnalyser;
         this.rightAnalyser = rightAnalyser;
+        this.sampleRate = sampleRate || 44100;
+        
+        // Main frequency bands
+        this.bass = 0;
+        this.mid = 0;
+        this.treble = 0;
+        
+        // 10 frequency bands for color mapping (0.0 to 1.0) - octave-spaced
+        // freq1: 10.24k-20k Hz (brightest - high treble)
+        // freq2: 5.12k-10.24k Hz (upper treble)
+        // freq3: 2.56k-5.12k Hz (treble)
+        // freq4: 1.28k-2.56k Hz (upper mid)
+        // freq5: 640-1280 Hz (mid)
+        // freq6: 320-640 Hz (lower mid)
+        // freq7: 160-320 Hz (upper bass)
+        // freq8: 80-160 Hz (bass)
+        // freq9: 40-80 Hz (sub-bass)
+        // freq10: 20-40 Hz (darkest - deep sub-bass)
+        this.freq1 = 0;
+        this.freq2 = 0;
+        this.freq3 = 0;
+        this.freq4 = 0;
+        this.freq5 = 0;
+        this.freq6 = 0;
+        this.freq7 = 0;
+        this.freq8 = 0;
+        this.freq9 = 0;
+        this.freq10 = 0;
+        
+        // Stereo balance per frequency band (-1 = left, 0 = center, 1 = right)
+        this.bassStereo = 0;
+        this.midStereo = 0;
+        this.trebleStereo = 0;
     }
     
     /**
-     * Calculate all frequency bands, stereo balance, and volume
-     * @param {Uint8Array} frequencyData - Main frequency data
-     * @param {Uint8Array} leftFrequencyData - Left channel frequency data
-     * @param {Uint8Array} rightFrequencyData - Right channel frequency data
-     * @param {Uint8Array} timeData - Time domain data for RMS
-     * @param {number} deltaTime - Time since last frame (seconds)
-     * @param {number} estimatedBPM - Estimated BPM for tempo-relative smoothing
-     * @returns {Object} Object containing all calculated values
+     * Get average value in a frequency range
+     * @param {Uint8Array} data - Frequency data array
+     * @param {number} start - Start bin index
+     * @param {number} end - End bin index
+     * @returns {number} Average value normalized to 0-1
      */
-    calculate(frequencyData, leftFrequencyData, rightFrequencyData, timeData, deltaTime, estimatedBPM) {
-        // Calculate frequency bands using Hz ranges
-        // fftSize = 2048, so frequencyBinCount = 1024
-        // Sample rate typically 44.1kHz, so Nyquist = 22050 Hz
-        // Bin size = 22050 / 1024 ≈ 21.53 Hz per bin
-        const sampleRate = this.audioContext?.sampleRate || 44100;
-        const nyquist = sampleRate / 2;
+    getAverage(data, start, end) {
+        let sum = 0;
+        const count = Math.min(end, data.length - 1) - start + 1;
+        if (count <= 0) return 0;
+        
+        for (let i = start; i <= end && i < data.length; i++) {
+            sum += data[i];
+        }
+        return sum / count / 255.0; // Normalize to 0-1
+    }
+    
+    /**
+     * Calculate main frequency bands (bass, mid, treble)
+     * @param {Uint8Array} frequencyData - Frequency data array
+     * @returns {Object} Object with bass, mid, treble values
+     */
+    calculateMainBands(frequencyData) {
+        if (!frequencyData || frequencyData.length === 0) {
+            return { bass: 0, mid: 0, treble: 0 };
+        }
+        
+        const nyquist = this.sampleRate / 2;
         const binSize = nyquist / frequencyData.length;
         
         // Helper to convert Hz to bin number
@@ -51,6 +83,32 @@ export class FrequencyAnalyzer {
         const mid = this.getAverage(frequencyData, hzToBin(600), hzToBin(2000));
         const treble = this.getAverage(frequencyData, hzToBin(3000), hzToBin(6000));
         
+        this.bass = bass;
+        this.mid = mid;
+        this.treble = treble;
+        
+        return { bass, mid, treble };
+    }
+    
+    /**
+     * Calculate 10 frequency bands for color mapping
+     * @param {Uint8Array} frequencyData - Frequency data array
+     * @returns {Object} Object with freq1 through freq10 values
+     */
+    calculateColorBands(frequencyData) {
+        if (!frequencyData || frequencyData.length === 0) {
+            return {
+                freq1: 0, freq2: 0, freq3: 0, freq4: 0, freq5: 0,
+                freq6: 0, freq7: 0, freq8: 0, freq9: 0, freq10: 0
+            };
+        }
+        
+        const nyquist = this.sampleRate / 2;
+        const binSize = nyquist / frequencyData.length;
+        
+        // Helper to convert Hz to bin number
+        const hzToBin = (hz) => Math.floor(hz / binSize);
+        
         // Calculate frequency bands (10 bands, octave-spaced)
         // freq1: 10.24k-20k Hz (brightest - high treble)
         // freq2: 5.12k-10.24k Hz (upper treble)
@@ -62,99 +120,73 @@ export class FrequencyAnalyzer {
         // freq8: 80-160 Hz (bass)
         // freq9: 40-80 Hz (sub-bass)
         // freq10: 20-40 Hz (darkest - deep sub-bass)
-        const freq1 = this.getAverage(frequencyData, hzToBin(10240), hzToBin(20000));
-        const freq2 = this.getAverage(frequencyData, hzToBin(5120), hzToBin(10240));
-        const freq3 = this.getAverage(frequencyData, hzToBin(2560), hzToBin(5120));
-        const freq4 = this.getAverage(frequencyData, hzToBin(1280), hzToBin(2560));
-        const freq5 = this.getAverage(frequencyData, hzToBin(640), hzToBin(1280));
-        const freq6 = this.getAverage(frequencyData, hzToBin(320), hzToBin(640));
-        const freq7 = this.getAverage(frequencyData, hzToBin(160), hzToBin(320));
-        const freq8 = this.getAverage(frequencyData, hzToBin(80), hzToBin(160));
-        const freq9 = this.getAverage(frequencyData, hzToBin(40), hzToBin(80));
-        const freq10 = this.getAverage(frequencyData, hzToBin(20), hzToBin(40));
+        this.freq1 = this.getAverage(frequencyData, hzToBin(10240), hzToBin(20000));
+        this.freq2 = this.getAverage(frequencyData, hzToBin(5120), hzToBin(10240));
+        this.freq3 = this.getAverage(frequencyData, hzToBin(2560), hzToBin(5120));
+        this.freq4 = this.getAverage(frequencyData, hzToBin(1280), hzToBin(2560));
+        this.freq5 = this.getAverage(frequencyData, hzToBin(640), hzToBin(1280));
+        this.freq6 = this.getAverage(frequencyData, hzToBin(320), hzToBin(640));
+        this.freq7 = this.getAverage(frequencyData, hzToBin(160), hzToBin(320));
+        this.freq8 = this.getAverage(frequencyData, hzToBin(80), hzToBin(160));
+        this.freq9 = this.getAverage(frequencyData, hzToBin(40), hzToBin(80));
+        this.freq10 = this.getAverage(frequencyData, hzToBin(20), hzToBin(40));
         
-        // Calculate stereo balance per frequency band
-        // Returns -1 (left) to 1 (right), 0 = center
-        let bassStereo = 0;
-        let midStereo = 0;
-        let trebleStereo = 0;
-        
-        if (leftFrequencyData && rightFrequencyData) {
-            const bassLeft = this.getAverage(leftFrequencyData, hzToBin(20), hzToBin(200));
-            const bassRight = this.getAverage(rightFrequencyData, hzToBin(20), hzToBin(200));
-            bassStereo = this.getStereoBalance(bassLeft, bassRight);
-            
-            const midLeft = this.getAverage(leftFrequencyData, hzToBin(600), hzToBin(2000));
-            const midRight = this.getAverage(rightFrequencyData, hzToBin(600), hzToBin(2000));
-            midStereo = this.getStereoBalance(midLeft, midRight);
-            
-            const trebleLeft = this.getAverage(leftFrequencyData, hzToBin(3000), hzToBin(6000));
-            const trebleRight = this.getAverage(rightFrequencyData, hzToBin(3000), hzToBin(6000));
-            trebleStereo = this.getStereoBalance(trebleLeft, trebleRight);
-        }
-        
-        // Calculate volume (RMS from time domain)
-        const volume = this.getRMS(timeData);
-        
-        // Apply tempo-relative asymmetric smoothing to volume
-        const volumeConfig = TempoSmoothingConfig.volume;
-        const attackTimeConstant = getTempoRelativeTimeConstant(
-            volumeConfig.attackNote,
-            estimatedBPM,
-            volumeConfig.attackTimeFallback
-        );
-        const releaseTimeConstant = getTempoRelativeTimeConstant(
-            volumeConfig.releaseNote,
-            estimatedBPM,
-            volumeConfig.releaseTimeFallback
-        );
-        
-        // Note: smoothedVolume is managed by AudioAnalyzer, so we return the raw volume
-        // and let AudioAnalyzer handle smoothing
-        
-        // Apply tempo-relative smoothing to frequency bands (for color mapping)
-        const freqConfig = TempoSmoothingConfig.frequencyBands;
-        const freqAttackTimeConstant = getTempoRelativeTimeConstant(
-            freqConfig.attackNote,
-            estimatedBPM,
-            freqConfig.attackTimeFallback
-        );
-        const freqReleaseTimeConstant = getTempoRelativeTimeConstant(
-            freqConfig.releaseNote,
-            estimatedBPM,
-            freqConfig.releaseTimeFallback
-        );
-        
-        // Return all calculated values
         return {
-            bass,
-            mid,
-            treble,
-            volume,
-            freq1,
-            freq2,
-            freq3,
-            freq4,
-            freq5,
-            freq6,
-            freq7,
-            freq8,
-            freq9,
-            freq10,
-            bassStereo,
-            midStereo,
-            trebleStereo,
-            // Smoothing config for AudioAnalyzer to use
-            smoothingConfig: {
-                freqAttackTimeConstant,
-                freqReleaseTimeConstant,
-                volumeAttackTimeConstant: attackTimeConstant,
-                volumeReleaseTimeConstant: releaseTimeConstant
-            }
+            freq1: this.freq1, freq2: this.freq2, freq3: this.freq3, freq4: this.freq4, freq5: this.freq5,
+            freq6: this.freq6, freq7: this.freq7, freq8: this.freq8, freq9: this.freq9, freq10: this.freq10
         };
     }
     
-    getStereoBalance(left, right) {
+    /**
+     * Calculate stereo balance per frequency band
+     * @param {Uint8Array} leftFrequencyData - Left channel frequency data
+     * @param {Uint8Array} rightFrequencyData - Right channel frequency data
+     * @returns {Object} Object with bassStereo, midStereo, trebleStereo values
+     */
+    calculateStereoBands(leftFrequencyData, rightFrequencyData) {
+        if (!leftFrequencyData || !rightFrequencyData) {
+            this.bassStereo = 0;
+            this.midStereo = 0;
+            this.trebleStereo = 0;
+            return { bassStereo: 0, midStereo: 0, trebleStereo: 0 };
+        }
+        
+        const nyquist = this.sampleRate / 2;
+        const binSize = nyquist / leftFrequencyData.length;
+        
+        // Helper to convert Hz to bin number
+        const hzToBin = (hz) => Math.floor(hz / binSize);
+        
+        // Calculate stereo balance per frequency band
+        // Returns -1 (left) to 1 (right), 0 = center
+        // Use same Hz ranges as main frequency bands
+        const bassLeft = this.getAverage(leftFrequencyData, hzToBin(20), hzToBin(200));
+        const bassRight = this.getAverage(rightFrequencyData, hzToBin(20), hzToBin(200));
+        this.bassStereo = this.getStereoBalance(bassLeft, bassRight);
+        
+        const midLeft = this.getAverage(leftFrequencyData, hzToBin(600), hzToBin(2000));
+        const midRight = this.getAverage(rightFrequencyData, hzToBin(600), hzToBin(2000));
+        this.midStereo = this.getStereoBalance(midLeft, midRight);
+        
+        const trebleLeft = this.getAverage(leftFrequencyData, hzToBin(3000), hzToBin(6000));
+        const trebleRight = this.getAverage(rightFrequencyData, hzToBin(3000), hzToBin(6000));
+        this.trebleStereo = this.getStereoBalance(trebleLeft, trebleRight);
+        
+        return {
+            bassStereo: this.bassStereo,
+            midStereo: this.midStereo,
+            trebleStereo: this.trebleStereo
+        };
+    }
+    
+    /**
+     * Get stereo balance from left and right channel values
+     * @param {number} left - Left channel value
+     * @param {number} right - Right channel value
+     * @param {number} stereoEmphasisExponent - Stereo emphasis factor (0.0-1.0, lower = more emphasis)
+     * @returns {number} Stereo balance (-1 = left, 0 = center, 1 = right)
+     */
+    getStereoBalance(left, right, stereoEmphasisExponent = 0.7) {
         const total = left + right;
         if (total < 0.01) return 0; // Too quiet, assume center
         const raw = (right - left) / total; // -1 to 1 (linear)
@@ -163,27 +195,7 @@ export class FrequencyAnalyzer {
         // Since full left/right panning is rare, we amplify smaller differences
         // Sign preserves direction, exponent amplifies the difference
         // Lower exponent (0.5-0.7) = more emphasis, higher (0.8-1.0) = less emphasis
-        return Math.sign(raw) * Math.pow(Math.abs(raw), this.stereoEmphasisExponent);
-    }
-    
-    getAverage(data, start, end) {
-        let sum = 0;
-        const count = Math.min(end, data.length - 1) - start + 1;
-        if (count <= 0) return 0;
-        
-        for (let i = start; i <= end && i < data.length; i++) {
-            sum += data[i];
-        }
-        return sum / count / 255.0; // Normalize to 0-1
-    }
-    
-    getRMS(data) {
-        let sum = 0;
-        for (let i = 0; i < data.length; i++) {
-            const normalized = (data[i] - 128) / 128.0;
-            sum += normalized * normalized;
-        }
-        return Math.sqrt(sum / data.length);
+        return Math.sign(raw) * Math.pow(Math.abs(raw), stereoEmphasisExponent);
     }
     
     /**
@@ -192,15 +204,29 @@ export class FrequencyAnalyzer {
      * @param {Uint8Array} leftFrequencyData - Left channel frequency data
      * @param {Uint8Array} rightFrequencyData - Right channel frequency data
      * @param {number} numBands - Number of frequency bands (16-128)
-     * @returns {Object} Object with leftBands and rightBands arrays
+     * @returns {Object} Object with leftBands and rightBands Float32Arrays
      */
     calculateConfigurableBands(frequencyData, leftFrequencyData, rightFrequencyData, numBands = 32) {
-        const sampleRate = this.audioContext?.sampleRate || 44100;
-        const nyquist = sampleRate / 2;
+        if (!frequencyData) {
+            return { leftBands: new Float32Array(numBands), rightBands: new Float32Array(numBands), numBands };
+        }
+        
+        const nyquist = this.sampleRate / 2;
         const binSize = nyquist / frequencyData.length;
         
         // Helper to convert Hz to bin number
         const hzToBin = (hz) => Math.floor(hz / binSize);
+        
+        // Helper to get average value in a range
+        const getAverage = (data, start, end) => {
+            let sum = 0;
+            const count = Math.min(end, data.length - 1) - start + 1;
+            if (count <= 0) return 0;
+            for (let i = start; i <= end && i < data.length; i++) {
+                sum += data[i];
+            }
+            return sum / count / 255.0; // Normalize to 0-1
+        };
         
         // Frequency range: 20 Hz to Nyquist (typically 22050 Hz)
         const minFreq = 20;
@@ -211,39 +237,44 @@ export class FrequencyAnalyzer {
         const rightBands = new Float32Array(numBands);
         
         for (let i = 0; i < numBands; i++) {
-            // Logarithmic spacing
+            // Logarithmic spacing: ensure last band covers up to Nyquist
             const t = i / (numBands - 1);
             const freqStart = minFreq * Math.pow(maxFreq / minFreq, t);
-            const freqEnd = minFreq * Math.pow(maxFreq / minFreq, (i + 1) / (numBands - 1));
+            // For last band, use maxFreq (Nyquist) to ensure full coverage
+            const freqEnd = (i === numBands - 1) 
+                ? maxFreq 
+                : minFreq * Math.pow(maxFreq / minFreq, (i + 1) / (numBands - 1));
             
             const binStart = hzToBin(freqStart);
-            const binEnd = hzToBin(freqEnd);
+            const binEnd = Math.min(hzToBin(freqEnd), frequencyData.length - 1);
             
             // Calculate average for main channel
-            const avg = this.getAverage(frequencyData, binStart, binEnd);
+            const avg = getAverage(frequencyData, binStart, binEnd);
             
             // Calculate left and right channel averages
             let leftAvg = 0;
             let rightAvg = 0;
-            
             if (leftFrequencyData && rightFrequencyData) {
-                leftAvg = this.getAverage(leftFrequencyData, binStart, binEnd);
-                rightAvg = this.getAverage(rightFrequencyData, binStart, binEnd);
+                leftAvg = getAverage(leftFrequencyData, binStart, binEnd);
+                rightAvg = getAverage(rightFrequencyData, binStart, binEnd);
             } else {
-                // Fallback: use main channel data split evenly
-                leftAvg = avg * 0.5;
-                rightAvg = avg * 0.5;
+                // Fallback to mono if stereo data not available
+                leftAvg = avg;
+                rightAvg = avg;
             }
             
             leftBands[i] = leftAvg;
             rightBands[i] = rightAvg;
         }
         
-        return {
-            leftBands,
-            rightBands,
-            numBands
-        };
+        return { leftBands, rightBands, numBands };
+    }
+    
+    /**
+     * Update sample rate (useful if audio context changes)
+     * @param {number} sampleRate - New sample rate
+     */
+    setSampleRate(sampleRate) {
+        this.sampleRate = sampleRate || 44100;
     }
 }
-

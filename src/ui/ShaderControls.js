@@ -268,7 +268,7 @@ export class ShaderSwitcher {
         
         // Step 1: Hide controls (top and bottom)
         if (this.audioControls) {
-            this.audioControls.hideControls();
+            this.audioControls.uiControlsManager.hideControls();
         }
         
         // Step 2: After controls start animating out, show menu
@@ -296,7 +296,7 @@ export class ShaderSwitcher {
                 this.shaderSwitcherMenu.style.display = 'none';
             }
             if (this.audioControls) {
-                this.audioControls.showControls();
+                this.audioControls.uiControlsManager.showControls();
             }
         }, 350); // Match the animation duration
     }
