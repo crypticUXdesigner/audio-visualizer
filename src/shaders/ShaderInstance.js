@@ -31,7 +31,7 @@ export class ShaderInstance {
             });
         }
         
-        this.startTime = Date.now();
+        this.startTime = performance.now();
         this.isInitialized = false;
         this.renderLoopId = null;
         this.lastFrameTime = 0;
@@ -136,6 +136,13 @@ export class ShaderInstance {
     }
     
     
+    /**
+     * Initialize the shader instance
+     * Loads and compiles shaders, sets up WebGL context, initializes managers
+     * @throws {Error} If canvas element is not found
+     * @throws {Error} If shader compilation or linking fails
+     * @returns {Promise<void>}
+     */
     async init() {
         if (this.isInitialized) {
             console.warn(`ShaderInstance ${this.config.name} already initialized`);
@@ -259,6 +266,10 @@ export class ShaderInstance {
         console.log(`ShaderInstance ${this.config.name} initialized`);
     }
     
+    /**
+     * Resize the canvas and update viewport
+     * Applies performance-based resolution capping and quality scaling
+     */
     resize() {
         if (!this.canvas || !this.gl) return;
         
@@ -291,6 +302,13 @@ export class ShaderInstance {
         
     }
     
+    /**
+     * Set a shader parameter value
+     * @param {string} name - Parameter name
+     * @param {*} value - Parameter value
+     * @returns {boolean} True if parameter was set successfully
+     * @throws {ShaderError} If shader is not initialized or parameter is invalid
+     */
     setParameter(name, value) {
         if (!this.isInitialized) {
             throw new ShaderError('ShaderInstance not initialized', ErrorCodes.NOT_INITIALIZED);
@@ -300,21 +318,66 @@ export class ShaderInstance {
             throw new ShaderError(`Parameter "${name}" not found`, ErrorCodes.INVALID_PARAMETER, { name });
         }
         
-        this.parameters[name] = value;
+        const paramConfig = this.config.parameters[name];
+        
+        // Type validation
+        if (paramConfig.type === 'int' && !Number.isInteger(value)) {
+            throw new ShaderError(`Parameter "${name}" must be an integer`, ErrorCodes.INVALID_PARAMETER, { name, value });
+        }
+        if (paramConfig.type === 'float' && typeof value !== 'number') {
+            throw new ShaderError(`Parameter "${name}" must be a number`, ErrorCodes.INVALID_PARAMETER, { name, value });
+        }
+        
+        // Range validation with clamping
+        let finalValue = value;
+        if (paramConfig.min !== undefined && finalValue < paramConfig.min) {
+            console.warn(`Parameter "${name}" value ${finalValue} below minimum ${paramConfig.min}, clamping`);
+            finalValue = paramConfig.min;
+        }
+        if (paramConfig.max !== undefined && finalValue > paramConfig.max) {
+            console.warn(`Parameter "${name}" value ${finalValue} above maximum ${paramConfig.max}, clamping`);
+            finalValue = paramConfig.max;
+        }
+        
+        this.parameters[name] = finalValue;
         return true;
     }
     
+    /**
+     * Get a shader parameter value
+     * @param {string} name - Parameter name
+     * @returns {*} Parameter value, or undefined if not found
+     */
     getParameter(name) {
         return this.parameters[name];
     }
     
+    /**
+     * Get all shader parameters as a copy
+     * @returns {Object} Copy of all parameter values
+     */
     getAllParameters() {
         return { ...this.parameters };
     }
+    
+    /**
+     * Render a single frame
+     * Updates uniforms, textures, and draws the shader
+     * @param {Object|null} audioData - Audio data from AudioAnalyzer (optional)
+     * @param {Object|null} colors - Color values (optional)
+     */
     render(audioData = null, colors = null) {
         if (!this.isInitialized || !this.gl || !this.program) return;
         
-        const now = Date.now();
+        // Check all managers are initialized before proceeding
+        if (!this.uniformManager || !this.timeOffsetManager || 
+            !this.pixelSizeAnimationManager || !this.colorTransitionManager ||
+            !this.performanceMonitor) {
+            console.warn('ShaderInstance: Managers not initialized, skipping render');
+            return;
+        }
+        
+        const now = performance.now();
         const elapsed = now - this.lastFrameTime;
         const targetFrameInterval = 1000 / this.performanceMonitor.targetFPS;
         
@@ -326,7 +389,7 @@ export class ShaderInstance {
         this.lastFrameTime = now;
         
         const gl = this.gl;
-        const currentTime = (Date.now() - this.startTime) / 1000.0;
+        const currentTime = (performance.now() - this.startTime) / 1000.0;
         const deltaTime = elapsed / 1000.0;
         
         // Update managers
@@ -335,11 +398,11 @@ export class ShaderInstance {
         // Update pixel size animation
         if (audioData && audioData.volume !== undefined) {
             const volume = audioData.volume || 0;
-            const currentTimeMs = Date.now();
+            const currentTimeMs = performance.now();
             this.pixelSizeAnimationManager.update(volume, currentTime, currentTimeMs);
         } else {
             // Update animation timing even without audio
-            this.pixelSizeAnimationManager.update(0, currentTime, Date.now());
+            this.pixelSizeAnimationManager.update(0, currentTime, performance.now());
         }
         
         gl.clearColor(0.0, 0.0, 0.0, 1.0);
@@ -348,61 +411,59 @@ export class ShaderInstance {
         gl.useProgram(this.program);
         gl.viewport(0, 0, this.canvas.width, this.canvas.height);
         
-        // Update uniforms using UniformManager
-        if (this.uniformManager) {
-            const resolution = [this.canvas.width, this.canvas.height];
-            
-            // Update standard uniforms
-            this.uniformManager.updateStandardUniforms(
-                this.parameters,
-                currentTime,
-                this.timeOffsetManager.getSmoothedOffset(),
-                this.pixelSizeAnimationManager.getMultiplier(),
-                resolution
-            );
-            
-            // Update parameter uniforms
-            this.uniformManager.updateParameterUniforms(this.parameters, this.config);
-            
-            // Update plugin-specific parameter uniforms
-            if (this.plugin) {
-                this.plugin.onUpdateParameterUniforms(this.parameters, this.config, this.uniformManager);
-            }
-            
-            // Update ripple uniforms
-            this.uniformManager.updateRippleUniforms(
-                audioData?.rippleData,
-                this._rippleArrays
-            );
-            
-            // Update color uniforms
-            this.uniformManager.updateColorUniforms(
-                colors,
-                () => this.colorTransitionManager.getCurrentColors(),
-                { isTransitioning: this.colorTransitionManager.isTransitioning }
-            );
-            
-            // Update audio uniforms
-            this.uniformManager.updateAudioUniforms(
-                audioData,
-                this.config.uniformMapping,
-                this.parameters
-            );
+        // Update uniforms using UniformManager (managers already checked above)
+        const resolution = [this.canvas.width, this.canvas.height];
+        
+        // Update standard uniforms
+        this.uniformManager.updateStandardUniforms(
+            this.parameters,
+            currentTime,
+            this.timeOffsetManager.getSmoothedOffset(),
+            this.pixelSizeAnimationManager.getMultiplier(),
+            resolution
+        );
+        
+        // Update parameter uniforms
+        this.uniformManager.updateParameterUniforms(this.parameters, this.config);
+        
+        // Update plugin-specific parameter uniforms
+        if (this.plugin) {
+            this.plugin.onUpdateParameterUniforms(this.parameters, this.config, this.uniformManager);
         }
+        
+        // Update ripple uniforms
+        this.uniformManager.updateRippleUniforms(
+            audioData?.rippleData,
+            this._rippleArrays
+        );
+        
+        // Update color uniforms
+        this.uniformManager.updateColorUniforms(
+            colors,
+            () => this.colorTransitionManager.getCurrentColors(),
+            { isTransitioning: this.colorTransitionManager.isTransitioning }
+        );
+        
+        // Update audio uniforms
+        this.uniformManager.updateAudioUniforms(
+            audioData,
+            this.config?.uniformMapping,
+            this.parameters
+        );
         
         // Call plugin hooks for shader-specific updates
         // Update textures (frequency textures, etc.)
-        if (this.plugin && audioData) {
+        if (this.plugin && audioData && typeof this.plugin.onUpdateTextures === 'function') {
             this.plugin.onUpdateTextures(audioData, deltaTime);
         }
         
         // Update smoothing (tempo-based smoothing)
-        if (this.plugin && audioData) {
+        if (this.plugin && audioData && typeof this.plugin.updateSmoothing === 'function') {
             this.plugin.updateSmoothing(audioData, deltaTime);
         }
         
         // Update plugin-specific uniforms
-        if (this.plugin) {
+        if (this.plugin && typeof this.plugin.onUpdateUniforms === 'function') {
             this.plugin.onUpdateUniforms(audioData, colors, deltaTime);
         }
         
@@ -435,6 +496,12 @@ export class ShaderInstance {
         }
     }
     
+    /**
+     * Start the render loop
+     * Continuously renders frames using requestAnimationFrame
+     * @param {AudioAnalyzer} audioAnalyzer - Audio analyzer instance
+     * @param {Object|null} colors - Initial color values (optional)
+     */
     startRenderLoop(audioAnalyzer, colors) {
         // Stop existing loop if running
         if (this.renderLoopId) {
@@ -444,6 +511,12 @@ export class ShaderInstance {
         // Store references for render loop
         this._audioAnalyzer = audioAnalyzer;
         this._colors = colors;
+        
+        // Initialize colors in ColorTransitionManager if provided
+        if (colors && this.colorTransitionManager) {
+            const isFirstColorUpdate = !this.colorTransitionManager.currentColors;
+            this.colorTransitionManager.startTransition(colors, isFirstColorUpdate);
+        }
         
         const render = () => {
             if (this.webglFallbackActive) {
@@ -469,13 +542,13 @@ export class ShaderInstance {
             }
             
             // Always use current colors reference (may have been updated)
-            const frameStartTime = Date.now();
+            const frameStartTime = performance.now();
             const previousFrameTime = this.lastFrameTime;
             this.render(audioData, this._colors);
             
             // Measure performance after rendering
             if (previousFrameTime > 0) {
-                const elapsed = frameStartTime - previousFrameTime;
+                const elapsed = performance.now() - previousFrameTime;
                 this.performanceMonitor.recordFrame(elapsed, (newQuality) => {
                     // Quality changed, trigger resize
                     this.resize();
@@ -491,7 +564,7 @@ export class ShaderInstance {
     /**
      * Update colors in the render loop without restarting
      * Starts a smooth transition from current colors to new colors
-     * @param {Object} colors - New colors object
+     * @param {Object} colors - New colors object with color, color2, etc. properties
      */
     updateColors(colors) {
         if (!colors) return;
@@ -552,18 +625,52 @@ export class ShaderInstance {
             this.plugin.onDestroy();
         }
         
+        // Clean up managers
+        if (this.timeOffsetManager) {
+            this.timeOffsetManager.reset();
+        }
+        if (this.colorTransitionManager) {
+            this.colorTransitionManager.reset();
+        }
+        if (this.pixelSizeAnimationManager) {
+            this.pixelSizeAnimationManager.reset();
+        }
+        
+        // Clean up WebGL resources
         if (this.gl && this.program) {
             this.gl.deleteProgram(this.program);
+            this.program = null;
         }
         
         if (this.gl && this.quadBuffer) {
             this.gl.deleteBuffer(this.quadBuffer);
+            this.quadBuffer = null;
         }
         
         // Clean up textures
         if (this.textureManager) {
             this.textureManager.destroyAll();
+            this.textureManager = null;
         }
+        
+        // Clean up arrays and caches (allow garbage collection)
+        this._rippleArrays = null;
+        this._lastUniformValues = null;
+        this.uniformLocations = null;
+        this.uniformLocationCache = null;
+        
+        // Clear references
+        this.gl = null;
+        this.canvas = null;
+        this._audioAnalyzer = null;
+        this._colors = null;
+        this._shaderManager = null;
+        this.plugin = null;
+        this.uniformManager = null;
+        this.timeOffsetManager = null;
+        this.colorTransitionManager = null;
+        this.pixelSizeAnimationManager = null;
+        this.performanceMonitor = null;
         
         this.isInitialized = false;
     }

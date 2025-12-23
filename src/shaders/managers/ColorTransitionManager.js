@@ -36,7 +36,7 @@ export class ColorTransitionManager {
         this.previousColors = this.cloneColors(this.currentColors);
         this.targetColors = this.cloneColors(newColors);
         this.isTransitioning = true;
-        this.startTime = Date.now();
+        this.startTime = performance.now();
     }
     
     /**
@@ -48,7 +48,7 @@ export class ColorTransitionManager {
             return this.currentColors;
         }
         
-        const elapsed = Date.now() - this.startTime;
+        const elapsed = performance.now() - this.startTime;
         const t = Math.min(elapsed / this.duration, 1.0);
         
         // Use ease-out cubic for smooth deceleration
@@ -105,14 +105,6 @@ export class ColorTransitionManager {
             color1[1] + (color2[1] - color1[1]) * t,
             color1[2] + (color2[2] - color1[2]) * t
         ];
-    }
-    
-    /**
-     * Check if currently transitioning
-     * @returns {boolean} True if transitioning
-     */
-    isTransitioning() {
-        return this.isTransitioning;
     }
     
     /**

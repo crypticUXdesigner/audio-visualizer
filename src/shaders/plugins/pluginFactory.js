@@ -18,8 +18,8 @@ export function createShaderPlugin(shaderInstance, config) {
         if (typeof config.plugin === 'function') {
             return new config.plugin(shaderInstance, config);
         }
-        // If it's a string, try to resolve it
-        console.warn(`Plugin specified as string "${config.plugin}" - not yet supported`);
+        // Invalid plugin type - fall through to auto-detection
+        console.warn(`Plugin must be a function/class, got ${typeof config.plugin}. Auto-detecting from shader name.`);
     }
     
     // Auto-detect plugin based on shader name

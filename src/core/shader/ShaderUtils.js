@@ -156,9 +156,27 @@ export async function processIncludes(source, retries = 3, included = new Set(),
                 console.log(`[processIncludes] Successfully replaced include: "${includePath}"`);
             }
         } catch (error) {
-            // If include fails to load, remove the directive and log error
-            console.error(`[processIncludes] Failed to load include: "${includePath}"`, error);
-            console.error(`[processIncludes] Removing failed include directive`);
+            // Log detailed error information
+            const errorDetails = {
+                includePath,
+                basePath,
+                error: error.message
+            };
+            
+            console.error(`[processIncludes] Failed to load include: "${includePath}"`, errorDetails);
+            
+            // Check if this is a critical include (could be determined by naming convention or config)
+            // Import ShaderConstants to check critical includes
+            const criticalIncludes = ['uniforms.glsl', 'constants.glsl'];
+            const isCritical = criticalIncludes.some(critical => includePath.includes(critical));
+            
+            if (isCritical) {
+                // Critical includes should fail the entire shader compilation
+                throw new Error(`Critical shader include failed to load: ${includePath}. Original error: ${error.message}`);
+            }
+            
+            // Non-critical includes: remove directive and continue
+            console.warn(`[processIncludes] Removing failed include directive (non-critical): "${includePath}"`);
             const escapedDirective = includeDirective.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
             const regex = new RegExp(escapedDirective, 'g');
             const beforeRemove = source;

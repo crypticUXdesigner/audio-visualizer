@@ -8,6 +8,29 @@ export class TextureManager {
     constructor(gl) {
         this.gl = gl;
         this.textures = new Map();
+        this.textureUnitBindings = new Map(); // textureKey -> textureUnit
+        this.nextAvailableUnit = 0;
+        this.maxTextureUnits = gl.getParameter(gl.MAX_COMBINED_TEXTURE_IMAGE_UNITS) || 8;
+    }
+    
+    /**
+     * Allocate a texture unit for a texture
+     * @param {string} textureKey - Key identifying the texture
+     * @returns {number} Texture unit number
+     */
+    allocateTextureUnit(textureKey) {
+        if (this.textureUnitBindings.has(textureKey)) {
+            return this.textureUnitBindings.get(textureKey);
+        }
+        
+        if (this.nextAvailableUnit >= this.maxTextureUnits) {
+            console.warn(`TextureManager: All texture units in use (${this.maxTextureUnits}), reusing unit 0`);
+            this.nextAvailableUnit = 0;
+        }
+        
+        const unit = this.nextAvailableUnit++;
+        this.textureUnitBindings.set(textureKey, unit);
+        return unit;
     }
     
     /**
@@ -15,7 +38,7 @@ export class TextureManager {
      * @param {Float32Array} data - Texture data (interleaved RG channels)
      * @param {number} width - Texture width (number of bands)
      * @param {string} textureKey - Key to identify the texture
-     * @returns {WebGLTexture} The texture
+     * @returns {Object} { texture: WebGLTexture, unit: number }
      */
     createFrequencyTexture(data, width, textureKey) {
         const gl = this.gl;
@@ -100,7 +123,28 @@ export class TextureManager {
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
         
-        return texture;
+        // Allocate texture unit for this texture
+        const unit = this.allocateTextureUnit(textureKey);
+        
+        return { texture, unit };
+    }
+    
+    /**
+     * Bind a texture to its allocated texture unit
+     * @param {WebGLTexture} texture - Texture to bind
+     * @param {string} textureKey - Key identifying the texture
+     * @returns {number} Texture unit number
+     */
+    bindTextureByKey(texture, textureKey) {
+        const unit = this.textureUnitBindings.get(textureKey);
+        if (unit === undefined) {
+            console.warn(`TextureManager: Texture key "${textureKey}" not found, allocating new unit`);
+            const newUnit = this.allocateTextureUnit(textureKey);
+            this.bindTexture(texture, newUnit);
+            return newUnit;
+        }
+        this.bindTexture(texture, unit);
+        return unit;
     }
     
     /**
@@ -123,6 +167,7 @@ export class TextureManager {
         if (texture) {
             this.gl.deleteTexture(texture);
             this.textures.delete(textureKey);
+            this.textureUnitBindings.delete(textureKey); // Free texture unit
         }
     }
     

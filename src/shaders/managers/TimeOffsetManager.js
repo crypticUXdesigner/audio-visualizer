@@ -30,13 +30,16 @@ export class TimeOffsetManager {
     }
     
     /**
-     * Cubic-bezier solver: finds t (0-1) for a given x using binary search
-     * @param {number} x - Input value (0-1)
-     * @param {number} x1 - First control point X
-     * @param {number} y1 - First control point Y
-     * @param {number} x2 - Second control point X
-     * @param {number} y2 - Second control point Y
-     * @returns {number} t value (0-1)
+     * Cubic-bezier solver: finds y value for a given x using binary search
+     * Solves the cubic bezier equation B(t) = (1-t)³P₀ + 3(1-t)²tP₁ + 3(1-t)t²P₂ + t³P₃
+     * where P₀ = (0,0), P₁ = (x1,y1), P₂ = (x2,y2), P₃ = (1,1)
+     * Uses binary search to find t such that Bx(t) = x, then returns By(t)
+     * @param {number} x - Input x value (0-1)
+     * @param {number} x1 - First control point X coordinate (0-1)
+     * @param {number} y1 - First control point Y coordinate (0-1)
+     * @param {number} x2 - Second control point X coordinate (0-1)
+     * @param {number} y2 - Second control point Y coordinate (0-1)
+     * @returns {number} Corresponding y value (0-1)
      */
     cubicBezierSolve(x, x1, y1, x2, y2) {
         // Cubic bezier formula: B(t) = (1-t)³P₀ + 3(1-t)²tP₁ + 3(1-t)t²P₂ + t³P₃
@@ -78,7 +81,8 @@ export class TimeOffsetManager {
      * Calculate easing factor for time offset accumulation using cubic-bezier
      * Maps trigger signal strength (volume) to accumulation rate multiplier
      * Strong signals → more accumulation (eased), weak signals → less accumulation (with nuance)
-     * @param {number} volume - Trigger signal strength (0-1)
+     * Uses the configured cubic-bezier curve to provide smooth, non-linear mapping
+     * @param {number} volume - Trigger signal strength (0-1), clamped internally
      * @returns {number} Easing factor (0-1) that multiplies accumulation rate
      */
     getTimeOffsetEasingFactor(volume) {
@@ -102,7 +106,9 @@ export class TimeOffsetManager {
     
     /**
      * Update time offset based on audio data
-     * @param {Object} audioData - Audio data with volume and estimatedBPM
+     * Uses hysteresis to prevent rapid switching between accumulation and decay
+     * Applies tempo-relative smoothing for musical timing
+     * @param {Object|null} audioData - Audio data with volume and estimatedBPM (can be null)
      * @param {number} deltaTime - Time since last update in seconds
      */
     update(audioData, deltaTime) {

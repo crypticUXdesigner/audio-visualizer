@@ -56,9 +56,9 @@ export class StringsShaderPlugin extends BaseShaderPlugin {
      */
     onUpdateTextures(audioData, deltaTime) {
         if (!audioData || !audioData.audioContext) return;
+        if (!this.shaderInstance || !this.shaderInstance.gl) return;
         
         const gl = this.shaderInstance.gl;
-        if (!gl) return;
         
         // Get measured bands from config
         const measuredBands = this.shaderInstance.parameters.measuredBands !== undefined 
@@ -172,18 +172,19 @@ export class StringsShaderPlugin extends BaseShaderPlugin {
         );
         
         // Create or update texture using texture manager
-        const textureManager = this.shaderInstance.textureManager;
-        if (textureManager) {
-            this.frequencyTextures.leftRight = textureManager.createFrequencyTexture(
+        const textureManager = this.shaderInstance?.textureManager;
+        if (textureManager && this.shaderInstance?.uniformLocations) {
+            const leftRightResult = textureManager.createFrequencyTexture(
                 leftRightData, 
                 measuredBands,
                 'strings_leftRight'
             );
+            this.frequencyTextures.leftRight = leftRightResult.texture;
             
-            // Set texture uniform
-            textureManager.bindTexture(this.frequencyTextures.leftRight, 0);
+            // Bind texture to its allocated unit and set uniform
+            const leftRightUnit = textureManager.bindTextureByKey(leftRightResult.texture, 'strings_leftRight');
             if (this.shaderInstance.uniformLocations.uFrequencyTexture) {
-                gl.uniform1i(this.shaderInstance.uniformLocations.uFrequencyTexture, 0);
+                gl.uniform1i(this.shaderInstance.uniformLocations.uFrequencyTexture, leftRightUnit);
             }
             
             // Create separate texture for height using shared utility
@@ -193,16 +194,17 @@ export class StringsShaderPlugin extends BaseShaderPlugin {
             );
             
             // Create or update height texture
-            this.frequencyTextures.height = textureManager.createFrequencyTexture(
+            const heightResult = textureManager.createFrequencyTexture(
                 heightData, 
                 measuredBands,
                 'strings_height'
             );
+            this.frequencyTextures.height = heightResult.texture;
             
-            // Set height texture uniform
-            textureManager.bindTexture(this.frequencyTextures.height, 1);
+            // Bind height texture to its allocated unit and set uniform
+            const heightUnit = textureManager.bindTextureByKey(heightResult.texture, 'strings_height');
             if (this.shaderInstance.uniformLocations.uHeightTexture) {
-                gl.uniform1i(this.shaderInstance.uniformLocations.uHeightTexture, 1);
+                gl.uniform1i(this.shaderInstance.uniformLocations.uHeightTexture, heightUnit);
             }
         }
         
@@ -413,5 +415,22 @@ export class StringsShaderPlugin extends BaseShaderPlugin {
         helper.updateFloat('uGlitchIntensity', params.glitchIntensity, 1.0);
         helper.updateFloat('uGlitchBlurAmount', params.glitchBlurAmount, 0.0);
         helper.updateFloat('uGlitchPixelSize', params.glitchPixelSize, 24.0);
+    }
+    
+    /**
+     * Clean up plugin resources
+     */
+    onDestroy() {
+        // Clean up smoothing arrays
+        this.smoothing.smoothedLeftBands = null;
+        this.smoothing.smoothedRightBands = null;
+        this.smoothing.smoothedHeightLeftBands = null;
+        this.smoothing.smoothedHeightRightBands = null;
+        
+        // Clean up textures (handled by TextureManager, but clear references)
+        this.frequencyTextures.leftRight = null;
+        this.frequencyTextures.height = null;
+        
+        this.uniformHelper = null;
     }
 }

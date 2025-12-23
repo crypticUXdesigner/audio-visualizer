@@ -52,7 +52,38 @@ export const ShaderConstants = {
         maxCount: 12
     },
     
+    // Uniform defaults
+    uniforms: {
+        steps: 5.0,
+        mouse: [0.0, 0.0, 0.0, 0.0],
+        shapeType: 0
+    },
+    
     // Default thresholds
-    defaultThresholds: [0.9800, 0.9571, 0.9054, 0.8359, 0.7528, 0.6577, 0.5499, 0.4270, 0.2800, 0.0138]
+    defaultThresholds: [0.9800, 0.9571, 0.9054, 0.8359, 0.7528, 0.6577, 0.5499, 0.4270, 0.2800, 0.0138],
+    
+    // Adaptive rendering settings
+    adaptive: {
+        mobileBreakpoint: 768, // pixels
+        tabletBreakpoint: 1024, // pixels
+        mobileBandReduction: 0.5, // 50% reduction
+        tabletBandReduction: 0.75, // 25% reduction
+        minMobileBands: 12,
+        minTabletBands: 16
+    },
+    
+    // Refraction shader specific
+    refraction: {
+        maxZoom: 2.0,
+        zoomIntensityThreshold: 0.5,
+        zoomIntensityRange: 0.5 // Maps 0.5-1.0 to 0.0-1.0
+    },
+    
+    // Include processing
+    includes: {
+        criticalIncludes: ['uniforms.glsl', 'constants.glsl'],
+        maxRetries: 3,
+        retryDelayBase: 1000 // milliseconds
+    }
 };
 

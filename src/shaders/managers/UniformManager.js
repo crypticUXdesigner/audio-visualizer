@@ -2,6 +2,7 @@
 // Handles all uniform updates with value caching for performance
 
 import { COLOR_KEYS } from '../managers/ColorTransitionManager.js';
+import { ShaderConstants } from '../config/ShaderConstants.js';
 
 export class UniformManager {
     /**
@@ -69,8 +70,8 @@ export class UniformManager {
             }
         }
         
-        // Steps (hardcoded)
-        const stepsValue = 5.0;
+        // Steps (from constants)
+        const stepsValue = ShaderConstants.uniforms.steps;
         if (lastValues.uSteps !== stepsValue) {
             if (locations.uSteps) {
                 gl.uniform1f(locations.uSteps, stepsValue);
@@ -78,23 +79,25 @@ export class UniformManager {
             }
         }
         
-        // Mouse (always 0,0,0,0)
+        // Mouse (from constants)
+        const mouseValue = ShaderConstants.uniforms.mouse;
         if (!lastValues.uMouse || 
-            lastValues.uMouse[0] !== 0.0 ||
-            lastValues.uMouse[1] !== 0.0 ||
-            lastValues.uMouse[2] !== 0.0 ||
-            lastValues.uMouse[3] !== 0.0) {
+            lastValues.uMouse[0] !== mouseValue[0] ||
+            lastValues.uMouse[1] !== mouseValue[1] ||
+            lastValues.uMouse[2] !== mouseValue[2] ||
+            lastValues.uMouse[3] !== mouseValue[3]) {
             if (locations.uMouse) {
-                gl.uniform4f(locations.uMouse, 0.0, 0.0, 0.0, 0.0);
-                lastValues.uMouse = [0.0, 0.0, 0.0, 0.0];
+                gl.uniform4f(locations.uMouse, mouseValue[0], mouseValue[1], mouseValue[2], mouseValue[3]);
+                lastValues.uMouse = [...mouseValue];
             }
         }
         
-        // ShapeType (always 0)
-        if (lastValues.uShapeType !== 0) {
+        // ShapeType (from constants)
+        const shapeTypeValue = ShaderConstants.uniforms.shapeType;
+        if (lastValues.uShapeType !== shapeTypeValue) {
             if (locations.uShapeType) {
-                gl.uniform1i(locations.uShapeType, 0);
-                lastValues.uShapeType = 0;
+                gl.uniform1i(locations.uShapeType, shapeTypeValue);
+                lastValues.uShapeType = shapeTypeValue;
             }
         }
     }
@@ -141,7 +144,7 @@ export class UniformManager {
         const locations = this.locations;
         
         if (rippleData) {
-            const maxRipples = 12;
+            const maxRipples = ShaderConstants.ripples.maxCount;
             const { centerX, centerY, times, intensities, widths, minRadii, maxRadii, intensityMultipliers, active } = rippleArrays;
             
             // Zero out arrays
@@ -239,6 +242,9 @@ export class UniformManager {
         
         // Get interpolated colors (handles smooth transitions)
         const activeColors = getInterpolatedColors();
+        
+        // If no active colors available, skip update (colors not initialized yet)
+        if (!activeColors) return;
         
         // Generate uniform names from COLOR_KEYS
         const colorUniforms = COLOR_KEYS.map(key => `u${key.charAt(0).toUpperCase()}${key.slice(1)}`);

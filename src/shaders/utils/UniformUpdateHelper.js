@@ -159,5 +159,24 @@ export class UniformUpdateHelper {
         });
         return updated;
     }
+    
+    /**
+     * Get parameter value with fallback chain: parameter value -> config default -> provided default
+     * @param {Object} parameters - Parameters object
+     * @param {string} paramName - Parameter name
+     * @param {Object} config - Shader config
+     * @param {*} fallbackDefault - Fallback default value
+     * @returns {*} Parameter value
+     */
+    getParameterValue(parameters, paramName, config, fallbackDefault) {
+        if (parameters[paramName] !== undefined) {
+            return parameters[paramName];
+        }
+        const paramConfig = config?.parameters?.[paramName];
+        if (paramConfig?.default !== undefined) {
+            return paramConfig.default;
+        }
+        return fallbackDefault;
+    }
 }
 

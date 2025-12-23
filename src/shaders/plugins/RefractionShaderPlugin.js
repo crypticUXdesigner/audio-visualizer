@@ -3,6 +3,7 @@
 
 import { BaseShaderPlugin } from './BaseShaderPlugin.js';
 import { TempoSmoothingConfig, getTempoRelativeTimeConstant, applyTempoRelativeSmoothing } from '../../config/tempoSmoothing.js';
+import { ShaderConstants } from '../config/ShaderConstants.js';
 
 export class RefractionShaderPlugin extends BaseShaderPlugin {
     constructor(shaderInstance, config) {
@@ -50,7 +51,8 @@ export class RefractionShaderPlugin extends BaseShaderPlugin {
         
         // Smooth FBM zoom factor (1.0 = normal, maxZoom = zoomed out)
         // Calculate target zoom based on recent beats with intensity-based scaling
-        const maxZoom = 2.0; // Maximum zoom factor (zoomed out)
+        const maxZoom = ShaderConstants.refraction.maxZoom; // Maximum zoom factor (zoomed out)
+        const zoomConfig = ShaderConstants.refraction;
         
         // Check for recent bass or mid beats and get their intensities
         let maxBeatIntensity = 0.0;
@@ -58,32 +60,32 @@ export class RefractionShaderPlugin extends BaseShaderPlugin {
         const midBeatAge = audioData.beatTimeMid || 999.0;
         
         // Check bass beat (primary trigger)
-        if (bassBeatAge < 0.3 && audioData.beatIntensityBass > 0.5) {
+        if (bassBeatAge < 0.3 && audioData.beatIntensityBass > zoomConfig.zoomIntensityThreshold) {
             maxBeatIntensity = Math.max(maxBeatIntensity, audioData.beatIntensityBass);
         }
         
         // Check mid beat (secondary trigger)
-        if (midBeatAge < 0.3 && audioData.beatIntensityMid > 0.5) {
+        if (midBeatAge < 0.3 && audioData.beatIntensityMid > zoomConfig.zoomIntensityThreshold) {
             maxBeatIntensity = Math.max(maxBeatIntensity, audioData.beatIntensityMid);
         }
         
         // Scale zoom from 1.0 (no beat) to maxZoom (strong beat) based on intensity
-        // Intensity is 0.5-1.0, so map it to 0.0-1.0 range, then scale to zoom range
+        // Intensity is threshold-1.0, so map it to 0.0-1.0 range, then scale to zoom range
         const intensityFactor = maxBeatIntensity > 0.0 
-            ? (maxBeatIntensity - 0.5) / 0.5  // Map 0.5-1.0 to 0.0-1.0
+            ? (maxBeatIntensity - zoomConfig.zoomIntensityThreshold) / zoomConfig.zoomIntensityRange  // Map threshold-1.0 to 0.0-1.0
             : 0.0;
         const targetZoom = 1.0 + (maxZoom - 1.0) * intensityFactor;
         
-        const zoomConfig = TempoSmoothingConfig.fbmZoom;
+        const tempoZoomConfig = TempoSmoothingConfig.fbmZoom;
         const zoomAttackTime = getTempoRelativeTimeConstant(
-            zoomConfig.attackNote,
+            tempoZoomConfig.attackNote,
             bpm,
-            zoomConfig.attackTimeFallback
+            tempoZoomConfig.attackTimeFallback
         );
         const zoomReleaseTime = getTempoRelativeTimeConstant(
-            zoomConfig.releaseNote,
+            tempoZoomConfig.releaseNote,
             bpm,
-            zoomConfig.releaseTimeFallback
+            tempoZoomConfig.releaseTimeFallback
         );
         this.smoothing.smoothedFbmZoom = applyTempoRelativeSmoothing(
             this.smoothing.smoothedFbmZoom,

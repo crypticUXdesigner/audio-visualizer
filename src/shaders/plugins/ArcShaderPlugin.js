@@ -45,9 +45,9 @@ export class ArcShaderPlugin extends BaseShaderPlugin {
      */
     onUpdateTextures(audioData, deltaTime) {
         if (!audioData || !audioData.audioContext) return;
+        if (!this.shaderInstance || !this.shaderInstance.gl) return;
         
         const gl = this.shaderInstance.gl;
-        if (!gl) return;
         
         // Get measured bands from config
         const measuredBands = this.shaderInstance.parameters.measuredBands !== undefined 
@@ -122,18 +122,19 @@ export class ArcShaderPlugin extends BaseShaderPlugin {
         );
         
         // Create or update texture using texture manager
-        const textureManager = this.shaderInstance.textureManager;
-        if (textureManager) {
-            this.frequencyTextures.leftRight = textureManager.createFrequencyTexture(
+        const textureManager = this.shaderInstance?.textureManager;
+        if (textureManager && this.shaderInstance?.uniformLocations) {
+            const result = textureManager.createFrequencyTexture(
                 leftRightData, 
                 measuredBands,
                 'arc_leftRight'
             );
+            this.frequencyTextures.leftRight = result.texture;
             
-            // Set texture uniform
-            textureManager.bindTexture(this.frequencyTextures.leftRight, 0);
+            // Bind texture to its allocated unit and set uniform
+            const unit = textureManager.bindTextureByKey(result.texture, 'arc_leftRight');
             if (this.shaderInstance.uniformLocations.uFrequencyTexture) {
-                gl.uniform1i(this.shaderInstance.uniformLocations.uFrequencyTexture, 0);
+                gl.uniform1i(this.shaderInstance.uniformLocations.uFrequencyTexture, unit);
             }
         }
         
@@ -164,6 +165,16 @@ export class ArcShaderPlugin extends BaseShaderPlugin {
         helper.updateFloat('uCenterX', params.centerX, 0.5);
         helper.updateFloat('uCenterY', params.centerY, 0.5);
         helper.updateFloat('uColorTransitionWidth', params.colorTransitionWidth, 0.003);
+    }
+    
+    /**
+     * Clean up plugin resources
+     */
+    onDestroy() {
+        this.smoothing.smoothedLeftBands = null;
+        this.smoothing.smoothedRightBands = null;
+        this.frequencyTextures.leftRight = null;
+        this.uniformHelper = null;
     }
 }
 
