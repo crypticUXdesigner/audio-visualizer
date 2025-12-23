@@ -284,7 +284,7 @@ export class AudioControls {
         const maxOpacity = 0.15; // Adjust as needed
         
         // Get current shader name to determine minOpacity
-        const minOpacity = currentShaderName === 'dots' ? 2.5 : 0.15;
+        const minOpacity = 0.15;
         
         // Apply cubic bezier easing to peak volume
         const easedVolume = cubicBezierEase(peakVolume, 0.6, 0.0, 0.8, 1.0);

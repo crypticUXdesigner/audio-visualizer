@@ -7,7 +7,6 @@ import { generateColorsFromOklch, rgbToHex, normalizeColor, hexToRgb, rgbToOklch
 import { ColorModulator } from './color/ColorModulator.js';
 import { ShaderManager } from '../shaders/ShaderManager.js';
 import heightmapConfig from '../shaders/configs/heightmap.js';
-import dotsConfig from '../shaders/configs/dots.js';
 import { colorPresets } from '../config/color-presets.js';
 import { AudioControls } from '../ui/PlaybackControls.js';
 import { ColorPresetSwitcher } from '../ui/ColorControls.js';
@@ -221,15 +220,6 @@ export class VisualPlayer {
             // Set initial title colors
             if (this.audioControls) {
                 this.audioControls.setColors(this.colors);
-            }
-            
-            // Update frequency visualizer colors
-            if (!skipFrequencyUpdate && window.FrequencyVisualizer && window.FrequencyVisualizer.updateBandColors) {
-                setTimeout(() => {
-                    if (window.FrequencyVisualizer && window.FrequencyVisualizer.updateBandColors) {
-                        window.FrequencyVisualizer.updateBandColors();
-                    }
-                }, 0);
             }
             
             console.log('Colors initialized/updated:', Object.keys(this.colors).length, 'colors');
@@ -546,11 +536,6 @@ export class VisualPlayer {
     
     initDevTools() {
         this.devTools = new DevTools();
-        
-        // Register frequency visualizer if it exists
-        if (window.FrequencyVisualizer) {
-            this.devTools.registerTool('frequencyVisualizer', window.FrequencyVisualizer);
-        }
     }
     
     initTopControls() {
@@ -560,33 +545,6 @@ export class VisualPlayer {
             loudnessThreshold: 0.1
         };
         
-        const isDebugMode = this.isDebugMode();
-        
-        // Frequency Visualizer Button
-        const frequencyVisualizerBtn = document.getElementById('frequencyVisualizerBtn');
-        const frequencyCanvas = document.getElementById('frequencyCanvas');
-        
-        if (frequencyVisualizerBtn && frequencyCanvas) {
-            // Button visibility is now controlled by CSS (debug-mode class on body)
-            if (isDebugMode) {
-                // Ensure it starts hidden
-                frequencyCanvas.style.display = 'none';
-                
-                let isFrequencyVisible = false;
-                
-                frequencyVisualizerBtn.addEventListener('click', () => {
-                    isFrequencyVisible = !isFrequencyVisible;
-                    
-                    if (isFrequencyVisible) {
-                        frequencyCanvas.style.display = 'block';
-                        frequencyVisualizerBtn.classList.add('active');
-                    } else {
-                        frequencyCanvas.style.display = 'none';
-                        frequencyVisualizerBtn.classList.remove('active');
-                    }
-                });
-            }
-        }
     }
     
     /**

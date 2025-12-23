@@ -104,6 +104,7 @@ export async function processIncludes(source, retries = 3, included = new Set(),
     // Find all includes
     while ((match = includeRegex.exec(source)) !== null) {
         let includePath = match[1];
+        const originalPath = includePath;
         
         // If include path is relative and we have a base path, resolve it
         if (!includePath.startsWith('/') && !includePath.startsWith('shaders/') && basePath) {
@@ -117,6 +118,9 @@ export async function processIncludes(source, retries = 3, included = new Set(),
         
         if (!included.has(includePath)) {
             includes.set(includePath, match[0]);
+            console.log(`[processIncludes] Found include: "${originalPath}" -> "${includePath}" (base: "${basePath}")`);
+        } else {
+            console.log(`[processIncludes] Skipping already included: "${includePath}"`);
         }
     }
     
@@ -124,19 +128,58 @@ export async function processIncludes(source, retries = 3, included = new Set(),
     for (const [includePath, includeDirective] of includes) {
         if (included.has(includePath)) {
             // Skip circular includes
+            console.log(`[processIncludes] Removing circular include: "${includePath}"`);
             source = source.replace(includeDirective, '');
             continue;
         }
         
         included.add(includePath);
-        const includeSource = await loadShader(includePath, retries);
+        console.log(`[processIncludes] Processing include: "${includePath}"`);
         
-        // Recursively process includes in the included file
-        const processedInclude = await processIncludes(includeSource, retries, included, includePath);
-        
-        // Replace the include directive with the processed source
-        const escapedDirective = includeDirective.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        source = source.replace(new RegExp(escapedDirective, 'g'), processedInclude);
+        try {
+            const includeSource = await loadShader(includePath, retries);
+            console.log(`[processIncludes] Successfully loaded: "${includePath}" (${includeSource.length} chars)`);
+            
+            // Recursively process includes in the included file
+            const processedInclude = await processIncludes(includeSource, retries, included, includePath);
+            
+            // Replace the include directive with the processed source
+            const escapedDirective = includeDirective.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const beforeReplace = source;
+            source = source.replace(new RegExp(escapedDirective, 'g'), processedInclude);
+            
+            if (source === beforeReplace) {
+                console.warn(`[processIncludes] WARNING: Include directive not replaced for "${includePath}"`);
+                console.warn(`[processIncludes] Directive: "${includeDirective}"`);
+                console.warn(`[processIncludes] Escaped: "${escapedDirective}"`);
+            } else {
+                console.log(`[processIncludes] Successfully replaced include: "${includePath}"`);
+            }
+        } catch (error) {
+            // If include fails to load, remove the directive and log error
+            console.error(`[processIncludes] Failed to load include: "${includePath}"`, error);
+            console.error(`[processIncludes] Removing failed include directive`);
+            const escapedDirective = includeDirective.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const regex = new RegExp(escapedDirective, 'g');
+            const beforeRemove = source;
+            source = source.replace(regex, '');
+            if (source === beforeRemove) {
+                // Try a simpler replacement if regex fails
+                source = source.replace(includeDirective, '');
+            }
+            // Don't re-throw - continue processing other includes
+            // This allows the shader to compile even if some includes fail
+            console.warn(`[processIncludes] Continuing despite failed include: "${includePath}"`);
+        }
+    }
+    
+    // Final safety check: remove any remaining #include directives that weren't processed
+    // This prevents compilation errors if something went wrong
+    const remainingIncludes = source.match(/#include\s+"[^"]+"/g);
+    if (remainingIncludes && remainingIncludes.length > 0) {
+        console.warn(`[processIncludes] WARNING: ${remainingIncludes.length} include directives still remain after processing!`);
+        console.warn(`[processIncludes] Removing remaining includes:`, remainingIncludes);
+        source = source.replace(/#include\s+"[^"]+"/g, '');
     }
     
     return source;

@@ -5,10 +5,7 @@ import { safeCaptureException, safeSentrySpan } from './monitoring/SentryInit.js
 import { AudioAnalyzer } from './audio/AudioAnalyzer.js';
 import { ShaderManager } from '../shaders/ShaderManager.js';
 import heightmapConfig from '../shaders/configs/heightmap.js';
-import dotsConfig from '../shaders/configs/dots.js';
 import refractionConfig from '../shaders/configs/refraction.js';
-import frequencyVisualizerConfig from '../shaders/configs/frequency-visualizer.js';
-import synthwaveConfig from '../shaders/configs/synthwave.js';
 import stringsConfig from '../shaders/configs/strings.js';
 import arcConfig from '../shaders/configs/arc.js';
 import { ColorModulator } from './color/ColorModulator.js';
@@ -47,15 +44,12 @@ export async function initializeApp(app) {
                 
                 // 3. Register shaders
                 app.shaderManager.registerShader(heightmapConfig);
-                app.shaderManager.registerShader(dotsConfig);
                 app.shaderManager.registerShader(refractionConfig);
-                app.shaderManager.registerShader(frequencyVisualizerConfig);
-                app.shaderManager.registerShader(synthwaveConfig);
                 app.shaderManager.registerShader(stringsConfig);
                 app.shaderManager.registerShader(arcConfig);
                 
                 // 4. Initialize color system
-                app.colorConfig = { ...dotsConfig.colorConfig };
+                app.colorConfig = { ...heightmapConfig.colorConfig };
                 app.initializeColors();
                 
                 // 4.5. Initialize color modulator for dynamic hue shifts
@@ -67,7 +61,7 @@ export async function initializeApp(app) {
                 }
                 
                 // 6. Initialize and activate default shader (check localStorage for saved preference)
-                let savedShader = localStorage.getItem('activeShader') || 'dots';
+                let savedShader = localStorage.getItem('activeShader') || 'heightmap';
                 // Migrate old shader names to new names
                 if (savedShader === 'background-fbm') {
                     savedShader = 'heightmap';

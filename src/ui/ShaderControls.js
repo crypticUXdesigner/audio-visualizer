@@ -6,7 +6,7 @@ export class ShaderSwitcher {
         this.shaderManager = shaderManager;
         this.onShaderChange = onShaderChange; // Optional callback: (shaderName) => void
         this.audioControls = audioControls; // Reference to AudioControls for hideControls/showControls
-        let savedShader = localStorage.getItem('activeShader') || 'dots';
+        let savedShader = localStorage.getItem('activeShader') || 'heightmap';
         // Migrate old shader names to new names
         if (savedShader === 'background-fbm') {
             savedShader = 'heightmap';
@@ -74,7 +74,7 @@ export class ShaderSwitcher {
         const shaderNames = this.shaderManager.getShaderNames();
         
         // Define desired order: final shaders first, then draft shaders
-        const shaderOrder = ['refraction', 'heightmap', 'dots', 'frequency-visualizer', 'synthwave', 'strings'];
+        const shaderOrder = ['refraction', 'heightmap', 'strings'];
         
         // Sort shaders according to desired order
         const sortedShaderNames = shaderNames.sort((a, b) => {
@@ -134,23 +134,8 @@ export class ShaderSwitcher {
         preview.className = 'shader-preview';
         
         // Create a simple visual indicator
-        // For dots shader: show dots pattern
         // For heightmap: show noise pattern
-        if (config.name === 'dots') {
-            preview.innerHTML = `
-                <svg width="40" height="40" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
-                    <circle cx="10" cy="10" r="3" fill="currentColor" opacity="0.8"/>
-                    <circle cx="20" cy="10" r="3" fill="currentColor" opacity="0.6"/>
-                    <circle cx="30" cy="10" r="3" fill="currentColor" opacity="0.8"/>
-                    <circle cx="10" cy="20" r="3" fill="currentColor" opacity="0.6"/>
-                    <circle cx="20" cy="20" r="3" fill="currentColor" opacity="0.9"/>
-                    <circle cx="30" cy="20" r="3" fill="currentColor" opacity="0.6"/>
-                    <circle cx="10" cy="30" r="3" fill="currentColor" opacity="0.8"/>
-                    <circle cx="20" cy="30" r="3" fill="currentColor" opacity="0.6"/>
-                    <circle cx="30" cy="30" r="3" fill="currentColor" opacity="0.8"/>
-                </svg>
-            `;
-        } else if (config.name === 'heightmap') {
+        if (config.name === 'heightmap') {
             preview.innerHTML = `
                 <svg width="40" height="40" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
                     <defs>

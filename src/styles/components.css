@@ -562,6 +562,8 @@ html.debug-mode {
 /* Audio Controls Container */
 .audio-controls-container {
   position: fixed;
+  left: 0;
+  right: 0;
   bottom: 0;
   z-index: var(--z-modal);
   display: flex;
@@ -569,13 +571,13 @@ html.debug-mode {
   align-items: center;
   width: 100%;
   gap: var(--audio-controls-container-gap);
-  padding: 0 var(--pd-lg) var(--audio-controls-container-bottom);
+  padding: 0;
   transition: opacity var(--effects-default), transform var(--spatial-default);
 
   /* Mobile: Larger side padding */
   @media (max-width: 700px) {
-    padding-left: var(--pd-2xl);
-    padding-right: var(--pd-2xl);
+    padding-left: 0;
+    padding-right: 0;
   }
 
   &.ui-hidden {
@@ -598,8 +600,9 @@ html.debug-mode {
     padding: var(--pd-sm);
     box-sizing: border-box;
     line-height: 0;
-    border-radius: var(--waveform-radius);
-    border: 1px solid var(--color-gray-70);
+    border-radius: 0;
+    border-top: 1px solid var(--color-gray-70);
+
     box-shadow: 0 0 0 6px var(--color-gray-10);
     background: radial-gradient(
       ellipse 100% 120% at 50% -35%,
@@ -607,12 +610,7 @@ html.debug-mode {
       var(--color-gray-40)
     );
     backdrop-filter: blur(10px);
-    transition: transform var(--spatial-slow);
     overflow: hidden;
-
-    &:hover {
-      transform: scale(1.01);
-    }
 
     .time-display {
       display: none;
@@ -638,6 +636,7 @@ html.debug-mode {
       .track-dropdown-btn {
         align-self: stretch;
         width: 100%;
+        max-width: 240px;
         padding: var(--pd-xs) var(--pd-md);
         background: var(--button-ghost-bg);
         border: 1px solid var(--button-ghost-border);
@@ -854,8 +853,8 @@ html.debug-mode {
 
   /* Responsive: Row layout on larger screens */
   @media (min-width: 701px) {
-    padding-left: var(--pd-lg);
-    padding-right: var(--pd-lg);
+    padding-left: 0;
+    padding-right: 0;
 
     .scrubber-container {
       flex-direction: row;

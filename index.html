@@ -287,21 +287,6 @@
     </div>
     
     <script type="module" src="src/main.js"></script>
-    <script>
-        // Conditionally load frequency visualizer only in development/debug mode
-        (function() {
-            const urlParams = new URLSearchParams(window.location.search);
-            const isDebugMode = urlParams.has('debug');
-            const isDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-            
-            if (isDebugMode || isDev) {
-                const script = document.createElement('script');
-                script.type = 'module';
-                script.src = 'tools/frequency-visualizer.js';
-                document.body.appendChild(script);
-            }
-        })();
-    </script>
 </body>
 </html>
 

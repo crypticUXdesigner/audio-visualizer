@@ -84,6 +84,14 @@ export const TempoSmoothingConfig = {
         releaseTimeFallback: 100.0 // milliseconds fallback
     },
     
+    // Contrast audio reactivity smoothing
+    contrast: {
+        attackNote: 1.0 / 128.0,   // 128th note - very fast attack
+        releaseNote: 1.0 / 16.0,    // 8th note - moderate release
+        attackTimeFallback: 5.0,   // milliseconds fallback
+        releaseTimeFallback: 100.0 // milliseconds fallback
+    },
+    
     // Arc shader smoothing (radius animation)
     arc: {
         attackNote: 1.0 / 128.0,   // 128th note - very fast attack

@@ -1,6 +1,8 @@
 // Strings Shader Configuration
 // Guitar string visualizer with standing wave animation and frequency level bars
 
+import { createNoteParameter, createCurveParameters, createMinMaxParameters, createToggleParameter } from './parameter-helpers.js';
+
 export default {
     name: 'strings',
     displayName: 'draft: Strings',
@@ -9,7 +11,12 @@ export default {
     fragmentPath: 'shaders/strings-fragment.glsl',
     
     // Default parameters
+    // Organized by functional groups with clear section comments
+    // Note: Structure is flat for UI compatibility, but logically grouped
     parameters: {
+        // ============================================
+        // CORE VISUALIZATION SETTINGS
+        // ============================================
         measuredBands: {
             type: 'int',
             default: 24,
@@ -21,7 +28,7 @@ export default {
         numBands: {
             type: 'int',
             default: 24,
-            min: 32,
+            min: 8,
             max: 256,
             step: 1,
             label: 'Number of Visual Bands'
@@ -74,14 +81,7 @@ export default {
             step: 0.01,
             label: 'Max Swing Amplitude'
         },
-        waveNote: {
-            type: 'float',
-            default: 1.0 / 16.0,   // Quarter note - moderate swing
-            min: 1.0 / 128.0,      // 128th note (fastest) = 0.0078125
-            max: 1.0 / 1.0,        // Whole note (slowest) = 1.0
-            step: 1.0 / 128.0,     // 128th note steps
-            label: 'Swing Note (1/128 = fast, 1/1 = slow)'
-        },
+        waveNote: createNoteParameter('waveNote', 1.0 / 16.0, 'Swing Note (1/128 = fast, 1/1 = slow)'),
         stringTop: {
             type: 'float',
             default: 1.0,
@@ -114,54 +114,15 @@ export default {
             step: 0.01,
             label: 'Right Padding'
         },
-        stringSwingAttackNote: {
-            type: 'float',
-            default: 1.0 / 32.0,  // 64th note
-            min: 1.0 / 256.0,     // 256th note (very fast)
-            max: 1.0 / 4.0,       // Quarter note (slow)
-            step: 1.0 / 256.0,
-            label: 'String Swing Attack (1/256 = very fast, 1/4 = slow)'
-        },
-        stringSwingReleaseNote: {
-            type: 'float',
-            default: 1.0 / 32.0,   // 8th note
-            min: 1.0 / 128.0,      // 128th note (very fast)
-            max: 1.0 / 2.0,        // Half note (slow)
-            step: 1.0 / 256.0,
-            label: 'String Swing Release (1/128 = fast, 1/2 = slow)'
-        },
-        stringHeightAttackNote: {
-            type: 'float',
-            default: 1.0 / 128.0,  // 64th note
-            min: 1.0 / 256.0,     // 256th note (very fast)
-            max: 1.0 / 4.0,       // Quarter note (slow)
-            step: 1.0 / 256.0,
-            label: 'String Height Attack (1/256 = very fast, 1/4 = slow)'
-        },
-        stringHeightReleaseNote: {
-            type: 'float',
-            default: 1.0 / 4.0,   // 16th note
-            min: 1.0 / 128.0,      // 128th note (very fast)
-            max: 1.0 / 2.0,        // Half note (slow)
-            step: 1.0 / 256.0,
-            label: 'String Height Release (1/128 = fast, 1/2 = slow)'
-        },
-        noiseAudioAttackNote: {
-            type: 'float',
-            default: 1.0 / 128.0,  // 128th note
-            min: 1.0 / 256.0,      // 256th note (very fast)
-            max: 1.0 / 4.0,       // Quarter note (slow)
-            step: 1.0 / 256.0,
-            label: 'Noise Audio Attack (1/256 = very fast, 1/4 = slow)'
-        },
-        noiseAudioReleaseNote: {
-            type: 'float',
-            default: 1.0 / 1.0,   // 16th note
-            min: 1.0 / 128.0,      // 128th note (very fast)
-            max: 1.0 / 2.0,        // Half note (slow)
-            step: 1.0 / 256.0,
-            label: 'Noise Audio Release (1/128 = fast, 1/2 = slow)'
-        },
+        // ============================================
+        // ANIMATION TIMING (Musical Note Durations)
+        // ============================================
+        stringSwingAttackNote: createNoteParameter('stringSwingAttackNote', 1.0 / 32.0, 'String Swing Attack (1/256 = very fast, 1/4 = slow)'),
+        stringSwingReleaseNote: createNoteParameter('stringSwingReleaseNote', 1.0 / 32.0, 'String Swing Release (1/128 = fast, 1/2 = slow)'),
+        stringHeightAttackNote: createNoteParameter('stringHeightAttackNote', 1.0 / 128.0, 'String Height Attack (1/256 = very fast, 1/4 = slow)'),
+        stringHeightReleaseNote: createNoteParameter('stringHeightReleaseNote', 1.0 / 4.0, 'String Height Release (1/128 = fast, 1/2 = slow)'),
+        noiseAudioAttackNote: createNoteParameter('noiseAudioAttackNote', 1.0 / 128.0, 'Noise Audio Attack (1/256 = very fast, 1/4 = slow)'),
+        noiseAudioReleaseNote: createNoteParameter('noiseAudioReleaseNote', 1.0 / 2.0, 'Noise Audio Release (1/128 = fast, 1/2 = slow)'),
         stringEndFadeMinAlpha: {
             type: 'float',
             default: 0.035,  // 10% minimum alpha
@@ -186,22 +147,8 @@ export default {
             step: 0.5,
             label: 'Wave Cycles (number of peaks along string)'
         },
-        showBars: {
-            type: 'float',
-            default: 1.0,
-            min: 0.0,
-            max: 1.0,
-            step: 1.0,
-            label: 'Show Frequency Bars (0 = off, 1 = on)'
-        },
-        showStrings: {
-            type: 'float',
-            default: 1.0,
-            min: 0.0,
-            max: 1.0,
-            step: 1.0,
-            label: 'Show Strings (0 = off, 1 = on)'
-        },
+        ...createToggleParameter('showBars', true, 'Show Frequency Bars'),
+        ...createToggleParameter('showStrings', true, 'Show Strings'),
         waveAmplitude: {
             type: 'float',
             default: 0.1,
@@ -226,38 +173,10 @@ export default {
             step: 0.01,
             label: 'Band Max Height (0.0-1.0)'
         },
-        bandHeightCurveX1: {
-            type: 'float',
-            default: 0.75,
-            min: 0.0,
-            max: 1.0,
-            step: 0.01,
-            label: 'Band Height Curve X1'
-        },
-        bandHeightCurveY1: {
-            type: 'float',
-            default: 0.0,
-            min: 0.0,
-            max: 1.0,
-            step: 0.01,
-            label: 'Band Height Curve Y1'
-        },
-        bandHeightCurveX2: {
-            type: 'float',
-            default: 0.8,
-            min: 0.0,
-            max: 1.0,
-            step: 0.01,
-            label: 'Band Height Curve X2'
-        },
-        bandHeightCurveY2: {
-            type: 'float',
-            default: 1.0,
-            min: 0.0,
-            max: 1.0,
-            step: 0.01,
-            label: 'Band Height Curve Y2'
-        },
+        // ============================================
+        // CURVE PARAMETERS (Cubic Bezier Easing)
+        // ============================================
+        ...createCurveParameters('bandHeightCurve', 0.75, 0.0, 0.8, 1.0, 'Band Height Curve'),
         stringHeightMultiplier: {
             type: 'float',
             default: 1.5,
@@ -274,9 +193,25 @@ export default {
             step: 0.1,
             label: 'Background Noise Scale'
         },
+        backgroundNoiseTimeSpeed: {
+            type: 'float',
+            default: 0.1,
+            min: 0.01,
+            max: 1.0,
+            step: 0.01,
+            label: 'Background Noise Time Speed'
+        },
+        backgroundNoiseTimeOffset: {
+            type: 'float',
+            default: 105.0,
+            min: 0.0,
+            max: 1000.0,
+            step: 1.0,
+            label: 'Background Noise Time Offset'
+        },
         backgroundNoiseIntensity: {
             type: 'float',
-            default: 0.05,
+            default: 0.15,
             min: 0.0,
             max: 1.0,
             step: 0.05,
@@ -298,41 +233,10 @@ export default {
             step: 1,
             label: 'Audio Source (0=Volume, 1=Bass, 2=Mid, 3=Treble)'
         },
-        backgroundNoiseBrightnessCurveX1: {
-            type: 'float',
-            default: 0.4,
-            min: 0.0,
-            max: 1.0,
-            step: 0.01,
-            label: 'Noise Brightness Curve X1'
-        },
-        backgroundNoiseBrightnessCurveY1: {
-            type: 'float',
-            default: 0.0,
-            min: 0.0,
-            max: 1.0,
-            step: 0.01,
-            label: 'Noise Brightness Curve Y1'
-        },
-        backgroundNoiseBrightnessCurveX2: {
-            type: 'float',
-            default: 0.7,
-            min: 0.0,
-            max: 1.0,
-            step: 0.01,
-            label: 'Noise Brightness Curve X2'
-        },
-        backgroundNoiseBrightnessCurveY2: {
-            type: 'float',
-            default: 1.0,
-            min: 0.0,
-            max: 1.0,
-            step: 0.01,
-            label: 'Noise Brightness Curve Y2'
-        },
+        ...createCurveParameters('backgroundNoiseBrightnessCurve', 0.4, 1.0, 0.7, 0.6, 'Noise Brightness Curve'),
         backgroundNoiseBrightnessMin: {
             type: 'float',
-            default: 0.0,
+            default: 0.65,
             min: 0.0,
             max: 1.0,
             step: 0.05,
@@ -340,60 +244,24 @@ export default {
         },
         backgroundNoiseBrightnessMax: {
             type: 'float',
-            default: 0.3,
+            default: 0.95,
             min: 0.0,
             max: 2.0,
             step: 0.05,
             label: 'Noise Brightness Max (at loud audio)'
         },
-        backgroundNoiseBlurStrength: {
-            type: 'float',
-            default: 0.0,
-            min: 0.0,
-            max: 3.0,
-            step: 0.1,
-            label: 'Background Noise Blur Strength (0 = off, higher = more blur)'
-        },
-        backgroundNoisePixelizeLevels: {
-            type: 'float',
-            default: 0.0,
-            min: 0.0,
-            max: 32.0,
-            step: 1.0,
-            label: 'Background Noise Pixelize Levels (0 = off, >0 = quantization steps)'
-        },
-        ditherStrength: {
-            type: 'float',
-            default: 0.0,
-            min: 0.0,
-            max: 10.0,
-            step: 0.5,
-            label: 'Background Dither Strength (0 = off, higher = more dithering)'
-        },
         colorTransitionWidth: {
             type: 'float',
-            default: 0.003,
+            default: 1.0,
             min: 0.0,
             max: 0.1,
             step: 0.001,
             label: 'Color Transition Width (smoothstep blend between colors)'
         },
-        barAlphaMin: {
-            type: 'float',
-            default: 0.1,
-            min: 0.0,
-            max: 1.0,
-            step: 0.01,
-            label: 'Bar Alpha Min (at low volume)'
-        },
-        barAlphaMax: {
-            type: 'float',
-            default: 0.8,
-            min: 0.0,
-            max: 1.0,
-            step: 0.01,
-            label: 'Bar Alpha Max (at high volume)'
-        },
+        // ============================================
+        // MIN/MAX PARAMETER PAIRS
+        // ============================================
+        ...createMinMaxParameters('barAlpha', 0.0, 0.85, 0.0, 1.0, 0.01, 'Bar Alpha'),
         maskNoiseStrength: {
             type: 'float',
             default: 0.0,
@@ -404,7 +272,7 @@ export default {
         },
         maskNoiseScale: {
             type: 'float',
-            default: 75.0,
+            default: 0.0,
             min: 1.0,
             max: 20.0,
             step: 0.5,
@@ -412,7 +280,7 @@ export default {
         },
         maskNoiseSpeed: {
             type: 'float',
-            default: 1.5,
+            default: 0.0,
             min: 0.0,
             max: 2.0,
             step: 0.1,
@@ -428,7 +296,7 @@ export default {
         },
         maskExpansion: {
             type: 'float',
-            default: 0.24,
+            default: 0.18,
             min: 0.0,
             max: 0.2,
             step: 0.01,
@@ -436,12 +304,13 @@ export default {
         },
         maskFeathering: {
             type: 'float',
-            default: 0.24,
+            default: 0.12,
             min: 0.0,
             max: 0.1,
             step: 0.001,
             label: 'Mask Feathering (edge softness)'
         },
+        ...createCurveParameters('maskAlphaCurve', 0.0, 1.0, 0.0, 1.0, 'Mask Alpha Curve (volume to alpha interpolation)'),
         bandWidthThreshold: {
             type: 'float',
             default: 0.3,
@@ -465,6 +334,103 @@ export default {
             max: 3.0,
             step: 0.1,
             label: 'Band Width Max Multiplier (at high volume, above threshold)'
+        },
+        // ============================================
+        // POST-PROCESSING EFFECTS
+        // ============================================
+        contrast: {
+            type: 'float',
+            default: 1.0,
+            min: 0.5,
+            max: 2.5,
+            step: 0.1,
+            label: 'Contrast Base (1.0 = normal, >1.0 = more contrast)'
+        },
+        contrastAudioReactive: {
+            type: 'float',
+            default: 1.0,
+            min: 0.0,
+            max: 1.0,
+            step: 0.05,
+            label: 'Contrast Audio Reactivity (0 = off, 1 = full)'
+        },
+        contrastAudioSource: {
+            type: 'int',
+            default: 1,
+            min: 0,
+            max: 3,
+            step: 1,
+            label: 'Contrast Audio Source (0=Volume, 1=Bass, 2=Mid, 3=Treble)'
+        },
+        ...createMinMaxParameters('contrast', 1.0, 1.35, 0.5, 2.5, 0.1, 'Contrast'),
+        contrastAudioAttackNote: createNoteParameter('contrastAudioAttackNote', 1.0 / 128.0, 'Contrast Audio Attack (1/256 = very fast, 1/4 = slow)'),
+        contrastAudioReleaseNote: createNoteParameter('contrastAudioReleaseNote', 1.0 / 4.0, 'Contrast Audio Release (1/128 = fast, 1/2 = slow)'),
+        glowIntensity: {
+            type: 'float',
+            default: 5.0,
+            min: 0.0,
+            max: 2.0,
+            step: 0.1,
+            label: 'Glow Intensity (0 = off, higher = more glow)'
+        },
+        glowRadius: {
+            type: 'float',
+            default: 5.0,
+            min: 0.5,
+            max: 10.0,
+            step: 0.5,
+            label: 'Glow Radius (pixels)'
+        },
+        // ============================================
+        // GLITCH EFFECT PARAMETERS
+        // ============================================
+        glitchColumnCount: {
+            type: 'float',
+            default: 2.0,
+            min: 2.0,
+            max: 64.0,
+            step: 1.0,
+            label: 'Glitch Column Count'
+        },
+        glitchRandomSeed: {
+            type: 'float',
+            default: 0.0,
+            min: 0.0,
+            max: 1000.0,
+            step: 1.0,
+            label: 'Glitch Random Seed (change to re-randomize order/flips)'
+        },
+        glitchFlipProbability: {
+            type: 'float',
+            default: 0.3,
+            min: 0.0,
+            max: 1.0,
+            step: 0.05,
+            label: 'Glitch Flip Probability (0 = no flips, 1 = all flip)'
+        },
+        glitchIntensity: {
+            type: 'float',
+            default: 1.0,
+            min: 0.0,
+            max: 1.0,
+            step: 0.05,
+            label: 'Glitch Intensity (0 = off)'
+        },
+        glitchBlurAmount: {
+            type: 'float',
+            default: 0.0,
+            min: 0.0,
+            max: 1.0,
+            step: 0.05,
+            label: 'Glitch Blur Amount'
+        },
+        glitchPixelSize: {
+            type: 'float',
+            default: 24.0,
+            min: 0.0,
+            max: 50.0,
+            step: 1.0,
+            label: 'Glitch Pixel Size (0 = off)'
         }
     },
     

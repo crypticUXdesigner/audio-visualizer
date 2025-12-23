@@ -41,6 +41,23 @@ const copyShadersPlugin = () => {
           console.log(`Copied ${src} to ${dest}`);
         });
       }
+      
+      // Copy strings shader subdirectory
+      const stringsDir = join('src', 'shaders', 'strings');
+      const distStringsDir = join('dist', 'shaders', 'strings');
+      
+      if (existsSync(stringsDir)) {
+        mkdirSync(distStringsDir, { recursive: true });
+        const stringsFiles = readdirSync(stringsDir).filter(file => 
+          file.endsWith('.glsl') && statSync(join(stringsDir, file)).isFile()
+        );
+        stringsFiles.forEach(file => {
+          const src = join(stringsDir, file);
+          const dest = join(distStringsDir, file);
+          copyFileSync(src, dest);
+          console.log(`Copied ${src} to ${dest}`);
+        });
+      }
     }
   };
 };
@@ -115,7 +132,7 @@ export default defineConfig(({ command, mode }) => {
           if (url && url.endsWith('.glsl')) {
             try {
               // req.url includes the full path like '/shaders/vertex.glsl' or '/shaders/common/uniforms.glsl'
-              // Handle both source files and common includes
+              // Handle source files, common includes, and subdirectories (like strings/)
               const pathParts = url.split('/').filter(p => p);
               let filePath;
               
@@ -123,6 +140,11 @@ export default defineConfig(({ command, mode }) => {
                 // Common include: /shaders/common/uniforms.glsl -> src/shaders/common/uniforms.glsl
                 const filename = pathParts[pathParts.length - 1];
                 filePath = join(process.cwd(), 'src', 'shaders', 'common', filename);
+              } else if (pathParts.length >= 3) {
+                // Subdirectory: /shaders/strings/math-utils.glsl -> src/shaders/strings/math-utils.glsl
+                const subdir = pathParts[1];
+                const filename = pathParts[pathParts.length - 1];
+                filePath = join(process.cwd(), 'src', 'shaders', subdir, filename);
               } else {
                 // Source file: /shaders/vertex.glsl -> src/shaders/source/vertex.glsl
                 const filename = pathParts[pathParts.length - 1];
