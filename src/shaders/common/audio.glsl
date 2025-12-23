@@ -87,3 +87,23 @@ float calculateVolumeScale(float volume) {
     return 0.3 + volume * 0.7;
 }
 
+// Calculate volume scale with fallback to smoothed value if available
+// Returns smoothed value if valid (> 0.001 or < -0.001), otherwise calculates from volume
+float calculateVolumeScaleWithFallback(float volume, float smoothedVolumeScale) {
+    // Check if smoothed value is available (non-zero)
+    if (smoothedVolumeScale > 0.001 || smoothedVolumeScale < -0.001) {
+        return smoothedVolumeScale;
+    }
+    // Fallback to instant calculation
+    return calculateVolumeScale(volume);
+}
+
+// Apply soft compression to prevent washout during loud sections
+// Compresses values above threshold using compressionFactor
+float applySoftCompression(float value, float threshold, float compressionFactor) {
+    if (value > threshold) {
+        return threshold + (value - threshold) * compressionFactor;
+    }
+    return value;
+}
+

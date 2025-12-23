@@ -300,46 +300,14 @@ void main() {
     // Scale feed based on volume (use tempo-smoothed volume scale)
     // Smoothed value is always set in JavaScript, so use it directly
     // Fallback to instant calculation only if uniform not available (defaults to 0.0)
-    float volumeScale = (uSmoothedVolumeScale > 0.001 || uSmoothedVolumeScale < -0.001) ? uSmoothedVolumeScale : (0.3 + uVolume * 0.7);
+    float volumeScale = calculateVolumeScaleWithFallback(uVolume, uSmoothedVolumeScale);
     feed = feed * volumeScale;
     
     // Soft compression for high values
-    if (feed > 0.7) {
-        feed = 0.7 + (feed - 0.7) * 0.3;
-    }
+    feed = applySoftCompression(feed, 0.7, 0.3);
     
     // Multiple ripples positioned by stereo field
-    float beatRipple = 0.0;
-    
-    float rippleSpeed = uRippleSpeed > 0.0 ? uRippleSpeed : 0.5;
-    float defaultRippleWidth = uRippleWidth > 0.0 ? uRippleWidth : 0.1;
-    float defaultRippleMinRadius = uRippleMinRadius >= 0.0 ? uRippleMinRadius : 0.0;
-    float defaultRippleMaxRadius = uRippleMaxRadius > 0.0 ? uRippleMaxRadius : 1.5;
-    float defaultRippleIntensityMultiplier = uRippleIntensity >= 0.0 ? uRippleIntensity : 0.4;
-    
-    float stereoScale = aspectRatio * 0.5;
-    
-    int maxRipplesInt = MAX_RIPPLES;
-    int rippleCount = (uRippleCount < maxRipplesInt) ? uRippleCount : maxRipplesInt;
-    for (int i = 0; i < MAX_RIPPLES; i++) {
-        if (i >= rippleCount) break;
-        
-        if (uRippleActive[i] > 0.5 && uRippleIntensities[i] > 0.0) {
-            vec2 rippleCenter = vec2(uRippleCenterX[i] * stereoScale, uRippleCenterY[i]);
-            float rippleAge = uRippleTimes[i];
-            float rippleIntensity = uRippleIntensities[i];
-            
-            float rippleWidth = uRippleWidths[i] > 0.0 ? uRippleWidths[i] : defaultRippleWidth;
-            float rippleMinRadius = uRippleMinRadii[i] >= 0.0 ? uRippleMinRadii[i] : defaultRippleMinRadius;
-            float rippleMaxRadius = uRippleMaxRadii[i] > 0.0 ? uRippleMaxRadii[i] : defaultRippleMaxRadius;
-            float rippleIntensityMultiplier = uRippleIntensityMultipliers[i] > 0.0 ? uRippleIntensityMultipliers[i] : defaultRippleIntensityMultiplier;
-            
-            float ripple = createRipple(uv, rippleCenter, rippleAge, rippleIntensity, rippleSpeed, rippleWidth, rippleMinRadius, rippleMaxRadius);
-            beatRipple += ripple * rippleIntensityMultiplier;
-        }
-    }
-    
-    // Add ripple to feed
+    float beatRipple = renderAllRipples(uv, aspectRatio, uRippleCount);
     feed = feed + beatRipple;
     
     // Ensure feed stays in valid range
@@ -347,23 +315,12 @@ void main() {
     
     float t = feed;
     
-    // Calculate frequency active states using shared function
-    float freq1Active, freq2Active, freq3Active, freq4Active, freq5Active;
-    float freq6Active, freq7Active, freq8Active, freq9Active, freq10Active;
-    calculateFrequencyActiveStates(
-        freq1Active, freq2Active, freq3Active, freq4Active, freq5Active,
-        freq6Active, freq7Active, freq8Active, freq9Active, freq10Active
-    );
-    
-    // Calculate thresholds using shared function (NO frequency modulation for refraction)
+    // Calculate thresholds using shared wrapper function (NO frequency modulation for refraction)
     float threshold1, threshold2, threshold3, threshold4, threshold5;
     float threshold6, threshold7, threshold8, threshold9, threshold10;
     // For refraction, we use constant thresholds (no bayer dithering in color mapping)
-    // But we still need to call the function to get the thresholds
-    calculateFrequencyThresholds(
+    calculateAllFrequencyThresholds(
         0.0,  // No bayer dithering for refraction
-        freq1Active, freq2Active, freq3Active, freq4Active, freq5Active,
-        freq6Active, freq7Active, freq8Active, freq9Active, freq10Active,
         false,  // useFrequencyModulation = false for refraction (constant thresholds)
         threshold1, threshold2, threshold3, threshold4, threshold5,
         threshold6, threshold7, threshold8, threshold9, threshold10
@@ -459,22 +416,36 @@ void main() {
         cellCenterUV.y - 0.5
     );
     
-    // Sample ripples at cell center (reuse variables already defined above)
+    // Sample ripples at cell center for per-cell brightness variation
     float cellRippleBrightness = 0.0;
-    for (int i = 0; i < MAX_RIPPLES; i++) {
-        if (i >= rippleCount) break;
+    float cellRippleSpeed = uRippleSpeed > 0.0 ? uRippleSpeed : 0.5;
+    float cellDefaultRippleWidth = uRippleWidth > 0.0 ? uRippleWidth : 0.1;
+    float cellDefaultRippleMinRadius = uRippleMinRadius >= 0.0 ? uRippleMinRadius : 0.0;
+    float cellDefaultRippleMaxRadius = uRippleMaxRadius > 0.0 ? uRippleMaxRadius : 1.5;
+    float cellDefaultRippleIntensityMultiplier = uRippleIntensity >= 0.0 ? uRippleIntensity : 0.4;
+    float cellStereoScale = aspectRatio * 0.5;
+    int cellMaxRipplesInt = 16;
+    int cellClampedRippleCount;
+    if (uRippleCount < cellMaxRipplesInt) {
+        cellClampedRippleCount = uRippleCount;
+    } else {
+        cellClampedRippleCount = cellMaxRipplesInt;
+    }
+    
+    for (int i = 0; i < 16; i++) {
+        if (i >= cellClampedRippleCount) break;
         
         if (uRippleActive[i] > 0.5 && uRippleIntensities[i] > 0.0) {
-            vec2 rippleCenter = vec2(uRippleCenterX[i] * stereoScale, uRippleCenterY[i]);
+            vec2 rippleCenter = vec2(uRippleCenterX[i] * cellStereoScale, uRippleCenterY[i]);
             float rippleAge = uRippleTimes[i];
             float rippleIntensity = uRippleIntensities[i];
             
-            float rippleWidth = uRippleWidths[i] > 0.0 ? uRippleWidths[i] : defaultRippleWidth;
-            float rippleMinRadius = uRippleMinRadii[i] >= 0.0 ? uRippleMinRadii[i] : defaultRippleMinRadius;
-            float rippleMaxRadius = uRippleMaxRadii[i] > 0.0 ? uRippleMaxRadii[i] : defaultRippleMaxRadius;
-            float rippleIntensityMultiplier = uRippleIntensityMultipliers[i] > 0.0 ? uRippleIntensityMultipliers[i] : defaultRippleIntensityMultiplier;
+            float rippleWidth = uRippleWidths[i] > 0.0 ? uRippleWidths[i] : cellDefaultRippleWidth;
+            float rippleMinRadius = uRippleMinRadii[i] >= 0.0 ? uRippleMinRadii[i] : cellDefaultRippleMinRadius;
+            float rippleMaxRadius = uRippleMaxRadii[i] > 0.0 ? uRippleMaxRadii[i] : cellDefaultRippleMaxRadius;
+            float rippleIntensityMultiplier = uRippleIntensityMultipliers[i] > 0.0 ? uRippleIntensityMultipliers[i] : cellDefaultRippleIntensityMultiplier;
             
-            float ripple = createRipple(cellCenter, rippleCenter, rippleAge, rippleIntensity, rippleSpeed, rippleWidth, rippleMinRadius, rippleMaxRadius);
+            float ripple = createRipple(cellCenter, rippleCenter, rippleAge, rippleIntensity, cellRippleSpeed, rippleWidth, rippleMinRadius, rippleMaxRadius);
             cellRippleBrightness += ripple * rippleIntensityMultiplier;
         }
     }

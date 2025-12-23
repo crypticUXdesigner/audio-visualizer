@@ -74,19 +74,10 @@ void main() {
         
         if (insideFactor > 0.0) {
             // Calculate frequency thresholds for color mapping
-            float freq1Active, freq2Active, freq3Active, freq4Active, freq5Active;
-            float freq6Active, freq7Active, freq8Active, freq9Active, freq10Active;
-            calculateFrequencyActiveStates(
-                freq1Active, freq2Active, freq3Active, freq4Active, freq5Active,
-                freq6Active, freq7Active, freq8Active, freq9Active, freq10Active
-            );
-            
             float threshold1, threshold2, threshold3, threshold4, threshold5;
             float threshold6, threshold7, threshold8, threshold9, threshold10;
-            calculateFrequencyThresholds(
+            calculateAllFrequencyThresholds(
                 0.0,  // No bayer dithering
-                freq1Active, freq2Active, freq3Active, freq4Active, freq5Active,
-                freq6Active, freq7Active, freq8Active, freq9Active, freq10Active,
                 false,  // useFrequencyModulation = false (constant thresholds)
                 threshold1, threshold2, threshold3, threshold4, threshold5,
                 threshold6, threshold7, threshold8, threshold9, threshold10

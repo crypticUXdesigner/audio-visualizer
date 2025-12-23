@@ -106,45 +106,10 @@ void main() {
     feed *= stereoBrightness;
     
     // Soft compression for high values (prevents washout during loud sections)
-    if (feed > 0.7) {
-        feed = 0.7 + (feed - 0.7) * 0.3; // Compress values above 0.7
-    }
+    feed = applySoftCompression(feed, 0.7, 0.3);
     
     // Multiple ripples positioned by stereo field
-    float beatRipple = 0.0;
-    
-    // Calculate ripple parameters
-    float rippleSpeed = uRippleSpeed > 0.0 ? uRippleSpeed : 0.5;
-    float defaultRippleWidth = uRippleWidth > 0.0 ? uRippleWidth : 0.1;
-    float defaultRippleMinRadius = uRippleMinRadius >= 0.0 ? uRippleMinRadius : 0.0;
-    float defaultRippleMaxRadius = uRippleMaxRadius > 0.0 ? uRippleMaxRadius : 1.5;
-    float defaultRippleIntensityMultiplier = uRippleIntensity >= 0.0 ? uRippleIntensity : 0.4;
-    
-    // Scale stereo position by aspectRatio to match UV space coordinates
-    float stereoScale = aspectRatio * 0.5;
-    
-    // Render all active ripples
-    int maxRipplesInt = MAX_RIPPLES;
-    int rippleCount = (uRippleCount < maxRipplesInt) ? uRippleCount : maxRipplesInt;
-    for (int i = 0; i < MAX_RIPPLES; i++) {
-        if (i >= rippleCount) break;
-        
-        if (uRippleActive[i] > 0.5 && uRippleIntensities[i] > 0.0) {
-            vec2 rippleCenter = vec2(uRippleCenterX[i] * stereoScale, uRippleCenterY[i]);
-            float rippleAge = uRippleTimes[i];
-            float rippleIntensity = uRippleIntensities[i];
-            
-            float rippleWidth = uRippleWidths[i] > 0.0 ? uRippleWidths[i] : defaultRippleWidth;
-            float rippleMinRadius = uRippleMinRadii[i] >= 0.0 ? uRippleMinRadii[i] : defaultRippleMinRadius;
-            float rippleMaxRadius = uRippleMaxRadii[i] > 0.0 ? uRippleMaxRadii[i] : defaultRippleMaxRadius;
-            float rippleIntensityMultiplier = uRippleIntensityMultipliers[i] > 0.0 ? uRippleIntensityMultipliers[i] : defaultRippleIntensityMultiplier;
-            
-            float ripple = createRipple(uv, rippleCenter, rippleAge, rippleIntensity, rippleSpeed, rippleWidth, rippleMinRadius, rippleMaxRadius);
-            beatRipple += ripple * rippleIntensityMultiplier;
-        }
-    }
-    
-    // Add ripple to feed
+    float beatRipple = renderAllRipples(uv, aspectRatio, uRippleCount);
     feed = feed + beatRipple;
 
     // Multi-step dithering with Bayer matrix
@@ -154,21 +119,11 @@ void main() {
     // Ensure feed stays in valid range
     feed = clamp(feed, 0.0, 1.0);
     
-    // Calculate frequency active states using shared function
-    float freq1Active, freq2Active, freq3Active, freq4Active, freq5Active;
-    float freq6Active, freq7Active, freq8Active, freq9Active, freq10Active;
-    calculateFrequencyActiveStates(
-        freq1Active, freq2Active, freq3Active, freq4Active, freq5Active,
-        freq6Active, freq7Active, freq8Active, freq9Active, freq10Active
-    );
-    
-    // Calculate thresholds using shared function (with frequency modulation for heightmap)
+    // Calculate thresholds using shared wrapper function (with frequency modulation for heightmap)
     float threshold1, threshold2, threshold3, threshold4, threshold5;
     float threshold6, threshold7, threshold8, threshold9, threshold10;
-    calculateFrequencyThresholds(
+    calculateAllFrequencyThresholds(
         bayer,
-        freq1Active, freq2Active, freq3Active, freq4Active, freq5Active,
-        freq6Active, freq7Active, freq8Active, freq9Active, freq10Active,
         true,  // useFrequencyModulation = true for heightmap
         threshold1, threshold2, threshold3, threshold4, threshold5,
         threshold6, threshold7, threshold8, threshold9, threshold10

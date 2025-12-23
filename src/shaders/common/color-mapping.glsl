@@ -105,6 +105,35 @@ void calculateFrequencyThresholds(
     }
 }
 
+// Wrapper function that calculates both active states and thresholds
+// Combines calculateFrequencyActiveStates() and calculateFrequencyThresholds()
+void calculateAllFrequencyThresholds(
+    float bayer,
+    bool useFrequencyModulation,
+    out float threshold1, out float threshold2, out float threshold3, 
+    out float threshold4, out float threshold5, out float threshold6, 
+    out float threshold7, out float threshold8, out float threshold9, 
+    out float threshold10
+) {
+    // Calculate active states
+    float freq1Active, freq2Active, freq3Active, freq4Active, freq5Active;
+    float freq6Active, freq7Active, freq8Active, freq9Active, freq10Active;
+    calculateFrequencyActiveStates(
+        freq1Active, freq2Active, freq3Active, freq4Active, freq5Active,
+        freq6Active, freq7Active, freq8Active, freq9Active, freq10Active
+    );
+    
+    // Calculate thresholds
+    calculateFrequencyThresholds(
+        bayer,
+        freq1Active, freq2Active, freq3Active, freq4Active, freq5Active,
+        freq6Active, freq7Active, freq8Active, freq9Active, freq10Active,
+        useFrequencyModulation,
+        threshold1, threshold2, threshold3, threshold4, threshold5,
+        threshold6, threshold7, threshold8, threshold9, threshold10
+    );
+}
+
 // Map noise value to color using thresholds
 vec3 mapNoiseToColor(
     float noiseValue,
