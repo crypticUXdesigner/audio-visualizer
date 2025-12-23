@@ -88,5 +88,16 @@ export class BaseShaderPlugin {
     updateSmoothing(audioData, deltaTime) {
         // Default: no-op
     }
+    
+    /**
+     * Update shader-specific parameter uniforms
+     * Override to handle plugin-specific parameters
+     * @param {Object} parameters - Current parameter values
+     * @param {Object} config - Shader config
+     * @param {UniformManager} uniformManager - Uniform manager instance
+     */
+    onUpdateParameterUniforms(parameters, config, uniformManager) {
+        // Default: no-op
+    }
 }
 

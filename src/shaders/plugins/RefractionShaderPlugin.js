@@ -115,4 +115,44 @@ export class RefractionShaderPlugin extends BaseShaderPlugin {
             );
         }
     }
+    
+    /**
+     * Update refraction shader-specific parameter uniforms
+     */
+    onUpdateParameterUniforms(parameters, config, uniformManager) {
+        const gl = this.shaderInstance.gl;
+        const locations = uniformManager.locations;
+        const lastValues = uniformManager.lastValues;
+        
+        // Refraction shader parameters
+        const refractionParams = [
+            { name: 'uOuterGridSize', param: 'outerGridSize', default: 15.0 },
+            { name: 'uInnerGridSize', param: 'innerGridSize', default: 3.0 },
+            { name: 'uBlurStrength', param: 'blurStrength', default: 18.0 },
+            { name: 'uOffsetStrength', param: 'offsetStrength', default: 0.2 },
+            { name: 'uPixelizeLevels', param: 'pixelizeLevels', default: 4.0 },
+            { name: 'uCellBrightnessVariation', param: 'cellBrightnessVariation', default: 0.025 },
+            { name: 'uCellAnimNote1', param: 'cellAnimNote1', default: 4.0 },
+            { name: 'uCellAnimNote2', param: 'cellAnimNote2', default: 2.0 },
+            { name: 'uCellAnimNote3', param: 'cellAnimNote3', default: 1.0 },
+            { name: 'uDistortionStrength', param: 'distortionStrength', default: 1.0 },
+            { name: 'uDistortionSize', param: 'distortionSize', default: 1.0 },
+            { name: 'uDistortionFalloff', param: 'distortionFalloff', default: 2.0 },
+            { name: 'uDistortionPerspectiveStrength', param: 'distortionPerspectiveStrength', default: 1.0 },
+            { name: 'uDistortionEasing', param: 'distortionEasing', default: 1.0 }
+        ];
+        
+        refractionParams.forEach(({ name, param, default: defaultValue }) => {
+            if (locations[name]) {
+                const paramConfig = config.parameters?.[param];
+                const value = parameters[param] !== undefined 
+                    ? parameters[param] 
+                    : (paramConfig?.default ?? defaultValue);
+                if (lastValues[name] !== value) {
+                    gl.uniform1f(locations[name], value);
+                    lastValues[name] = value;
+                }
+            }
+        });
+    }
 }

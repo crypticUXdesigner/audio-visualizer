@@ -1,6 +1,8 @@
 // UniformManager - Centralized uniform update management
 // Handles all uniform updates with value caching for performance
 
+import { COLOR_KEYS } from '../managers/ColorTransitionManager.js';
+
 export class UniformManager {
     /**
      * @param {WebGLRenderingContext} gl - WebGL context
@@ -125,36 +127,8 @@ export class UniformManager {
             }
         }
         
-        // Refraction shader parameters
-        const refractionParams = [
-            { name: 'uOuterGridSize', param: 'outerGridSize', default: 15.0 },
-            { name: 'uInnerGridSize', param: 'innerGridSize', default: 3.0 },
-            { name: 'uBlurStrength', param: 'blurStrength', default: 18.0 },
-            { name: 'uOffsetStrength', param: 'offsetStrength', default: 0.2 },
-            { name: 'uPixelizeLevels', param: 'pixelizeLevels', default: 4.0 },
-            { name: 'uCellBrightnessVariation', param: 'cellBrightnessVariation', default: 0.025 },
-            { name: 'uCellAnimNote1', param: 'cellAnimNote1', default: 4.0 },
-            { name: 'uCellAnimNote2', param: 'cellAnimNote2', default: 2.0 },
-            { name: 'uCellAnimNote3', param: 'cellAnimNote3', default: 1.0 },
-            { name: 'uDistortionStrength', param: 'distortionStrength', default: 1.0 },
-            { name: 'uDistortionSize', param: 'distortionSize', default: 1.0 },
-            { name: 'uDistortionFalloff', param: 'distortionFalloff', default: 2.0 },
-            { name: 'uDistortionPerspectiveStrength', param: 'distortionPerspectiveStrength', default: 1.0 },
-            { name: 'uDistortionEasing', param: 'distortionEasing', default: 1.0 }
-        ];
-        
-        refractionParams.forEach(({ name, param, default: defaultValue }) => {
-            if (locations[name]) {
-                const paramConfig = config.parameters?.[param];
-                const value = parameters[param] !== undefined 
-                    ? parameters[param] 
-                    : (paramConfig?.default ?? defaultValue);
-                if (lastValues[name] !== value) {
-                    gl.uniform1f(locations[name], value);
-                    lastValues[name] = value;
-                }
-            }
-        });
+        // Note: Shader-specific parameters (like refraction) are now handled by plugins
+        // via onUpdateParameterUniforms hook
     }
     
     /**
@@ -266,14 +240,12 @@ export class UniformManager {
         // Get interpolated colors (handles smooth transitions)
         const activeColors = getInterpolatedColors();
         
-        const colorUniforms = ['uColor', 'uColor2', 'uColor3', 'uColor4', 'uColor5', 
-                              'uColor6', 'uColor7', 'uColor8', 'uColor9', 'uColor10'];
-        const colorKeys = ['color', 'color2', 'color3', 'color4', 'color5', 
-                          'color6', 'color7', 'color8', 'color9', 'color10'];
+        // Generate uniform names from COLOR_KEYS
+        const colorUniforms = COLOR_KEYS.map(key => `u${key.charAt(0).toUpperCase()}${key.slice(1)}`);
         
         colorUniforms.forEach((uniformName, index) => {
             const location = locations[uniformName];
-            const colorKey = colorKeys[index];
+            const colorKey = COLOR_KEYS[index];
             if (location && activeColors[colorKey]) {
                 const color = activeColors[colorKey];
                 // During transition, always update colors (they change every frame)
