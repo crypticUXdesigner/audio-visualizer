@@ -3,6 +3,7 @@
 
 import { generateColorsFromOklch, rgbToHex, rgbToOklch, hexToRgb, interpolateHue, oklchToRgb } from '../core/color/ColorGenerator.js';
 import { safeGetItem, safeSetItem } from '../utils/storage.js';
+import { UI_CONFIG } from '../config/constants.js';
 
 export class ColorPresetSwitcher {
     constructor(colorPresets, onPresetChange, onPropertyChange, getCurrentColorConfig, audioControls = null) {
@@ -121,7 +122,7 @@ export class ColorPresetSwitcher {
                     setTimeout(applyPreset, 100);
                 }
             };
-            setTimeout(applyPreset, 500);
+            setTimeout(applyPreset, UI_CONFIG.ANIMATION.PRESET_APPLY_DELAY);
         }
     }
     

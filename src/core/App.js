@@ -3,7 +3,7 @@
 
 import { safeCaptureException, safeSentrySpan } from './monitoring/SentryInit.js';
 import { AudioAnalyzer } from './audio/AudioAnalyzer.js';
-import { generateColorsFromOklch, rgbToHex, normalizeColor, hexToRgb, rgbToOklch, interpolateHue, calculateThresholds } from './color/ColorGenerator.js';
+import { rgbToHex, hexToRgb, rgbToOklch, interpolateHue } from './color/ColorGenerator.js';
 import { ColorModulator } from './color/ColorModulator.js';
 import { ShaderManager } from '../shaders/ShaderManager.js';
 import heightmapConfig from '../shaders/configs/heightmap.js';
@@ -13,34 +13,44 @@ import { ColorPresetSwitcher } from '../ui/ColorControls.js';
 import { DevTools } from '../../tools/DevTools.js';
 import { ShaderSwitcher } from '../ui/ShaderControls.js';
 import { initializeApp } from './AppInitializer.js';
+import { COLOR_CONFIG, UI_CONFIG } from '../config/constants.js';
+import { TrackLoadingService } from './services/TrackLoadingService.js';
 
 export class VisualPlayer {
     constructor() {
         this.audioAnalyzer = null;
         this.shaderManager = null;
-        this.colors = null;
+        this.colorService = null;
         this.colorConfig = null;
         this.colorModulator = null;
         this.audioControls = null;
         this.colorPresetSwitcher = null;
         this.shaderSwitcher = null;
         this.devTools = null;
-        
-        // Color initialization state (promise-based to handle race conditions)
-        this._colorInitPromise = null;
-        this._colorUpdateQueue = [];
-        this.colorsInitialized = false;
     }
     
     /**
      * Check if debug mode is enabled via URL parameter
-     * @returns {boolean} True if ?debug is in the URL
+     * 
+     * Debug mode enables additional UI controls and debug information.
+     * Activated by adding `?debug` to the URL.
+     * 
+     * @returns {boolean} True if `?debug` is in the URL
      */
     isDebugMode() {
         const urlParams = new URLSearchParams(window.location.search);
         return urlParams.has('debug');
     }
     
+    /**
+     * Initialize the Visual Player application
+     * 
+     * This is the main entry point that orchestrates all component initialization.
+     * Sets up audio analyzer, shaders, colors, UI components, and loads tracks.
+     * 
+     * @returns {Promise<void>} Promise that resolves when initialization is complete
+     * @throws {Error} If initialization fails critically
+     */
     async init() {
         // Set debug mode class on html element (already set by inline script, but ensure it's set)
         if (this.isDebugMode()) {
@@ -53,6 +63,9 @@ export class VisualPlayer {
     
     /**
      * Show loading spinner
+     * 
+     * Displays the application loading indicator to provide user feedback
+     * during initialization and track loading.
      */
     showLoader() {
         const loader = document.getElementById('appLoader');
@@ -63,6 +76,9 @@ export class VisualPlayer {
     
     /**
      * Hide loading spinner
+     * 
+     * Hides the loading indicator and shows UI controls after initialization
+     * is complete. Includes a fade-out transition.
      */
     hideLoader() {
         const loader = document.getElementById('appLoader');
@@ -84,6 +100,9 @@ export class VisualPlayer {
     
     /**
      * Fade in the shader canvas after first color update
+     * 
+     * Smoothly transitions the WebGL canvas from hidden to visible after
+     * the first color update is received. Uses CSS transitions for smooth animation.
      */
     fadeInCanvas() {
         const canvas = document.getElementById('backgroundCanvas');
@@ -119,22 +138,22 @@ export class VisualPlayer {
         if (!errorElement) {
             errorElement = document.createElement('div');
             errorElement.id = 'init-error-message';
-            errorElement.style.cssText = `
-                position: fixed;
-                top: 50%;
-                left: 50%;
-                transform: translate(-50%, -50%);
-                background: rgba(0, 0, 0, 0.9);
-                color: white;
-                padding: 30px 40px;
-                border-radius: 12px;
-                z-index: 10000;
-                font-family: 'Lexend', sans-serif;
-                font-size: 16px;
-                max-width: 600px;
-                text-align: center;
-                box-shadow: 0 8px 16px rgba(0, 0, 0, 0.5);
-            `;
+            errorElement.style.cssText = [
+                'position: fixed',
+                'top: 50%',
+                'left: 50%',
+                'transform: translate(-50%, -50%)',
+                'background: rgba(0, 0, 0, 0.9)',
+                'color: white',
+                'padding: 30px 40px',
+                'border-radius: 12px',
+                `z-index: ${UI_CONFIG.Z_INDEX.ERROR_MESSAGE}`,
+                "font-family: 'Lexend', sans-serif",
+                'font-size: 16px',
+                `max-width: ${UI_CONFIG.ERROR_MESSAGE_MAX_WIDTH}px`,
+                'text-align: center',
+                'box-shadow: 0 8px 16px rgba(0, 0, 0, 0.5)',
+            ].join('; ');
             document.body.appendChild(errorElement);
         }
         
@@ -162,127 +181,29 @@ export class VisualPlayer {
         console.error('Initialization error displayed to user:', error);
     }
     
-    async initializeColors(skipFrequencyUpdate = false, audioData = null) {
-        // If already initializing, queue this update
-        if (this._colorInitPromise) {
-            this._colorUpdateQueue.push({ skipFrequencyUpdate, audioData });
-            return this._colorInitPromise;
-        }
-        
-        // Create promise for this initialization
-        this._colorInitPromise = this._doInitializeColors(skipFrequencyUpdate, audioData);
-        
-        // Process queue after completion
-        try {
-            const result = await this._colorInitPromise;
-            this._colorInitPromise = null;
-            
-            // Process queued updates (only keep latest)
-            if (this._colorUpdateQueue.length > 0) {
-                const latest = this._colorUpdateQueue[this._colorUpdateQueue.length - 1];
-                this._colorUpdateQueue = [];
-                // Use setTimeout to avoid stack overflow with recursive calls
-                return new Promise((resolve) => {
-                    setTimeout(() => {
-                        resolve(this.initializeColors(latest.skipFrequencyUpdate, latest.audioData));
-                    }, 0);
-                });
-            }
-            
-            return result;
-        } catch (error) {
-            this._colorInitPromise = null;
-            this._colorUpdateQueue = [];
-            throw error;
-        }
-    }
-    
     /**
-     * Internal method to perform actual color initialization
-     * @private
+     * Initialize colors from configuration
+     * Delegates to ColorService
+     * 
+     * @param {boolean} [skipFrequencyUpdate=false] - If true, skips frequency-based updates
+     * @param {Object|null} [audioData=null] - Audio data for dynamic color modulation
+     * @returns {Promise<Object>} Promise that resolves to the generated colors object
      */
-    async _doInitializeColors(skipFrequencyUpdate = false, audioData = null) {
-        try {
-            // Get color config (potentially modified by color modulator)
-            let configToUse = this.colorConfig;
-            
-            // If color modulator exists and audio data is provided, get modified config
-            if (this.colorModulator && audioData) {
-                configToUse = this.colorModulator.update(audioData);
-            }
-            
-            const generatedColors = generateColorsFromOklch(configToUse);
-            
-            // Map color1-color10 to color, color2-color10 format
-            // Always create new object to ensure reference changes (important for preset switching)
-            const newColors = {
-                color: normalizeColor(generatedColors.color1),
-                color2: normalizeColor(generatedColors.color2),
-                color3: normalizeColor(generatedColors.color3),
-                color4: normalizeColor(generatedColors.color4),
-                color5: normalizeColor(generatedColors.color5),
-                color6: normalizeColor(generatedColors.color6),
-                color7: normalizeColor(generatedColors.color7),
-                color8: normalizeColor(generatedColors.color8),
-                color9: normalizeColor(generatedColors.color9),
-                color10: normalizeColor(generatedColors.color10)
-            };
-            
-            this.colors = newColors;
-            this.colorsInitialized = true;
-            
-            // Calculate thresholds from curve
-            const thresholdCurve = configToUse.thresholdCurve || [0.2, 0.2, 1.0, 0.7];
-            const thresholds = calculateThresholds(thresholdCurve, 10);
-            
-            // Update shader manager with colors (this will update render loop with new colors)
-            if (this.shaderManager) {
-                this.shaderManager.setColors(this.colors);
-                
-                // Set threshold uniforms
-                if (this.shaderManager.activeShader) {
-                    const shader = this.shaderManager.activeShader;
-                    shader.setUniform('uThreshold1', thresholds[0]);
-                    shader.setUniform('uThreshold2', thresholds[1]);
-                    shader.setUniform('uThreshold3', thresholds[2]);
-                    shader.setUniform('uThreshold4', thresholds[3]);
-                    shader.setUniform('uThreshold5', thresholds[4]);
-                    shader.setUniform('uThreshold6', thresholds[5]);
-                    shader.setUniform('uThreshold7', thresholds[6]);
-                    shader.setUniform('uThreshold8', thresholds[7]);
-                    shader.setUniform('uThreshold9', thresholds[8]);
-                    shader.setUniform('uThreshold10', thresholds[9]);
-                }
-            }
-            
-            // Update color control sliders
-            if (this.colorPresetSwitcher && this.colorPresetSwitcher.updateSlidersFromConfig) {
-                this.colorPresetSwitcher.updateSlidersFromConfig(this.colorConfig);
-            }
-            
-            // Update waveform scrubber colors
-            if (this.audioControls && this.audioControls.waveformScrubber) {
-                this.audioControls.waveformScrubber.setColors(this.colors);
-            }
-            
-            // Set initial title colors
-            if (this.audioControls) {
-                this.audioControls.setColors(this.colors);
-            }
-            
-            console.log('Colors initialized/updated:', Object.keys(this.colors).length, 'colors');
-        } catch (error) {
-            console.error('Error initializing colors:', error);
-            throw error;
+    async initializeColors(skipFrequencyUpdate = false, audioData = null) {
+        if (!this.colorService) {
+            throw new Error('ColorService not initialized');
         }
+        return this.colorService.initializeColors(skipFrequencyUpdate, audioData);
     }
     
     /**
      * Update dynamic colors based on audio data (called from render loop)
+     * Delegates to ColorService
+     * 
      * @param {Object} audioData - Audio analysis data
      */
     updateDynamicColors(audioData) {
-        if (!this.colorModulator || !audioData || !this.colorsInitialized) {
+        if (!this.colorService) {
             return;
         }
         
@@ -292,65 +213,8 @@ export class VisualPlayer {
             this.audioControls.updateTitleDisplayAudioReactivity(audioData, currentShaderName);
         }
         
-        // Update color modulator with audio data
-        const modifiedConfig = this.colorModulator.update(audioData);
-        
-        // Check if config actually changed (performance optimization)
-        // We'll regenerate colors - the modulator handles change detection internally
-        // But we need to avoid infinite loops, so we'll use a flag
-        
-        // Generate colors from modified config
-        const generatedColors = generateColorsFromOklch(modifiedConfig);
-        
-        // Map to color format
-        const newColors = {
-            color: normalizeColor(generatedColors.color1),
-            color2: normalizeColor(generatedColors.color2),
-            color3: normalizeColor(generatedColors.color3),
-            color4: normalizeColor(generatedColors.color4),
-            color5: normalizeColor(generatedColors.color5),
-            color6: normalizeColor(generatedColors.color6),
-            color7: normalizeColor(generatedColors.color7),
-            color8: normalizeColor(generatedColors.color8),
-            color9: normalizeColor(generatedColors.color9),
-            color10: normalizeColor(generatedColors.color10)
-        };
-        
-        // Update colors if they changed
-        let colorsChanged = false;
-        if (!this.colors) {
-            colorsChanged = true;
-        } else {
-            // Check if any color changed significantly (increased threshold for smoother updates)
-            for (const key in newColors) {
-                if (!this.colors[key] || 
-                    Math.abs(this.colors[key][0] - newColors[key][0]) > 0.015 ||
-                    Math.abs(this.colors[key][1] - newColors[key][1]) > 0.015 ||
-                    Math.abs(this.colors[key][2] - newColors[key][2]) > 0.015) {
-                    colorsChanged = true;
-                    break;
-                }
-            }
-        }
-        
-        if (colorsChanged) {
-            this.colors = newColors;
-            
-            // Update shader manager with new colors
-            if (this.shaderManager) {
-                this.shaderManager.setColors(this.colors);
-            }
-            
-            // Update waveform scrubber colors
-            if (this.audioControls && this.audioControls.waveformScrubber) {
-                this.audioControls.waveformScrubber.setColors(this.colors);
-            }
-            
-            // Update audio controls title colors
-            if (this.audioControls) {
-                this.audioControls.setColors(this.colors);
-            }
-        }
+        // Update colors via ColorService
+        this.colorService.updateDynamicColors(audioData);
     }
     
     initUI() {
@@ -370,166 +234,12 @@ export class VisualPlayer {
             }
         };
         
-                // Load tracks from TrackService dynamically using batch loading
+        // Load tracks from TrackService dynamically using batch loading
         // This happens asynchronously so it doesn't block initialization
+        const trackLoadingService = new TrackLoadingService(this.audioControls);
         setTimeout(async () => {
-            try {
-                // Import the batch loading function
-                const { loadTracks } = await import('../api/TrackService.js');
-                const { getTopEngagementTracks } = await import('../api/EngagementService.js');
-                const { getTrackIdentifier, TRACK_REGISTRY, ENGAGEMENT_TRACKS_CACHE } = await import('../config/trackRegistry.js');
-                
-                // First, load top engagement tracks from cache (or API fallback)
-                try {
-                    let engagementTracks = [];
-                    
-                    // Try to load from cache first
-                    try {
-                        if (ENGAGEMENT_TRACKS_CACHE && Object.keys(ENGAGEMENT_TRACKS_CACHE).length > 0) {
-                            // Convert cache object to array and sort by engagement score
-                            engagementTracks = Object.values(ENGAGEMENT_TRACKS_CACHE)
-                                .sort((a, b) => {
-                                    const scoreA = a.engagementScore || a._engagementScore || 0;
-                                    const scoreB = b.engagementScore || b._engagementScore || 0;
-                                    return scoreB - scoreA;
-                                })
-                                .slice(0, 150); // Use top 150 from cache
-                            
-                            console.log(`✅ Loaded ${engagementTracks.length} engagement tracks from cache`);
-                        }
-                    } catch (cacheError) {
-                        // Cache file doesn't exist or is invalid, fall back to API
-                        console.log('ℹ️  No cache found, fetching from API...');
-                        const engagementResult = await getTopEngagementTracks(30, 150);
-                        
-                        if (engagementResult.success && engagementResult.tracks && engagementResult.tracks.length > 0) {
-                            engagementTracks = engagementResult.tracks;
-                            console.log(`✅ Fetched ${engagementTracks.length} top engagement tracks from API`);
-                        }
-                    }
-                    
-                    if (engagementTracks.length > 0) {
-                        // Sort engagement tracks alphabetically by display name (case-insensitive)
-                        engagementTracks.sort((a, b) => {
-                            const nameA = (a.display_name || a.displayName || '').toLowerCase();
-                            const nameB = (b.display_name || b.displayName || '').toLowerCase();
-                            return nameA.localeCompare(nameB);
-                        });
-                        
-                        // Add engagement tracks to the list
-                        for (const track of engagementTracks) {
-                            // Handle both snake_case (protobuf) and camelCase (JSON) field names
-                            const displayName = track.display_name || track.displayName;
-                            if (this.audioControls && displayName) {
-                                // Extract username from contributor_names if available
-                                const contributorNames = track.contributor_names || track.contributorNames || [];
-                                const username = contributorNames.length > 0
-                                    ? contributorNames[0].replace('users/', '')
-                                    : 'audiotool';
-                                
-                                try {
-                                    await this.audioControls.addTrackFromAPI(
-                                        displayName,
-                                        username,
-                                        false,
-                                        track, // Pass pre-loaded track
-                                        false  // Append (will sort all tracks together at the end)
-                                    );
-                                } catch (trackError) {
-                                    console.warn(`⚠️  Failed to add engagement track "${displayName}":`, trackError);
-                                    // Continue with next track
-                                }
-                            }
-                        }
-                        
-                        console.log(`✅ Added ${engagementTracks.length} engagement tracks to selection`);
-                    } else {
-                        console.log('ℹ️  No engagement tracks found (this is optional)');
-                    }
-                } catch (error) {
-                    console.warn('⚠️  Failed to load engagement tracks (this is optional):', error);
-                    // Continue loading registry tracks even if engagement tracks fail
-                }
-                
-                // Then, load tracks from the validated registry (170+ tracks)
-                try {
-                    // Registry format: "songName|username": "tracks/identifier"
-                    const tracksToLoad = Object.keys(TRACK_REGISTRY).map(key => {
-                        const [songName, username] = key.split('|');
-                        return { songName, username };
-                    });
-                    
-                    console.log(`📦 Loading all ${tracksToLoad.length} validated tracks from registry...`);
-                    
-                    // Sort tracks alphabetically by song name (case-insensitive)
-                    tracksToLoad.sort((a, b) => a.songName.toLowerCase().localeCompare(b.songName.toLowerCase()));
-                    
-                    // Get track identifiers for tracks that have them
-                    const tracksWithIdentifiers = tracksToLoad.map(track => ({
-                        ...track,
-                        trackIdentifier: getTrackIdentifier(track.songName, track.username),
-                    }));
-                    
-                    console.log(`📦 Batch loading ${tracksWithIdentifiers.length} tracks from API...`);
-                    
-                    // Batch load all tracks in a single API call
-                    const batchResult = await loadTracks(tracksWithIdentifiers);
-                    
-                    if (batchResult.success) {
-                        // Process results and add tracks to the UI
-                        for (const trackInfo of tracksWithIdentifiers) {
-                            const key = `${trackInfo.songName}|${trackInfo.username}`;
-                            const result = batchResult.results[key];
-                            
-                            if (result && result.success && result.track) {
-                                // Add track to UI using pre-loaded track data (avoids duplicate API call)
-                                if (this.audioControls) {
-                                    try {
-                                        await this.audioControls.addTrackFromAPI(
-                                            trackInfo.songName, 
-                                            trackInfo.username, 
-                                            false, 
-                                            result.track // Pass pre-loaded track
-                                        );
-                                    } catch (trackError) {
-                                        console.warn(`⚠️  Failed to add track "${trackInfo.songName}":`, trackError);
-                                        // Continue with next track
-                                    }
-                                }
-                            } else {
-                                const errorMsg = result?.error || 'Unknown error';
-                                console.warn(`⚠️  Failed to load API track "${trackInfo.songName}" (this is optional): ${errorMsg}`);
-                            }
-                        }
-                        
-                        console.log(`✅ Batch loaded ${Object.values(batchResult.results).filter(r => r.success).length} tracks successfully`);
-                    } else {
-                        console.warn('⚠️  Batch loading failed, falling back to individual loads');
-                        // Fallback to individual loading if batch fails
-                        for (const track of tracksToLoad) {
-                            this.loadAPITrack(track.songName, track.username).catch(error => {
-                                console.warn(`Failed to load API track "${track.songName}" (this is optional):`, error);
-                            });
-                        }
-                    }
-                    
-                    // Sort all tracks alphabetically after loading
-                    if (this.audioControls) {
-                        this.audioControls.sortTrackListAlphabetically();
-                    }
-                } catch (error) {
-                    console.error('❌ Failed to load registry tracks:', error);
-                    // Continue - don't break the app if registry loading fails
-                }
-                
-                // Hide loader after API calls complete
-                this.hideLoader();
-            } catch (error) {
-                console.error('❌ Failed to load tracks from registry:', error);
-                // Hide loader even on error
-                this.hideLoader();
-            }
-        }, 1000); // Wait 1 second after initialization to load API tracks
+            await trackLoadingService.loadAllTracks(() => this.hideLoader());
+        }, UI_CONFIG.TRACK_LOAD_DELAY);
         
         // Initialize color preset switcher
         this.colorPresetSwitcher = new ColorPresetSwitcher(
@@ -554,15 +264,14 @@ export class VisualPlayer {
                     this.colorConfig.brightest.hue = interpolateHue(baseH, baseH + presetConfig.brightest.hueOffset, 1.0);
                 }
                 
-                // Update color modulator with new base config
-                if (this.colorModulator) {
-                    this.colorModulator.setBaseConfig(this.colorConfig);
+                // Update color service with new config
+                if (this.colorService) {
+                    this.colorService.updateColorConfig(this.colorConfig);
+                    // Regenerate colors (this will update shader manager)
+                    this.colorService.initializeColors().catch(err => {
+                        console.error('Error initializing colors:', err);
+                    });
                 }
-                
-                // Regenerate colors (this will update shader manager)
-                this.initializeColors().catch(err => {
-                    console.error('Error initializing colors:', err);
-                });
             },
             (property, value, target) => {
                 // Handle individual property changes from sliders
@@ -572,15 +281,14 @@ export class VisualPlayer {
                     this.colorConfig.brightest[property] = value;
                 }
                 
-                // Update color modulator with new base config
-                if (this.colorModulator) {
-                    this.colorModulator.setBaseConfig(this.colorConfig);
+                // Update color service with new config
+                if (this.colorService) {
+                    this.colorService.updateColorConfig(this.colorConfig);
+                    // Regenerate colors
+                    this.colorService.initializeColors().catch(err => {
+                        console.error('Error initializing colors:', err);
+                    });
                 }
-                
-                // Regenerate colors
-                this.initializeColors().catch(err => {
-                    console.error('Error initializing colors:', err);
-                });
             },
             () => {
                 // Provide current color config when menu opens

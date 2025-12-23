@@ -1,134 +1,33 @@
 // Track Service API Client
 // Core API client for track operations: getTrack(), getTracks(), loadTrack(), loadTracks()
-// Authentication handling and base RPC calls
 
 import { safeCaptureException, safeSentrySpan } from '../core/monitoring/SentryInit.js';
 import { getTrackIdentifier } from '../config/trackRegistry.js';
+import { AuthService } from './services/AuthService.js';
+import { ApiClient } from './services/ApiClient.js';
+import { BatchService } from './services/BatchService.js';
 
-/**
- * Get the API token from environment variables (optional for public endpoints)
- * Token is NOT required - the app works with public endpoints using client ID.
- * For development, create a .env.local file with: VITE_AUDIOTOOL_API_TOKEN=your_token
- * @returns {Promise<string|null>} The API token, or null if not set
- */
-async function getToken() {
-  const token = import.meta.env.VITE_AUDIOTOOL_API_TOKEN;
-  return token || null;
-}
-
-/**
- * Get the client ID from environment variables (optional)
- * In production, uses a public client ID. In development, uses environment variable or null.
- * @returns {string|null} The client ID if set
- */
-function getClientId() {
-  const clientId = import.meta.env.VITE_AUDIOTOOL_CLIENT_ID;
-  
-  if (clientId) {
-    return clientId;
-  }
-  
-  // Production fallback - public client ID for API access
-  if (!import.meta.env.DEV) {
-    return '1fe600a2-08f7-4a15-953e-23d0c975ce55';
-  }
-  
-  return null;
-}
+// Initialize services (singleton instances)
+const authService = new AuthService();
+const apiClient = new ApiClient('https://rpc.audiotool.com', authService);
+const batchService = new BatchService();
+const serviceName = 'audiotool.track.v1.TrackService';
 
 /**
  * Call the TrackService using Connect RPC format
- * Connect RPC supports JSON encoding via the ?encoding=json query parameter
+ * 
  * @param {string} method - The RPC method name (e.g., "ListTracks", "GetTrack")
  * @param {object} request - The request payload
- * @returns {Promise<Response>} The fetch response
+ * @returns {Promise<Object>} The JSON response
  */
 async function callTrackService(method, request) {
-  const token = await getToken();
-  const clientId = getClientId();
-  const baseUrl = 'https://rpc.audiotool.com';
-  const serviceName = 'audiotool.track.v1.TrackService';
-  // Connect RPC JSON format: add ?encoding=json for JSON encoding
-  const url = `${baseUrl}/${serviceName}/${method}`;
+  console.log(`🔐 Using ${authService.getAuthMethod()} for ${method}`);
   
-  const headers = {
-    'Content-Type': 'application/json',
-  };
-  
-  // Add Authorization header only if token is available
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-  
-  // Log authentication method being used (for debugging)
-  if (token) {
-    console.log(`🔐 Using Bearer token authentication for ${method}`);
-  } else if (clientId) {
-    console.log(`🔑 Using client ID only for ${method} (public API) - Client ID: ${clientId.substring(0, 8)}...`);
-  } else {
-    console.log(`🌐 Making unauthenticated request for ${method} (public API)`);
-  }
-  
-  // Add timeout handling for API calls
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
-  
-  let response;
-  try {
-    response = await fetch(url, {
-      method: 'POST',
-      headers: headers,
-      body: JSON.stringify(request),
-      credentials: 'omit',
-      signal: controller.signal
-    });
-  } catch (error) {
-    clearTimeout(timeoutId);
-    if (error.name === 'AbortError') {
-      throw new Error(`TrackService.${method} request timed out after 30 seconds`);
-    }
-    throw error;
-  }
-  
-  clearTimeout(timeoutId);
-  
-  if (!response.ok) {
-    let errorText = '';
-    try {
-      errorText = await response.text();
-    } catch (e) {
-      errorText = response.statusText;
-    }
-    
-    // Try to parse as JSON error
-    let errorMessage = `TrackService.${method} failed: ${response.status} ${response.statusText}`;
-    try {
-      const errorJson = JSON.parse(errorText);
-      if (errorJson.message) {
-        errorMessage = errorJson.message;
-      } else if (errorJson.error) {
-        errorMessage = errorJson.error;
-      }
-    } catch (e) {
-      if (errorText) {
-        errorMessage += ` - ${errorText}`;
-      }
-    }
-    
-    // Provide helpful error message for authentication issues
-    if (response.status === 401 || response.status === 403) {
-      if (!token && !clientId) {
-        errorMessage += '\n💡 Tip: Public API may require client ID. Set VITE_AUDIOTOOL_CLIENT_ID in your environment.';
-      } else if (!token && clientId) {
-        errorMessage += '\n💡 Tip: This endpoint may require a Bearer token. Set VITE_AUDIOTOOL_API_TOKEN in your environment.';
-      }
-    }
-    
-    throw new Error(errorMessage);
-  }
-  
-  const jsonResponse = await response.json();
-  return jsonResponse;
+  const endpoint = `${serviceName}/${method}`;
+  return await apiClient.request(endpoint, {
+    method: 'POST',
+    body: request,
+  });
 }
 
 /**
@@ -240,43 +139,13 @@ export async function getTracks(trackNames) {
           name.startsWith('tracks/') ? name : `tracks/${name}`
         );
         
-        const tracksMap = {};
-        const batchSize = 50; // API page size limit
-        const totalBatches = Math.ceil(normalizedNames.length / batchSize);
-        
-        console.log(`🎵 Batch loading ${normalizedNames.length} tracks from API (${totalBatches} ${totalBatches === 1 ? 'batch' : 'batches'})`);
-        
-        // Process in batches to avoid filter size limits
-        for (let i = 0; i < normalizedNames.length; i += batchSize) {
-          const batch = normalizedNames.slice(i, i + batchSize);
-          
-          // Build CEL filter: track.name == "tracks/123" || track.name == "tracks/456" || ...
-          const filter = batch
-            .map(name => `track.name == "${name}"`)
-            .join(' || ');
-          
-          const result = await listTracksByIds({
-            filter: filter,
-            pageSize: batchSize,
-          });
-          
-          if (result.success && result.tracks) {
-            result.tracks.forEach(track => {
-              if (track.name) {
-                tracksMap[track.name] = track;
-              }
-            });
-          }
-        }
+        // Use BatchService to load tracks
+        const tracksMap = await batchService.batchLoadTracks(normalizedNames);
         
         const fetchedCount = Object.keys(tracksMap).length;
-        const notFoundCount = normalizedNames.length - fetchedCount;
-        
-        console.log(`✅ Loaded ${fetchedCount}/${normalizedNames.length} tracks from API${notFoundCount > 0 ? ` (${notFoundCount} not found)` : ''}`);
-        
         span.setAttribute('tracks.requested', normalizedNames.length);
         span.setAttribute('tracks.found', fetchedCount);
-        span.setAttribute('batches', Math.ceil(normalizedNames.length / batchSize));
+        span.setAttribute('batches', Math.ceil(normalizedNames.length / batchService.getBatchSize()));
         
         return {
           success: true,

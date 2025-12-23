@@ -9,6 +9,7 @@ import refractionConfig from '../shaders/configs/refraction.js';
 import stringsConfig from '../shaders/configs/strings.js';
 import arcConfig from '../shaders/configs/arc.js';
 import { ColorModulator } from './color/ColorModulator.js';
+import { ColorService } from './services/ColorService.js';
 
 /**
  * Initialize the Visual Player application
@@ -47,15 +48,35 @@ export async function initializeApp(app) {
                 
                 // 4. Initialize color system
                 app.colorConfig = { ...heightmapConfig.colorConfig };
-                await app.initializeColors();
                 
                 // 4.5. Initialize color modulator for dynamic hue shifts
                 app.colorModulator = new ColorModulator(app.colorConfig);
                 
-                // 5. Set colors in shader manager (before activating shader)
-                if (app.colors) {
-                    app.shaderManager.setColors(app.colors);
-                }
+                // 4.6. Initialize ColorService
+                app.colorService = new ColorService(
+                    app.colorConfig,
+                    app.shaderManager,
+                    app.colorModulator
+                );
+                
+                // Setup color service callbacks
+                app.colorService.on('onColorsUpdated', (colors) => {
+                    // Update UI components when colors change
+                    if (app.audioControls) {
+                        app.audioControls.setColors(colors);
+                        if (app.audioControls.waveformScrubber) {
+                            app.audioControls.waveformScrubber.setColors(colors);
+                        }
+                    }
+                    
+                    // Update color control sliders
+                    if (app.colorPresetSwitcher && app.colorPresetSwitcher.updateSlidersFromConfig) {
+                        app.colorPresetSwitcher.updateSlidersFromConfig(app.colorConfig);
+                    }
+                });
+                
+                // 5. Initialize colors
+                await app.colorService.initializeColors();
                 
                 // 6. Initialize and activate default shader (check localStorage for saved preference)
                 const { safeGetItem } = await import('../utils/storage.js');
@@ -76,8 +97,9 @@ export async function initializeApp(app) {
                 app.initUI();
                 
                 // 7.5 Set initial waveform colors if waveform scrubber is initialized
-                if (app.audioControls && app.audioControls.waveformScrubber && app.colors) {
-                    app.audioControls.waveformScrubber.setColors(app.colors);
+                const colors = app.colorService.getColors();
+                if (app.audioControls && app.audioControls.waveformScrubber && colors) {
+                    app.audioControls.waveformScrubber.setColors(colors);
                 }
                 
                 // 8. Initialize dev tools

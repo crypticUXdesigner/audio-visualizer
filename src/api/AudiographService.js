@@ -2,6 +2,7 @@
 // Handles audiograph/waveform API: getAudiographs()
 
 import { safeCaptureException, safeSentrySpan } from '../core/monitoring/SentryInit.js';
+import { API_CONFIG } from '../config/constants.js';
 
 /**
  * Get the API token from environment variables (optional for public endpoints)
@@ -36,7 +37,7 @@ async function callAudiographService(method, request) {
   
   // Add timeout handling for API calls
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
+  const timeoutId = setTimeout(() => controller.abort(), API_CONFIG.TIMEOUT);
   
   let response;
   try {

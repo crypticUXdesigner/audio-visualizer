@@ -6,6 +6,7 @@ import { VolumeAnalyzer } from './VolumeAnalyzer.js';
 import { FrequencyAnalyzer } from './FrequencyAnalyzer.js';
 import { SmoothingProcessor } from './SmoothingProcessor.js';
 import { AudioLoader } from './AudioLoader.js';
+import { AUDIO_THRESHOLDS, RIPPLE_CONFIG } from '../../config/constants.js';
 
 export class AudioAnalyzer {
     constructor() {
@@ -83,27 +84,27 @@ export class AudioAnalyzer {
         
         // Multiple ripple tracking system
         // Each ripple: { startTime, centerX, centerY, intensity, active }
-        this.maxRipples = 12; // Maximum number of simultaneous ripples
+        this.maxRipples = RIPPLE_CONFIG.MAX_COUNT;
         this.ripples = []; // Array of active ripples
-        this.rippleLifetime = 2.0; // Ripples fade out after 2 seconds
+        this.rippleLifetime = RIPPLE_CONFIG.LIFETIME;
         
         // Rate limiting and cooldown system
         this.rippleCreationTimes = []; // Track when ripples were created (for rate limiting)
-        this.rippleRateLimitWindow = 500; // 500ms window
-        this.rippleRateLimit = 9; // Max 10 ripples in 500ms window
+        this.rippleRateLimitWindow = RIPPLE_CONFIG.RATE_LIMIT_WINDOW;
+        this.rippleRateLimit = RIPPLE_CONFIG.RATE_LIMIT;
         this.rippleCooldownUntil = 0; // Timestamp when cooldown ends
-        this.rippleCooldownDuration = 300; // 300ms cooldown after hitting rate limit
+        this.rippleCooldownDuration = RIPPLE_CONFIG.COOLDOWN_DURATION;
         
         // Dynamic change detection
         this.previousBass = 0;
         this.previousMid = 0;
         this.previousTreble = 0;
-        this.dynamicChangeThreshold = 0.07; // Minimum change required to trigger ripple
+        this.dynamicChangeThreshold = AUDIO_THRESHOLDS.DYNAMIC_CHANGE;
         
         // Configurable thresholds per frequency band for ripple triggering
-        this.bassThreshold = 0.08;   // Minimum threshold for bass to trigger ripple
-        this.midThreshold = 0.05;    // Minimum threshold for mid to trigger ripple
-        this.trebleThreshold = 0.05; // Minimum threshold for treble to trigger ripple
+        this.bassThreshold = AUDIO_THRESHOLDS.BASS;
+        this.midThreshold = AUDIO_THRESHOLDS.MID;
+        this.trebleThreshold = AUDIO_THRESHOLDS.TREBLE;
         
         // Stereo emphasis factor (0.0-1.0, lower = more emphasis on differences)
         // 0.7 = moderate emphasis, 0.5 = strong emphasis, 1.0 = no emphasis (linear)

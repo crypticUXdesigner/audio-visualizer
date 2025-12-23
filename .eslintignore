@@ -1,0 +1,9 @@
+node_modules
+dist
+*.config.js
+vite.config.js
+tools/
+docs/
+*.glsl
+public/
+

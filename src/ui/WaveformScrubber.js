@@ -2,6 +2,7 @@
 // Renders audio waveform using Audiotool Audiograph data
 
 import { safeSentrySpan, safeCaptureException } from '../core/monitoring/SentryInit.js';
+import { COLOR_CONFIG } from '../config/constants.js';
 
 export class WaveformScrubber {
   constructor(container, audioElement) {
@@ -26,7 +27,7 @@ export class WaveformScrubber {
     this.targetLeftData = null;     // Target values to interpolate toward
     this.targetRightData = null;
     this.waveformAnimationSpeed = 1.5; // Speed of value interpolation
-    this.minWaveformValue = 0.05;  // Minimum normalized value (not quite 0 for visual continuity)
+    this.minWaveformValue = COLOR_CONFIG.MIN_WAVEFORM_VALUE;
     this.staggerAmount = 0.6;      // Stagger amount (0-1, how much to delay each subsequent bar) - increased for slower stagger
     this.animationProgress = 1;    // Global animation progress (0 to 1+stagger)
     
@@ -44,7 +45,7 @@ export class WaveformScrubber {
     this.currentWaveColor = { r: 255, g: 255, b: 255, a: 0.3 };
     this.currentProgressColor = { r: 255, g: 255, b: 255, a: 0.9 };
     this.currentCursorColor = { r: 255, g: 255, b: 255, a: 1.0 };
-    this.colorTransitionDuration = 1000; // Fixed 1 second transition
+    this.colorTransitionDuration = COLOR_CONFIG.TRANSITION_DURATION;
     this.colorTransitionStartTime = null;
     this.colorTransitionProgress = 1; // 0 to 1 (1 = complete)
     
