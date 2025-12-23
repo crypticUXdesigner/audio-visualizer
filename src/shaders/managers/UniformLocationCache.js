@@ -51,6 +51,30 @@ export class UniformLocationCache {
     }
     
     /**
+     * Discover all active uniforms from the shader program
+     * Automatically finds uniforms declared in the shader code
+     * @returns {Object} Map of discovered uniform names to locations
+     */
+    discoverUniforms() {
+        const gl = this.gl;
+        const program = this.program;
+        
+        // Get active uniform count
+        const activeUniforms = gl.getProgramParameter(program, gl.ACTIVE_UNIFORMS);
+        
+        for (let i = 0; i < activeUniforms; i++) {
+            const info = gl.getActiveUniform(program, i);
+            if (info) {
+                // Remove array suffix if present (e.g., "uArray[0]" -> "uArray")
+                const name = info.name.replace(/\[0\]$/, '');
+                this.getUniformLocation(name);
+            }
+        }
+        
+        return this.locations;
+    }
+    
+    /**
      * Cache all standard uniforms (commonly used across shaders)
      * @returns {Object} Map of standard uniform names to locations
      */

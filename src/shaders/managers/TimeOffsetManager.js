@@ -3,6 +3,7 @@
 
 import { TempoSmoothingConfig, getTempoRelativeTimeConstant, applyTempoRelativeSmoothing } from '../../config/tempoSmoothing.js';
 import { ShaderLogger } from '../utils/ShaderLogger.js';
+import { BezierSolver } from '../utils/BezierSolver.js';
 
 export class TimeOffsetManager {
     constructor(config = {}) {
@@ -31,58 +32,6 @@ export class TimeOffsetManager {
     }
     
     /**
-     * Cubic-bezier solver: finds y value for a given x using binary search
-     * Solves the cubic bezier equation B(t) = (1-t)³P₀ + 3(1-t)²tP₁ + 3(1-t)t²P₂ + t³P₃
-     * where P₀ = (0,0), P₁ = (x1,y1), P₂ = (x2,y2), P₃ = (1,1)
-     * Uses binary search to find t such that Bx(t) = x, then returns By(t)
-     * @param {number} x - Input x value (0-1)
-     * @param {number} x1 - First control point X coordinate (0-1)
-     * @param {number} y1 - First control point Y coordinate (0-1)
-     * @param {number} x2 - Second control point X coordinate (0-1)
-     * @param {number} y2 - Second control point Y coordinate (0-1)
-     * @returns {number} Corresponding y value (0-1)
-     * @example
-     * // Ease-out cubic bezier: (0.9, 0.0, 0.8, 1.0)
-     * const easing = cubicBezierSolve(0.5, 0.9, 0.0, 0.8, 1.0);
-     * // Returns ~0.7 (eased value)
-     */
-    cubicBezierSolve(x, x1, y1, x2, y2) {
-        // Cubic bezier formula: B(t) = (1-t)³P₀ + 3(1-t)²tP₁ + 3(1-t)t²P₂ + t³P₃
-        // For x-coordinate: we need to find t such that Bx(t) = x
-        // P₀ = (0,0), P₁ = (x1,y1), P₂ = (x2,y2), P₃ = (1,1)
-        
-        // Binary search for t
-        let t0 = 0;
-        let t1 = 1;
-        const epsilon = 0.0001;
-        const maxIterations = 20;
-        
-        for (let i = 0; i < maxIterations; i++) {
-            const t = (t0 + t1) / 2;
-            
-            // Calculate x-coordinate at t
-            const cx = 3 * (1 - t) * (1 - t) * t * x1 + 3 * (1 - t) * t * t * x2 + t * t * t;
-            
-            if (Math.abs(cx - x) < epsilon) {
-                // Calculate y-coordinate at t
-                const cy = 3 * (1 - t) * (1 - t) * t * y1 + 3 * (1 - t) * t * t * y2 + t * t * t;
-                return cy;
-            }
-            
-            if (cx < x) {
-                t0 = t;
-            } else {
-                t1 = t;
-            }
-        }
-        
-        // Fallback: calculate y at final t
-        const t = (t0 + t1) / 2;
-        const cy = 3 * (1 - t) * (1 - t) * t * y1 + 3 * (1 - t) * t * t * y2 + t * t * t;
-        return cy;
-    }
-    
-    /**
      * Calculate easing factor for time offset accumulation using cubic-bezier
      * Maps trigger signal strength (volume) to accumulation rate multiplier
      * Strong signals → more accumulation (eased), weak signals → less accumulation (with nuance)
@@ -96,7 +45,7 @@ export class TimeOffsetManager {
         
         // Use cubic-bezier to map volume (0-1) to easing factor (0-1)
         // The volume is the input x, we get back the y value (easing factor)
-        const easingFactor = this.cubicBezierSolve(
+        const easingFactor = BezierSolver.solve(
             clampedVolume,
             this.timeOffsetCubicBezier.x1,
             this.timeOffsetCubicBezier.y1,

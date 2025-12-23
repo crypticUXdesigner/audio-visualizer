@@ -12,6 +12,20 @@ export class ShaderManager {
         this.colors = null;
         this.colorUpdateCallback = null; // Callback for dynamic color updates
         this.onFirstColorUpdate = null; // Callback for when shader receives first colors
+        this.loudnessControls = null; // Loudness controls for time offset manager
+    }
+    
+    /**
+     * Set loudness controls for all shaders
+     * @param {Object} controls - Controls object with loudnessAnimationEnabled and loudnessThreshold
+     */
+    setLoudnessControls(controls) {
+        this.loudnessControls = controls;
+        
+        // Inject into active shader if it exists
+        if (this.activeShader && this.activeShader.timeOffsetManager) {
+            this.activeShader.timeOffsetManager.setLoudnessControls(controls);
+        }
     }
     
     /**
@@ -25,8 +39,43 @@ export class ShaderManager {
     /**
      * Register a shader configuration
      * @param {Object} config - Shader configuration object
+     * @throws {Error} If config is invalid
      */
     registerShader(config) {
+        // Validate config structure
+        if (!config || typeof config !== 'object') {
+            throw new Error('Shader config must be an object');
+        }
+        
+        if (!config.name || typeof config.name !== 'string') {
+            throw new Error('Shader config must have a string "name" property');
+        }
+        
+        if (!config.fragmentPath || typeof config.fragmentPath !== 'string') {
+            throw new Error('Shader config must have a string "fragmentPath" property');
+        }
+        
+        if (!config.vertexPath || typeof config.vertexPath !== 'string') {
+            throw new Error('Shader config must have a string "vertexPath" property');
+        }
+        
+        // Validate parameters if present
+        if (config.parameters) {
+            if (typeof config.parameters !== 'object') {
+                throw new Error('Shader config "parameters" must be an object');
+            }
+            for (const [name, paramConfig] of Object.entries(config.parameters)) {
+                if (!paramConfig.type || !['float', 'int'].includes(paramConfig.type)) {
+                    throw new Error(`Parameter "${name}" must have valid "type" (float or int)`);
+                }
+                if (paramConfig.min !== undefined && paramConfig.max !== undefined) {
+                    if (paramConfig.min > paramConfig.max) {
+                        throw new Error(`Parameter "${name}" has invalid range: min > max`);
+                    }
+                }
+            }
+        }
+        
         if (this.shaders.has(config.name)) {
             ShaderLogger.warn(`Shader "${config.name}" already registered, overwriting`);
         }
@@ -62,14 +111,26 @@ export class ShaderManager {
         if (!shaderEntry.instance) {
             const instance = new ShaderInstance(shaderEntry.canvasId, shaderEntry.config);
             instance._shaderManager = this; // Store reference to shader manager
-            await instance.init();
-            shaderEntry.instance = instance;
+            try {
+                await instance.init();
+                shaderEntry.instance = instance;
+            } catch (error) {
+                // If initialization fails, don't store the instance
+                // This prevents leaving a broken instance in the map
+                ShaderLogger.error(`Failed to initialize shader "${name}":`, error);
+                throw error;
+            }
         } else {
             // Update reference if instance already exists
             shaderEntry.instance._shaderManager = this;
         }
         
         this.activeShader = shaderEntry.instance;
+        
+        // Inject loudness controls if available
+        if (this.loudnessControls && this.activeShader.timeOffsetManager) {
+            this.activeShader.timeOffsetManager.setLoudnessControls(this.loudnessControls);
+        }
         
         // Start render loop if we have audio analyzer and colors
         if (this.audioAnalyzer && this.colors) {

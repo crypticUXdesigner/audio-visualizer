@@ -161,9 +161,7 @@ export class AudioAnalyzer {
                     try {
                         await this.audioContext.resume();
                         console.log('AudioContext resumed');
-                        // Remove listeners after first resume
-                        document.removeEventListener('click', resumeAudio);
-                        document.removeEventListener('touchstart', resumeAudio);
+                        // Listeners with {once: true} auto-remove, no need to manually remove
                     } catch (err) {
                         console.error('Failed to resume AudioContext:', err);
                     }
@@ -304,6 +302,13 @@ export class AudioAnalyzer {
                 cleanPath = absolutePath.replace(/([^:]\/)\/+/g, '$1');
             }
             
+            // Remove old listeners if they exist (cleanup before creating new audio element)
+            if (this.audioElement && this._onLoadedMetadata) {
+                this.audioElement.removeEventListener('loadedmetadata', this._onLoadedMetadata);
+                this.audioElement.removeEventListener('error', this._onError);
+                this.audioElement.removeEventListener('canplay', this._onCanPlay);
+            }
+            
             // Create audio element
             this.audioElement = new Audio(cleanPath);
             this.audioElement.crossOrigin = 'anonymous'; // For CORS when using API later
@@ -314,18 +319,23 @@ export class AudioAnalyzer {
                 this.audioElement.playbackRate = 1.0;
             }
             
-            // Add event listeners to track audio loading and metadata
-            this.audioElement.addEventListener('loadedmetadata', () => {
+            // Store event listener references for cleanup
+            this._onLoadedMetadata = () => {
                 // Metadata loaded - audio is ready
-            });
+            };
             
-            this.audioElement.addEventListener('error', (e) => {
+            this._onError = (e) => {
                 console.error('Audio loading error:', e, this.audioElement.error);
-            });
+            };
             
-            this.audioElement.addEventListener('canplay', () => {
+            this._onCanPlay = () => {
                 // Audio can start playing
-            });
+            };
+            
+            // Add event listeners to track audio loading and metadata
+            this.audioElement.addEventListener('loadedmetadata', this._onLoadedMetadata);
+            this.audioElement.addEventListener('error', this._onError);
+            this.audioElement.addEventListener('canplay', this._onCanPlay);
             
             // Create source node
             this.source = this.audioContext.createMediaElementSource(this.audioElement);
@@ -350,7 +360,9 @@ export class AudioAnalyzer {
     }
     
     update() {
-        if (!this.analyser) return;
+        if (!this.analyser || !this.audioContext || this.audioContext.state === 'closed') {
+            return;
+        }
         
         // Calculate frame time (deltaTime) for time-based smoothing
         const currentTime = performance.now();
@@ -1105,6 +1117,99 @@ export class AudioAnalyzer {
             rightBands,
             numBands
         };
+    }
+    
+    /**
+     * Clean up all audio resources and disconnect nodes
+     * Should be called when AudioAnalyzer is no longer needed
+     */
+    destroy() {
+        // Store references for cleanup
+        const audioEl = this.audioElement;
+        const audioCtx = this.audioContext;
+        
+        // Stop and cleanup audio element
+        if (audioEl) {
+            audioEl.pause();
+            audioEl.src = '';
+            // Remove all event listeners
+            if (this._onLoadedMetadata) {
+                audioEl.removeEventListener('loadedmetadata', this._onLoadedMetadata);
+            }
+            if (this._onError) {
+                audioEl.removeEventListener('error', this._onError);
+            }
+            if (this._onCanPlay) {
+                audioEl.removeEventListener('canplay', this._onCanPlay);
+            }
+            this.audioElement = null;
+        }
+        
+        // Disconnect all audio nodes
+        if (this.source) {
+            try {
+                this.source.disconnect();
+            } catch (e) {
+                // Ignore - may already be disconnected
+            }
+            this.source = null;
+        }
+        
+        if (this.splitter) {
+            try {
+                this.splitter.disconnect();
+            } catch (e) {
+                // Ignore - may already be disconnected
+            }
+            this.splitter = null;
+        }
+        
+        if (this.analyser) {
+            try {
+                this.analyser.disconnect();
+            } catch (e) {
+                // Ignore - may already be disconnected
+            }
+            this.analyser = null;
+        }
+        
+        if (this.leftAnalyser) {
+            try {
+                this.leftAnalyser.disconnect();
+            } catch (e) {
+                // Ignore - may already be disconnected
+            }
+            this.leftAnalyser = null;
+        }
+        
+        if (this.rightAnalyser) {
+            try {
+                this.rightAnalyser.disconnect();
+            } catch (e) {
+                // Ignore - may already be disconnected
+            }
+            this.rightAnalyser = null;
+        }
+        
+        // Close audio context
+        if (audioCtx && audioCtx.state !== 'closed') {
+            audioCtx.close().catch(err => {
+                console.warn('Error closing AudioContext:', err);
+            });
+        }
+        
+        // Clear all references
+        this.audioContext = null;
+        this.frequencyData = null;
+        this.timeData = null;
+        this.leftFrequencyData = null;
+        this.rightFrequencyData = null;
+        this._rippleDataCache = null;
+        this.ripples = [];
+        this.rippleCreationTimes = [];
+        this._onLoadedMetadata = null;
+        this._onError = null;
+        this._onCanPlay = null;
     }
 }
 

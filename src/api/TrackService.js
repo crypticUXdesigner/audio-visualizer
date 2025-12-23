@@ -69,12 +69,28 @@ async function callTrackService(method, request) {
     console.log(`🌐 Making unauthenticated request for ${method} (public API)`);
   }
   
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: headers,
-    body: JSON.stringify(request),
-    credentials: 'omit',
-  });
+  // Add timeout handling for API calls
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
+  
+  let response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: headers,
+      body: JSON.stringify(request),
+      credentials: 'omit',
+      signal: controller.signal
+    });
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error.name === 'AbortError') {
+      throw new Error(`TrackService.${method} request timed out after 30 seconds`);
+    }
+    throw error;
+  }
+  
+  clearTimeout(timeoutId);
   
   if (!response.ok) {
     let errorText = '';

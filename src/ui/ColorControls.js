@@ -2,6 +2,7 @@
 // Handles color preset selection and application
 
 import { generateColorsFromOklch, rgbToHex, rgbToOklch, hexToRgb, interpolateHue, oklchToRgb } from '../core/color/ColorGenerator.js';
+import { safeGetItem, safeSetItem } from '../utils/storage.js';
 
 export class ColorPresetSwitcher {
     constructor(colorPresets, onPresetChange, onPropertyChange, getCurrentColorConfig, audioControls = null) {
@@ -10,7 +11,7 @@ export class ColorPresetSwitcher {
         this.onPropertyChange = onPropertyChange; // Callback: (property, value, target) => void
         this.getCurrentColorConfig = getCurrentColorConfig; // Callback: () => colorConfig
         this.audioControls = audioControls; // Reference to AudioControls for hideControls/showControls
-        this.currentPresetName = localStorage.getItem('colorPreset') || Object.keys(colorPresets)[0];
+        this.currentPresetName = safeGetItem('colorPreset', Object.keys(colorPresets)[0]);
         this.currentColorConfig = null; // Store current color config for sliders
         this.isMenuOpen = false;
         this.colorPresetMenu = null;
@@ -93,7 +94,7 @@ export class ColorPresetSwitcher {
                     this.onPresetChange(preset);
                 }
                 this.currentPresetName = presetName;
-                localStorage.setItem('colorPreset', presetName);
+                safeSetItem('colorPreset', presetName);
                 console.log('Applied color preset:', presetName);
                 
                 // Update sliders with preset values
@@ -317,7 +318,7 @@ export class ColorPresetSwitcher {
         
         // Update current preset name and save to localStorage
         this.currentPresetName = randomPresetName;
-        localStorage.setItem('colorPreset', randomPresetName);
+        safeSetItem('colorPreset', randomPresetName);
         
         // Update active button state
         document.querySelectorAll('.preset-btn').forEach(btn => {

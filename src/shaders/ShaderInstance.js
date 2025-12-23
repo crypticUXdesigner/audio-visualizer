@@ -2,7 +2,6 @@
 // Handles WebGL context, program, uniforms, and rendering for one shader
 
 import { loadShader, createProgram, createQuad, processIncludes } from '../core/shader/ShaderUtils.js';
-import { safeSetContext } from '../core/monitoring/SentryInit.js';
 import { createShaderPlugin } from './plugins/pluginFactory.js';
 import { UniformManager } from './managers/UniformManager.js';
 import { TextureManager } from './managers/TextureManager.js';
@@ -11,16 +10,19 @@ import { TimeOffsetManager } from './managers/TimeOffsetManager.js';
 import { ColorTransitionManager } from './managers/ColorTransitionManager.js';
 import { PixelSizeAnimationManager } from './managers/PixelSizeAnimationManager.js';
 import { PerformanceMonitor } from './managers/PerformanceMonitor.js';
+import { WebGLContextManager } from './managers/WebGLContextManager.js';
 import { ShaderConstants } from './config/ShaderConstants.js';
 import { ShaderError, ErrorCodes } from './utils/ShaderErrors.js';
 import { ShaderLogger } from './utils/ShaderLogger.js';
+import { safeCaptureException } from '../core/monitoring/SentryInit.js';
 
 export class ShaderInstance {
     constructor(canvasId, config) {
         this.canvasId = canvasId;
         this.config = config;
-        this.canvas = null;
-        this.gl = null;
+        this.webglContext = new WebGLContextManager(canvasId);
+        this.canvas = null; // Will be set from webglContext after initialization
+        this.gl = null; // Will be set from webglContext after initialization
         this.program = null;
         this.quadBuffer = null;
         this.uniformLocations = {};
@@ -37,14 +39,17 @@ export class ShaderInstance {
         this.renderLoopId = null;
         this.lastFrameTime = 0;
         
+        // Resize handler reference for cleanup
+        this._resizeHandler = null;
+        
         // Initialize managers
         this.timeOffsetManager = new TimeOffsetManager(ShaderConstants.timeOffset);
         this.colorTransitionManager = new ColorTransitionManager(ShaderConstants.colorTransition);
         this.pixelSizeAnimationManager = new PixelSizeAnimationManager(ShaderConstants.pixelSizeAnimation);
         this.performanceMonitor = new PerformanceMonitor(ShaderConstants.performance);
         
-        // WebGL fallback state
-        this.webglFallbackActive = false;
+        // WebGL fallback state (managed by WebGLContextManager)
+        this.webglFallbackActive = false; // Will be set by webglContext
         
         // Object pooling for ripple data arrays (performance optimization)
         // Reuse Float32Arrays instead of allocating new ones every frame
@@ -120,20 +125,50 @@ export class ShaderInstance {
         }
         
         const screenWidth = window.innerWidth || document.documentElement.clientWidth || 1920;
+        const adaptive = ShaderConstants.adaptive;
         
         // On mobile (typically < 768px), reduce bands significantly to maintain visual impact
-        if (screenWidth < 768) {
+        if (screenWidth < adaptive.mobileBreakpoint) {
             // Reduce to ~12-16 bands on mobile for better visual style
-            return Math.max(12, Math.floor(baseNumBands * 0.5));
+            return Math.max(
+                adaptive.minMobileBands, 
+                Math.floor(baseNumBands * adaptive.mobileBandReduction)
+            );
         }
         
         // On tablets (768-1024px), slightly reduce
-        if (screenWidth < 1024) {
-            return Math.max(16, Math.floor(baseNumBands * 0.75));
+        if (screenWidth < adaptive.tabletBreakpoint) {
+            return Math.max(
+                adaptive.minTabletBands, 
+                Math.floor(baseNumBands * adaptive.tabletBandReduction)
+            );
         }
         
         // Desktop: use full count
         return baseNumBands;
+    }
+    
+    /**
+     * Validate that all managers are initialized
+     * @throws {ShaderError} If managers are not initialized
+     */
+    _validateManagers() {
+        if (!this.uniformManager || !this.timeOffsetManager || 
+            !this.pixelSizeAnimationManager || !this.colorTransitionManager ||
+            !this.performanceMonitor) {
+            throw new ShaderError(
+                'Managers not initialized',
+                ErrorCodes.NOT_INITIALIZED,
+                {
+                    shaderName: this.config.name,
+                    uniformManager: !!this.uniformManager,
+                    timeOffsetManager: !!this.timeOffsetManager,
+                    pixelSizeAnimationManager: !!this.pixelSizeAnimationManager,
+                    colorTransitionManager: !!this.colorTransitionManager,
+                    performanceMonitor: !!this.performanceMonitor
+                }
+            );
+        }
     }
     
     
@@ -150,125 +185,223 @@ export class ShaderInstance {
             return;
         }
         
-        this.canvas = document.getElementById(this.canvasId);
-        if (!this.canvas) {
-            throw new ShaderError(
-                `Canvas with id "${this.canvasId}" not found`,
-                ErrorCodes.CANVAS_NOT_FOUND,
-                { canvasId: this.canvasId }
-            );
-        }
-        
-        // Get WebGL context with fallback support
-        const contextAttributes = {
-            alpha: false,
-            premultipliedAlpha: false,
-            preserveDrawingBuffer: false,
-            antialias: false,
-            depth: false,
-            stencil: false,
-            failIfMajorPerformanceCaveat: false
-        };
-        
-        // Try WebGL2 first, then WebGL1, then experimental-webgl
-        this.gl = this.canvas.getContext('webgl2', contextAttributes) ||
-                  this.canvas.getContext('webgl', contextAttributes) ||
-                  this.canvas.getContext('experimental-webgl', contextAttributes);
-        
-        if (!this.gl) {
-            // WebGL not supported - show fallback UI
-            ShaderLogger.error('WebGL not supported on this device');
-            this.showWebGLFallback();
+        try {
+            // Get WebGL context from manager
+            const initialized = await this.webglContext.initialize();
+            if (!initialized) {
+                this.webglFallbackActive = this.webglContext.webglFallbackActive;
+                return; // Don't continue initialization
+            }
+            
+            // Set up context lost/restored handlers
+            this.webglContext.onContextLost = () => {
+                this._onContextLost();
+            };
+            this.webglContext.onContextRestored = () => {
+                this._onContextRestored();
+            };
+            
+            // Get references from context manager
+            this.gl = this.webglContext.gl;
+            this.canvas = this.webglContext.canvas;
+            this.ext = this.webglContext.ext;
+            const hasDerivatives = !!this.ext;
+            
+            // Load and compile shaders with retry
+            const vertexSource = await loadShader(this.config.vertexPath, 3);
+            let fragmentSource = await loadShader(this.config.fragmentPath, 3);
+            
+            // Process #include directives in fragment shader (pass base path for relative includes)
+            fragmentSource = await processIncludes(fragmentSource, 3, new Set(), this.config.fragmentPath);
+            
+            // Replace FWIDTH macro based on extension availability
+            if (hasDerivatives) {
+                // Extension available - enable it and use real fwidth
+                fragmentSource = '#extension GL_OES_standard_derivatives : enable\n' + fragmentSource;
+                // Remove the macro definition since fwidth will work directly
+                fragmentSource = fragmentSource.replace(/#define FWIDTH\(x\) fwidth\(x\)/g, '');
+                // Replace all FWIDTH(...) calls with fwidth(...)
+                fragmentSource = fragmentSource.replace(/FWIDTH\(/g, 'fwidth(');
+            } else {
+                // Extension not available - use fallback implementation
+                ShaderLogger.warn('OES_standard_derivatives extension not supported - using fallback');
+                // Replace the macro definition to use a constant instead of fwidth
+                fragmentSource = fragmentSource.replace(/#define FWIDTH\(x\) fwidth\(x\)/g, 
+                    '#define FWIDTH(x) 0.01');
+                // FWIDTH(...) calls will now expand to 0.01
+            }
+            
+            // Create program
+            this.program = createProgram(this.gl, vertexSource, fragmentSource);
+            
+            // Create quad
+            this.quadBuffer = createQuad(this.gl);
+            
+            // Cache uniform locations using UniformLocationCache
+            this.uniformLocationCache = new UniformLocationCache(this.gl, this.program);
+            
+            // Auto-discover uniforms from shader program
+            this.uniformLocationCache.discoverUniforms();
+            
+            // Cache standard uniforms (known uniforms for performance)
+            const standardUniforms = this.uniformLocationCache.cacheStandardUniforms();
+            const standardAttributes = this.uniformLocationCache.cacheStandardAttributes();
+            
+            // Merge discovered and standard uniforms (discovered takes precedence)
+            this.uniformLocations = { 
+                ...this.uniformLocationCache.getAllUniformLocations(), // Discovered uniforms
+                ...standardUniforms, 
+                ...standardAttributes 
+            };
+            
+            // Set default threshold values
+            this.uniformLocationCache.setDefaultThresholds(ShaderConstants.defaultThresholds);
+            
+            // Initialize uniform manager
+            this.uniformManager = new UniformManager(this.gl, this.uniformLocations);
+            this.uniformManager.lastValues = this._lastUniformValues;
+            
+            // Initialize texture manager
+            this.textureManager = new TextureManager(this.gl);
+            
+            // Setup resize handler
+            this.resize();
+            this._resizeHandler = () => this.resize();
+            window.addEventListener('resize', this._resizeHandler);
+            
+            // Call custom init hook if provided
+            if (this.config.onInit) {
+                this.config.onInit(this);
+            }
+            
+            // Call plugin init hook
+            if (this.plugin) {
+                this.plugin.onInit();
+            }
+            
+            // Loudness controls should be injected via ShaderManager or App
+            // This is handled externally, not via global window object
+            
+            this.isInitialized = true;
+            ShaderLogger.info(`ShaderInstance ${this.config.name} initialized`);
+        } catch (error) {
+            ShaderLogger.error(`Failed to initialize shader ${this.config.name}:`, error);
             this.webglFallbackActive = true;
-            return; // Don't continue initialization
+            
+            // Show fallback UI
+            if (this.webglContext) {
+                this.webglContext.showWebGLFallback();
+            }
+            
+            // Don't throw - allow app to continue in degraded mode
+            safeCaptureException(error);
+            return;
+        }
+    }
+    
+    /**
+     * Handle WebGL context lost event
+     */
+    _onContextLost() {
+        ShaderLogger.warn(`ShaderInstance ${this.config.name}: WebGL context lost`);
+        this.stopRenderLoop();
+        this.webglFallbackActive = true;
+    }
+    
+    /**
+     * Handle WebGL context restored event
+     */
+    async _onContextRestored() {
+        ShaderLogger.info(`ShaderInstance ${this.config.name}: WebGL context restored, reinitializing`);
+        await this._reinitializeAfterContextRestore();
+    }
+    
+    /**
+     * Reinitialize shader after WebGL context restoration
+     */
+    async _reinitializeAfterContextRestore() {
+        if (!this.webglContext || !this.webglContext.gl) {
+            return false;
         }
         
-        // Set WebGL context info as Sentry context
-        safeSetContext("webgl", {
-            vendor: this.gl.getParameter(this.gl.VENDOR),
-            renderer: this.gl.getParameter(this.gl.RENDERER),
-            version: this.gl.getParameter(this.gl.VERSION),
-            maxTextureSize: this.gl.getParameter(this.gl.MAX_TEXTURE_SIZE),
-            maxViewportDims: this.gl.getParameter(this.gl.MAX_VIEWPORT_DIMS),
-            maxVertexAttribs: this.gl.getParameter(this.gl.MAX_VERTEX_ATTRIBS),
-            maxVertexTextureImageUnits: this.gl.getParameter(this.gl.MAX_VERTEX_TEXTURE_IMAGE_UNITS),
-            maxTextureImageUnits: this.gl.getParameter(this.gl.MAX_TEXTURE_IMAGE_UNITS),
-            maxFragmentUniformVectors: this.gl.getParameter(this.gl.MAX_FRAGMENT_UNIFORM_VECTORS),
-            maxVertexUniformVectors: this.gl.getParameter(this.gl.MAX_VERTEX_UNIFORM_VECTORS),
-            extensions: this.gl.getSupportedExtensions(),
-        });
-        
-        // Enable extensions
-        this.ext = this.gl.getExtension('OES_standard_derivatives');
-        const hasDerivatives = !!this.ext;
-        
-        // Load and compile shaders with retry
-        const vertexSource = await loadShader(this.config.vertexPath, 3);
-        let fragmentSource = await loadShader(this.config.fragmentPath, 3);
-        
-        // Process #include directives in fragment shader (pass base path for relative includes)
-        fragmentSource = await processIncludes(fragmentSource, 3, new Set(), this.config.fragmentPath);
-        
-        // Replace FWIDTH macro based on extension availability
-        if (hasDerivatives) {
-            // Extension available - enable it and use real fwidth
-            fragmentSource = '#extension GL_OES_standard_derivatives : enable\n' + fragmentSource;
-            // Remove the macro definition since fwidth will work directly
-            fragmentSource = fragmentSource.replace(/#define FWIDTH\(x\) fwidth\(x\)/g, '');
-            // Replace all FWIDTH(...) calls with fwidth(...)
-            fragmentSource = fragmentSource.replace(/FWIDTH\(/g, 'fwidth(');
-        } else {
-            // Extension not available - use fallback implementation
-            ShaderLogger.warn('OES_standard_derivatives extension not supported - using fallback');
-            // Replace the macro definition to use a constant instead of fwidth
-            fragmentSource = fragmentSource.replace(/#define FWIDTH\(x\) fwidth\(x\)/g, 
-                '#define FWIDTH(x) 0.01');
-            // FWIDTH(...) calls will now expand to 0.01
+        try {
+            // Re-get context references
+            this.gl = this.webglContext.gl;
+            this.canvas = this.webglContext.canvas;
+            this.ext = this.webglContext.ext;
+            const hasDerivatives = !!this.ext;
+            
+            // Reload and recompile shaders
+            const vertexSource = await loadShader(this.config.vertexPath, 3);
+            let fragmentSource = await loadShader(this.config.fragmentPath, 3);
+            fragmentSource = await processIncludes(fragmentSource, 3, new Set(), this.config.fragmentPath);
+            
+            // Handle derivatives extension
+            if (hasDerivatives) {
+                fragmentSource = '#extension GL_OES_standard_derivatives : enable\n' + fragmentSource;
+                fragmentSource = fragmentSource.replace(/#define FWIDTH\(x\) fwidth\(x\)/g, '');
+                fragmentSource = fragmentSource.replace(/FWIDTH\(/g, 'fwidth(');
+            } else {
+                fragmentSource = fragmentSource.replace(/#define FWIDTH\(x\) fwidth\(x\)/g, 
+                    '#define FWIDTH(x) 0.01');
+            }
+            
+            // Recreate program
+            if (this.program) {
+                this.gl.deleteProgram(this.program);
+            }
+            this.program = createProgram(this.gl, vertexSource, fragmentSource);
+            
+            // Recreate quad buffer
+            if (this.quadBuffer) {
+                this.gl.deleteBuffer(this.quadBuffer);
+            }
+            this.quadBuffer = createQuad(this.gl);
+            
+            // Reinitialize uniform locations
+            this.uniformLocationCache = new UniformLocationCache(this.gl, this.program);
+            this.uniformLocationCache.discoverUniforms();
+            const standardUniforms = this.uniformLocationCache.cacheStandardUniforms();
+            const standardAttributes = this.uniformLocationCache.cacheStandardAttributes();
+            this.uniformLocations = { 
+                ...this.uniformLocationCache.getAllUniformLocations(),
+                ...standardUniforms, 
+                ...standardAttributes 
+            };
+            this.uniformLocationCache.setDefaultThresholds(ShaderConstants.defaultThresholds);
+            
+            // Reinitialize managers
+            this.uniformManager = new UniformManager(this.gl, this.uniformLocations);
+            this.uniformManager.lastValues = this._lastUniformValues;
+            
+            // Reinitialize texture manager
+            if (this.textureManager) {
+                this.textureManager.destroyAll();
+            }
+            this.textureManager = new TextureManager(this.gl);
+            
+            // Call plugin reinit hook
+            if (this.plugin && typeof this.plugin.onContextRestored === 'function') {
+                this.plugin.onContextRestored();
+            }
+            
+            // Restart render loop if it was running
+            this.webglFallbackActive = false;
+            if (this._audioAnalyzer && this._colors) {
+                this.startRenderLoop(this._audioAnalyzer, this._colors);
+            }
+            
+            ShaderLogger.info(`ShaderInstance ${this.config.name} reinitialized after context restore`);
+            return true;
+        } catch (error) {
+            ShaderLogger.error('Failed to restore WebGL context:', error);
+            this.webglFallbackActive = true;
+            // Ensure fallback UI is shown if context restoration fails
+            if (this.webglContext) {
+                this.webglContext.showWebGLFallback();
+            }
+            return false;
         }
-        
-        // Create program
-        this.program = createProgram(this.gl, vertexSource, fragmentSource);
-        
-        // Create quad
-        this.quadBuffer = createQuad(this.gl);
-        
-        // Cache uniform locations using UniformLocationCache
-        this.uniformLocationCache = new UniformLocationCache(this.gl, this.program);
-        const standardUniforms = this.uniformLocationCache.cacheStandardUniforms();
-        const standardAttributes = this.uniformLocationCache.cacheStandardAttributes();
-        this.uniformLocations = { ...standardUniforms, ...standardAttributes };
-        
-        // Set default threshold values
-        this.uniformLocationCache.setDefaultThresholds(ShaderConstants.defaultThresholds);
-        
-        // Initialize uniform manager
-        this.uniformManager = new UniformManager(this.gl, this.uniformLocations);
-        this.uniformManager.lastValues = this._lastUniformValues;
-        
-        // Initialize texture manager
-        this.textureManager = new TextureManager(this.gl);
-        
-        // Setup resize handler
-        this.resize();
-        window.addEventListener('resize', () => this.resize());
-        
-        // Call custom init hook if provided
-        if (this.config.onInit) {
-            this.config.onInit(this);
-        }
-        
-        // Call plugin init hook
-        if (this.plugin) {
-            this.plugin.onInit();
-        }
-        
-        // Set loudness controls for time offset manager
-        if (typeof window !== 'undefined' && window._loudnessControls) {
-            this.timeOffsetManager.setLoudnessControls(window._loudnessControls);
-        }
-        
-        this.isInitialized = true;
-        ShaderLogger.info(`ShaderInstance ${this.config.name} initialized`);
     }
     
     /**
@@ -280,24 +413,11 @@ export class ShaderInstance {
         
         const resizeConfig = this.performanceMonitor.getResizeConfig();
         
-        // Cap devicePixelRatio for performance
-        const dpr = Math.min(window.devicePixelRatio || 1, resizeConfig.maxDPR);
+        // Use WebGLContextManager for resize
+        this.webglContext.resize(resizeConfig);
         
-        // Cap viewport dimensions for performance
-        const viewportWidth = Math.min(document.documentElement.clientWidth, resizeConfig.maxResolutionWidth);
-        const viewportHeight = Math.min(document.documentElement.clientHeight, resizeConfig.maxResolutionHeight);
-        
-        // Apply quality scaling
-        const scaledDPR = dpr * resizeConfig.qualityLevel;
-        const newWidth = Math.floor(viewportWidth * scaledDPR);
-        const newHeight = Math.floor(viewportHeight * scaledDPR);
-        
-        this.canvas.width = newWidth;
-        this.canvas.height = newHeight;
-        this.canvas.style.width = viewportWidth + 'px';
-        this.canvas.style.height = viewportHeight + 'px';
-        
-        this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+        // Update canvas references (in case they changed)
+        this.canvas = this.webglContext.canvas;
         
         // Update resolution uniform if program is ready
         if (this.program && this.uniformLocations.uResolution) {
@@ -305,6 +425,10 @@ export class ShaderInstance {
             this.gl.uniform2f(this.uniformLocations.uResolution, this.canvas.width, this.canvas.height);
         }
         
+        // Call plugin resize hook
+        if (this.plugin && typeof this.plugin.onResize === 'function') {
+            this.plugin.onResize(this.canvas.width, this.canvas.height);
+        }
     }
     
     /**
@@ -320,7 +444,15 @@ export class ShaderInstance {
         }
         
         if (!this.config.parameters || !(name in this.config.parameters)) {
-            throw new ShaderError(`Parameter "${name}" not found`, ErrorCodes.INVALID_PARAMETER, { name });
+            throw new ShaderError(
+                `Parameter "${name}" not found`, 
+                ErrorCodes.INVALID_PARAMETER, 
+                { 
+                    name,
+                    shaderName: this.config.name,
+                    availableParameters: Object.keys(this.config.parameters || {})
+                }
+            );
         }
         
         const paramConfig = this.config.parameters[name];
@@ -344,7 +476,14 @@ export class ShaderInstance {
             finalValue = paramConfig.max;
         }
         
+        const oldValue = this.parameters[name];
         this.parameters[name] = finalValue;
+        
+        // Call plugin hook for parameter changes
+        if (this.plugin && typeof this.plugin.onParameterChange === 'function') {
+            this.plugin.onParameterChange(name, oldValue, finalValue);
+        }
+        
         return true;
     }
     
@@ -374,11 +513,11 @@ export class ShaderInstance {
     render(audioData = null, colors = null) {
         if (!this.isInitialized || !this.gl || !this.program) return;
         
-        // Check all managers are initialized before proceeding
-        if (!this.uniformManager || !this.timeOffsetManager || 
-            !this.pixelSizeAnimationManager || !this.colorTransitionManager ||
-            !this.performanceMonitor) {
-            ShaderLogger.warn('ShaderInstance: Managers not initialized, skipping render');
+        // Validate managers are initialized
+        try {
+            this._validateManagers();
+        } catch (error) {
+            ShaderLogger.warn('ShaderInstance: Managers not initialized, skipping render', error.details);
             return;
         }
         
@@ -386,11 +525,10 @@ export class ShaderInstance {
         const elapsed = now - this.lastFrameTime;
         const targetFrameInterval = 1000 / this.performanceMonitor.targetFPS;
         
+        // Update lastFrameTime BEFORE skip check to prevent timing drift
         if (elapsed < targetFrameInterval) {
             return; // Skip frame to maintain target FPS
         }
-        
-        // Update lastFrameTime
         this.lastFrameTime = now;
         
         const gl = this.gl;
@@ -524,7 +662,7 @@ export class ShaderInstance {
         }
         
         const render = () => {
-            if (this.webglFallbackActive) {
+            if (this.webglFallbackActive || this.webglContext.webglFallbackActive) {
                 // Skip rendering if WebGL fallback is active
                 this.renderLoopId = requestAnimationFrame(render);
                 return;
@@ -579,41 +717,6 @@ export class ShaderInstance {
         this.colorTransitionManager.startTransition(colors, isFirstColorUpdate);
     }
     
-    /**
-     * Show fallback UI when WebGL is not supported
-     */
-    showWebGLFallback() {
-        if (!this.canvas) return;
-        
-        const ctx = this.canvas.getContext('2d');
-        if (!ctx) return;
-        
-        // Set canvas size
-        this.canvas.width = window.innerWidth;
-        this.canvas.height = window.innerHeight;
-        this.canvas.style.width = '100%';
-        this.canvas.style.height = '100%';
-        
-        // Draw fallback message
-        ctx.fillStyle = '#1a1a1a';
-        ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-        
-        ctx.fillStyle = '#ffffff';
-        ctx.font = '24px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        
-        const message = 'WebGL is not supported on this device.\nPlease use a modern browser with WebGL support.';
-        const lines = message.split('\n');
-        const lineHeight = 32;
-        const startY = this.canvas.height / 2 - (lines.length - 1) * lineHeight / 2;
-        
-        lines.forEach((line, index) => {
-            ctx.fillText(line, this.canvas.width / 2, startY + index * lineHeight);
-        });
-        
-        ShaderLogger.error('WebGL fallback UI displayed');
-    }
     
     stopRenderLoop() {
         if (this.renderLoopId) {
@@ -624,6 +727,17 @@ export class ShaderInstance {
     
     destroy() {
         this.stopRenderLoop();
+        
+        // Remove resize listener to prevent memory leak
+        if (this._resizeHandler) {
+            window.removeEventListener('resize', this._resizeHandler);
+            this._resizeHandler = null;
+        }
+        
+        // Clean up WebGL context manager
+        if (this.webglContext) {
+            this.webglContext.destroy();
+        }
         
         // Call plugin destroy hook
         if (this.plugin) {
@@ -676,6 +790,7 @@ export class ShaderInstance {
         this.colorTransitionManager = null;
         this.pixelSizeAnimationManager = null;
         this.performanceMonitor = null;
+        this.webglContext = null;
         
         this.isInitialized = false;
     }

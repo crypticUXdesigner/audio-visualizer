@@ -26,8 +26,9 @@ export class VisualPlayer {
         this.shaderSwitcher = null;
         this.devTools = null;
         
-        // Color initialization state
-        this.isInitializingColors = false;
+        // Color initialization state (promise-based to handle race conditions)
+        this._colorInitPromise = null;
+        this._colorUpdateQueue = [];
         this.colorsInitialized = false;
     }
     
@@ -138,22 +139,69 @@ export class VisualPlayer {
         }
         
         const errorMessage = error.message || 'Unknown error occurred';
-        errorElement.innerHTML = `
-            <h2 style="margin: 0 0 15px 0; font-size: 20px;">Initialization Error</h2>
-            <p style="margin: 0 0 20px 0; line-height: 1.5;">${errorMessage}</p>
-            <p style="margin: 0; font-size: 14px; opacity: 0.8;">Please refresh the page or check your browser's WebGL and audio support.</p>
-        `;
+        
+        // Clear existing content and use safe DOM methods to prevent XSS
+        errorElement.textContent = '';
+        
+        const h2 = document.createElement('h2');
+        h2.style.cssText = 'margin: 0 0 15px 0; font-size: 20px;';
+        h2.textContent = 'Initialization Error';
+        
+        const p1 = document.createElement('p');
+        p1.style.cssText = 'margin: 0 0 20px 0; line-height: 1.5;';
+        p1.textContent = errorMessage; // Safe - textContent escapes HTML
+        
+        const p2 = document.createElement('p');
+        p2.style.cssText = 'margin: 0; font-size: 14px; opacity: 0.8;';
+        p2.textContent = 'Please refresh the page or check your browser\'s WebGL and audio support.';
+        
+        errorElement.appendChild(h2);
+        errorElement.appendChild(p1);
+        errorElement.appendChild(p2);
         
         console.error('Initialization error displayed to user:', error);
     }
     
-    initializeColors(skipFrequencyUpdate = false, audioData = null) {
-        if (this.isInitializingColors) {
-            return;
+    async initializeColors(skipFrequencyUpdate = false, audioData = null) {
+        // If already initializing, queue this update
+        if (this._colorInitPromise) {
+            this._colorUpdateQueue.push({ skipFrequencyUpdate, audioData });
+            return this._colorInitPromise;
         }
         
-        this.isInitializingColors = true;
+        // Create promise for this initialization
+        this._colorInitPromise = this._doInitializeColors(skipFrequencyUpdate, audioData);
         
+        // Process queue after completion
+        try {
+            const result = await this._colorInitPromise;
+            this._colorInitPromise = null;
+            
+            // Process queued updates (only keep latest)
+            if (this._colorUpdateQueue.length > 0) {
+                const latest = this._colorUpdateQueue[this._colorUpdateQueue.length - 1];
+                this._colorUpdateQueue = [];
+                // Use setTimeout to avoid stack overflow with recursive calls
+                return new Promise((resolve) => {
+                    setTimeout(() => {
+                        resolve(this.initializeColors(latest.skipFrequencyUpdate, latest.audioData));
+                    }, 0);
+                });
+            }
+            
+            return result;
+        } catch (error) {
+            this._colorInitPromise = null;
+            this._colorUpdateQueue = [];
+            throw error;
+        }
+    }
+    
+    /**
+     * Internal method to perform actual color initialization
+     * @private
+     */
+    async _doInitializeColors(skipFrequencyUpdate = false, audioData = null) {
         try {
             // Get color config (potentially modified by color modulator)
             let configToUse = this.colorConfig;
@@ -223,8 +271,9 @@ export class VisualPlayer {
             }
             
             console.log('Colors initialized/updated:', Object.keys(this.colors).length, 'colors');
-        } finally {
-            this.isInitializingColors = false;
+        } catch (error) {
+            console.error('Error initializing colors:', error);
+            throw error;
         }
     }
     
@@ -264,7 +313,7 @@ export class VisualPlayer {
             color7: normalizeColor(generatedColors.color7),
             color8: normalizeColor(generatedColors.color8),
             color9: normalizeColor(generatedColors.color9),
-            color10: normalizeColor(generatedColors.color9)
+            color10: normalizeColor(generatedColors.color10)
         };
         
         // Update colors if they changed
@@ -321,7 +370,7 @@ export class VisualPlayer {
             }
         };
         
-        // Load tracks from TrackService dynamically using batch loading
+                // Load tracks from TrackService dynamically using batch loading
         // This happens asynchronously so it doesn't block initialization
         setTimeout(async () => {
             try {
@@ -378,13 +427,18 @@ export class VisualPlayer {
                                     ? contributorNames[0].replace('users/', '')
                                     : 'audiotool';
                                 
-                                await this.audioControls.addTrackFromAPI(
-                                    displayName,
-                                    username,
-                                    false,
-                                    track, // Pass pre-loaded track
-                                    false  // Append (will sort all tracks together at the end)
-                                );
+                                try {
+                                    await this.audioControls.addTrackFromAPI(
+                                        displayName,
+                                        username,
+                                        false,
+                                        track, // Pass pre-loaded track
+                                        false  // Append (will sort all tracks together at the end)
+                                    );
+                                } catch (trackError) {
+                                    console.warn(`⚠️  Failed to add engagement track "${displayName}":`, trackError);
+                                    // Continue with next track
+                                }
                             }
                         }
                         
@@ -398,64 +452,74 @@ export class VisualPlayer {
                 }
                 
                 // Then, load tracks from the validated registry (170+ tracks)
-                // Registry format: "songName|username": "tracks/identifier"
-                const tracksToLoad = Object.keys(TRACK_REGISTRY).map(key => {
-                    const [songName, username] = key.split('|');
-                    return { songName, username };
-                });
-                
-                console.log(`📦 Loading all ${tracksToLoad.length} validated tracks from registry...`);
-                
-                // Sort tracks alphabetically by song name (case-insensitive)
-                tracksToLoad.sort((a, b) => a.songName.toLowerCase().localeCompare(b.songName.toLowerCase()));
-                
-                // Get track identifiers for tracks that have them
-                const tracksWithIdentifiers = tracksToLoad.map(track => ({
-                    ...track,
-                    trackIdentifier: getTrackIdentifier(track.songName, track.username),
-                }));
-                
-                console.log(`📦 Batch loading ${tracksWithIdentifiers.length} tracks from API...`);
-                
-                // Batch load all tracks in a single API call
-                const batchResult = await loadTracks(tracksWithIdentifiers);
-                
-                if (batchResult.success) {
-                    // Process results and add tracks to the UI
-                    for (const trackInfo of tracksWithIdentifiers) {
-                        const key = `${trackInfo.songName}|${trackInfo.username}`;
-                        const result = batchResult.results[key];
-                        
-                        if (result && result.success && result.track) {
-                            // Add track to UI using pre-loaded track data (avoids duplicate API call)
-                            if (this.audioControls) {
-                                await this.audioControls.addTrackFromAPI(
-                                    trackInfo.songName, 
-                                    trackInfo.username, 
-                                    false, 
-                                    result.track // Pass pre-loaded track
-                                );
+                try {
+                    // Registry format: "songName|username": "tracks/identifier"
+                    const tracksToLoad = Object.keys(TRACK_REGISTRY).map(key => {
+                        const [songName, username] = key.split('|');
+                        return { songName, username };
+                    });
+                    
+                    console.log(`📦 Loading all ${tracksToLoad.length} validated tracks from registry...`);
+                    
+                    // Sort tracks alphabetically by song name (case-insensitive)
+                    tracksToLoad.sort((a, b) => a.songName.toLowerCase().localeCompare(b.songName.toLowerCase()));
+                    
+                    // Get track identifiers for tracks that have them
+                    const tracksWithIdentifiers = tracksToLoad.map(track => ({
+                        ...track,
+                        trackIdentifier: getTrackIdentifier(track.songName, track.username),
+                    }));
+                    
+                    console.log(`📦 Batch loading ${tracksWithIdentifiers.length} tracks from API...`);
+                    
+                    // Batch load all tracks in a single API call
+                    const batchResult = await loadTracks(tracksWithIdentifiers);
+                    
+                    if (batchResult.success) {
+                        // Process results and add tracks to the UI
+                        for (const trackInfo of tracksWithIdentifiers) {
+                            const key = `${trackInfo.songName}|${trackInfo.username}`;
+                            const result = batchResult.results[key];
+                            
+                            if (result && result.success && result.track) {
+                                // Add track to UI using pre-loaded track data (avoids duplicate API call)
+                                if (this.audioControls) {
+                                    try {
+                                        await this.audioControls.addTrackFromAPI(
+                                            trackInfo.songName, 
+                                            trackInfo.username, 
+                                            false, 
+                                            result.track // Pass pre-loaded track
+                                        );
+                                    } catch (trackError) {
+                                        console.warn(`⚠️  Failed to add track "${trackInfo.songName}":`, trackError);
+                                        // Continue with next track
+                                    }
+                                }
+                            } else {
+                                const errorMsg = result?.error || 'Unknown error';
+                                console.warn(`⚠️  Failed to load API track "${trackInfo.songName}" (this is optional): ${errorMsg}`);
                             }
-                        } else {
-                            const errorMsg = result?.error || 'Unknown error';
-                            console.warn(`⚠️  Failed to load API track "${trackInfo.songName}" (this is optional): ${errorMsg}`);
+                        }
+                        
+                        console.log(`✅ Batch loaded ${Object.values(batchResult.results).filter(r => r.success).length} tracks successfully`);
+                    } else {
+                        console.warn('⚠️  Batch loading failed, falling back to individual loads');
+                        // Fallback to individual loading if batch fails
+                        for (const track of tracksToLoad) {
+                            this.loadAPITrack(track.songName, track.username).catch(error => {
+                                console.warn(`Failed to load API track "${track.songName}" (this is optional):`, error);
+                            });
                         }
                     }
                     
-                    console.log(`✅ Batch loaded ${Object.values(batchResult.results).filter(r => r.success).length} tracks successfully`);
-                } else {
-                    console.warn('⚠️  Batch loading failed, falling back to individual loads');
-                    // Fallback to individual loading if batch fails
-                    for (const track of tracksToLoad) {
-                        this.loadAPITrack(track.songName, track.username).catch(error => {
-                            console.warn(`Failed to load API track "${track.songName}" (this is optional):`, error);
-                        });
+                    // Sort all tracks alphabetically after loading
+                    if (this.audioControls) {
+                        this.audioControls.sortTrackListAlphabetically();
                     }
-                }
-                
-                // Sort all tracks alphabetically after loading
-                if (this.audioControls) {
-                    this.audioControls.sortTrackListAlphabetically();
+                } catch (error) {
+                    console.error('❌ Failed to load registry tracks:', error);
+                    // Continue - don't break the app if registry loading fails
                 }
                 
                 // Hide loader after API calls complete
@@ -496,7 +560,9 @@ export class VisualPlayer {
                 }
                 
                 // Regenerate colors (this will update shader manager)
-                this.initializeColors();
+                this.initializeColors().catch(err => {
+                    console.error('Error initializing colors:', err);
+                });
             },
             (property, value, target) => {
                 // Handle individual property changes from sliders
@@ -512,7 +578,9 @@ export class VisualPlayer {
                 }
                 
                 // Regenerate colors
-                this.initializeColors();
+                this.initializeColors().catch(err => {
+                    console.error('Error initializing colors:', err);
+                });
             },
             () => {
                 // Provide current color config when menu opens
@@ -539,12 +607,16 @@ export class VisualPlayer {
     }
     
     initTopControls() {
-        // Initialize default loudness controls state (for backward compatibility)
-        window._loudnessControls = {
+        // Initialize loudness controls and inject into shader manager
+        const loudnessControls = {
             loudnessAnimationEnabled: true,
             loudnessThreshold: 0.1
         };
         
+        // Inject loudness controls via ShaderManager (will be applied to active shader)
+        if (this.shaderManager) {
+            this.shaderManager.setLoudnessControls(loudnessControls);
+        }
     }
     
     /**
@@ -573,58 +645,5 @@ export class VisualPlayer {
         }
     }
     
-    exposeGlobalAPI() {
-        // Expose color presets globally for backward compatibility
-        window.colorPresets = colorPresets;
-        
-        // Expose getColorForFrequencyRange for frequency visualizer
-        window.getColorForFrequencyRange = (minHz, maxHz) => {
-            if (!this.colors || !this.colors.color) {
-                return '#ffffff';
-            }
-            
-            const centerHz = (minHz + maxHz) / 2;
-            
-            // Map frequency bands to colors
-            if (centerHz >= 11314) return rgbToHex(this.colors.color);
-            if (centerHz >= 5657) return rgbToHex(this.colors.color2);
-            if (centerHz >= 2828) return rgbToHex(this.colors.color3);
-            if (centerHz >= 1414) return rgbToHex(this.colors.color4);
-            if (centerHz >= 707) return rgbToHex(this.colors.color5);
-            if (centerHz >= 354) return rgbToHex(this.colors.color6);
-            if (centerHz >= 177) return rgbToHex(this.colors.color7);
-            if (centerHz >= 44) return rgbToHex(this.colors.color8);
-            return rgbToHex(this.colors.color9);
-        };
-        
-        // Expose BackgroundShader API for backward compatibility
-        window.BackgroundShader = {
-            setColorConfig: (newConfig) => {
-                Object.assign(this.colorConfig, newConfig);
-                this.initializeColors();
-            },
-            getColorConfig: () => {
-                return JSON.parse(JSON.stringify(this.colorConfig));
-            },
-            regenerateColors: () => {
-                this.initializeColors();
-            },
-            setParameter: (name, value) => {
-                if (this.shaderManager) {
-                    return this.shaderManager.setParameter(name, value);
-                }
-                return false;
-            },
-            getParameter: (name) => {
-                if (this.shaderManager) {
-                    return this.shaderManager.getParameter(name);
-                }
-                return null;
-            }
-        };
-        
-        // Expose main app instance
-        window.VisualPlayer = this;
-    }
 }
 

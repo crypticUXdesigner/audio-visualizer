@@ -1,21 +1,15 @@
 // Shader Switcher UI Module
 // Handles shader selection and switching
 
+import { safeGetItem, safeSetItem } from '../utils/storage.js';
+
 export class ShaderSwitcher {
     constructor(shaderManager, onShaderChange, audioControls = null) {
         this.shaderManager = shaderManager;
         this.onShaderChange = onShaderChange; // Optional callback: (shaderName) => void
         this.audioControls = audioControls; // Reference to AudioControls for hideControls/showControls
-        let savedShader = localStorage.getItem('activeShader') || 'heightmap';
+        let savedShader = safeGetItem('activeShader', 'heightmap');
         // Migrate old shader names to new names
-        if (savedShader === 'background-fbm') {
-            savedShader = 'heightmap';
-            localStorage.setItem('activeShader', 'heightmap');
-        }
-        if (savedShader === 'milky-glass') {
-            savedShader = 'refraction';
-            localStorage.setItem('activeShader', 'refraction');
-        }
         this.currentShader = savedShader;
         this.isMenuOpen = false;
         this.shaderSwitcherMenu = null;
@@ -136,19 +130,62 @@ export class ShaderSwitcher {
         // Create a simple visual indicator
         // For heightmap: show noise pattern
         if (config.name === 'heightmap') {
-            preview.innerHTML = `
-                <svg width="40" height="40" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
-                    <defs>
-                        <pattern id="noise-${config.name}" x="0" y="0" width="8" height="8" patternUnits="userSpaceOnUse">
-                            <rect width="8" height="8" fill="currentColor" opacity="0.1"/>
-                            <circle cx="2" cy="2" r="1" fill="currentColor" opacity="0.3"/>
-                            <circle cx="6" cy="6" r="1" fill="currentColor" opacity="0.2"/>
-                            <circle cx="4" cy="7" r="0.5" fill="currentColor" opacity="0.4"/>
-                        </pattern>
-                    </defs>
-                    <rect width="40" height="40" fill="url(#noise-${config.name})"/>
-                </svg>
-            `;
+            // Use safe DOM methods instead of innerHTML
+            const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            svg.setAttribute('width', '40');
+            svg.setAttribute('height', '40');
+            svg.setAttribute('viewBox', '0 0 40 40');
+            
+            const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+            const pattern = document.createElementNS('http://www.w3.org/2000/svg', 'pattern');
+            pattern.setAttribute('id', `noise-${config.name}`);
+            pattern.setAttribute('x', '0');
+            pattern.setAttribute('y', '0');
+            pattern.setAttribute('width', '8');
+            pattern.setAttribute('height', '8');
+            pattern.setAttribute('patternUnits', 'userSpaceOnUse');
+            
+            const rect1 = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            rect1.setAttribute('width', '8');
+            rect1.setAttribute('height', '8');
+            rect1.setAttribute('fill', 'currentColor');
+            rect1.setAttribute('opacity', '0.1');
+            
+            const circle1 = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            circle1.setAttribute('cx', '2');
+            circle1.setAttribute('cy', '2');
+            circle1.setAttribute('r', '1');
+            circle1.setAttribute('fill', 'currentColor');
+            circle1.setAttribute('opacity', '0.3');
+            
+            const circle2 = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            circle2.setAttribute('cx', '6');
+            circle2.setAttribute('cy', '6');
+            circle2.setAttribute('r', '1');
+            circle2.setAttribute('fill', 'currentColor');
+            circle2.setAttribute('opacity', '0.2');
+            
+            const circle3 = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            circle3.setAttribute('cx', '4');
+            circle3.setAttribute('cy', '7');
+            circle3.setAttribute('r', '0.5');
+            circle3.setAttribute('fill', 'currentColor');
+            circle3.setAttribute('opacity', '0.4');
+            
+            pattern.appendChild(rect1);
+            pattern.appendChild(circle1);
+            pattern.appendChild(circle2);
+            pattern.appendChild(circle3);
+            defs.appendChild(pattern);
+            svg.appendChild(defs);
+            
+            const rect2 = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            rect2.setAttribute('width', '40');
+            rect2.setAttribute('height', '40');
+            rect2.setAttribute('fill', `url(#noise-${config.name})`);
+            svg.appendChild(rect2);
+            
+            preview.appendChild(svg);
         } else {
             // Default: simple gradient
             preview.style.background = 'linear-gradient(135deg, currentColor 0%, transparent 100%)';
@@ -186,7 +223,7 @@ export class ShaderSwitcher {
             
             // Save to localStorage
             if (saveToStorage) {
-                localStorage.setItem('activeShader', shaderName);
+                safeSetItem('activeShader', shaderName);
             }
             
             // Call optional callback

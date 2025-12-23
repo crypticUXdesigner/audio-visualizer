@@ -285,12 +285,19 @@ export class UniformManager {
      */
     updateAudioUniforms(audioData, uniformMapping, parameters) {
         if (!audioData || !uniformMapping) {
-            // Silently return - audio data may not be available yet
+            // Log context for debugging - audio data may not be available yet
+            ShaderLogger.debug('UniformManager: Cannot update audio uniforms', {
+                hasAudioData: !!audioData,
+                hasUniformMapping: !!uniformMapping
+            });
             return;
         }
         
         if (!this.gl || !this.locations) {
-            ShaderLogger.warn('UniformManager: Not initialized, cannot update audio uniforms');
+            ShaderLogger.warn('UniformManager: Not initialized, cannot update audio uniforms', {
+                hasGL: !!this.gl,
+                hasLocations: !!this.locations
+            });
             return;
         }
         

@@ -8,11 +8,35 @@ export const COLOR_KEYS = ['color', 'color2', 'color3', 'color4', 'color5',
 export class ColorTransitionManager {
     constructor(config = {}) {
         this.duration = config.duration ?? 2000; // 2 seconds default
+        this.easingType = config.easing ?? 'ease-out-cubic';
         this.currentColors = null;
         this.previousColors = null;
         this.targetColors = null;
         this.isTransitioning = false;
         this.startTime = 0;
+    }
+    
+    /**
+     * Get easing function value for given t (0-1)
+     * @param {number} t - Normalized time (0-1)
+     * @returns {number} Eased value (0-1)
+     */
+    _getEasingFunction(t) {
+        switch (this.easingType) {
+            case 'linear':
+                return t;
+            case 'ease-out-cubic':
+                return 1 - Math.pow(1 - t, 3);
+            case 'ease-in-cubic':
+                return Math.pow(t, 3);
+            case 'ease-in-out-cubic':
+                return t < 0.5 
+                    ? 4 * t * t * t 
+                    : 1 - Math.pow(-2 * t + 2, 3) / 2;
+            default:
+                // Default to ease-out-cubic
+                return 1 - Math.pow(1 - t, 3);
+        }
     }
     
     /**
@@ -55,8 +79,8 @@ export class ColorTransitionManager {
         const elapsed = performance.now() - this.startTime;
         const t = Math.min(elapsed / this.duration, 1.0);
         
-        // Use ease-out cubic for smooth deceleration
-        const eased = 1 - Math.pow(1 - t, 3);
+        // Use configured easing function
+        const eased = this._getEasingFunction(t);
         
         // End transition if complete
         if (t >= 1.0) {

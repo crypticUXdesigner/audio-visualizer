@@ -35,9 +35,6 @@ export async function initializeApp(app) {
                     }
                 );
         
-                // Expose globally for backward compatibility with frequency visualizer
-                window.AudioVisualizer = app.audioAnalyzer;
-                
                 // 2. Initialize Shader Manager
                 app.shaderManager = new ShaderManager();
                 app.shaderManager.setAudioAnalyzer(app.audioAnalyzer);
@@ -50,7 +47,7 @@ export async function initializeApp(app) {
                 
                 // 4. Initialize color system
                 app.colorConfig = { ...heightmapConfig.colorConfig };
-                app.initializeColors();
+                await app.initializeColors();
                 
                 // 4.5. Initialize color modulator for dynamic hue shifts
                 app.colorModulator = new ColorModulator(app.colorConfig);
@@ -61,16 +58,8 @@ export async function initializeApp(app) {
                 }
                 
                 // 6. Initialize and activate default shader (check localStorage for saved preference)
-                let savedShader = localStorage.getItem('activeShader') || 'heightmap';
-                // Migrate old shader names to new names
-                if (savedShader === 'background-fbm') {
-                    savedShader = 'heightmap';
-                    localStorage.setItem('activeShader', 'heightmap');
-                }
-                if (savedShader === 'milky-glass') {
-                    savedShader = 'refraction';
-                    localStorage.setItem('activeShader', 'refraction');
-                }
+                const { safeGetItem } = await import('../utils/storage.js');
+                const savedShader = safeGetItem('activeShader', 'heightmap');
                 await app.shaderManager.setActiveShader(savedShader);
                 
                 // 6.25. Set color update callback for dynamic color modulation
@@ -97,8 +86,6 @@ export async function initializeApp(app) {
                 // 9. Initialize top control buttons
                 app.initTopControls();
                 
-                // 10. Expose global API for backward compatibility
-                app.exposeGlobalAPI();
                 
                 span.setAttribute("success", true);
                 console.log('Visual Player initialized successfully');

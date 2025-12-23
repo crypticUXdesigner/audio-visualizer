@@ -99,5 +99,26 @@ export class BaseShaderPlugin {
     onUpdateParameterUniforms(parameters, config, uniformManager) {
         // Default: no-op
     }
+    
+    /**
+     * Called when canvas is resized
+     * Override to handle resize-specific logic
+     * @param {number} width - New canvas width
+     * @param {number} height - New canvas height
+     */
+    onResize(width, height) {
+        // Default: no-op
+    }
+    
+    /**
+     * Called when a shader parameter changes
+     * Override to react to parameter changes
+     * @param {string} name - Parameter name
+     * @param {*} oldValue - Previous parameter value
+     * @param {*} newValue - New parameter value
+     */
+    onParameterChange(name, oldValue, newValue) {
+        // Default: no-op
+    }
 }
 

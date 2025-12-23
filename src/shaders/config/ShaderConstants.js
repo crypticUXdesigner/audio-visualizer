@@ -44,7 +44,8 @@ export const ShaderConstants = {
     
     // Color transition settings
     colorTransition: {
-        duration: 2000 // milliseconds
+        duration: 2000, // milliseconds
+        easing: 'ease-out-cubic' // 'linear', 'ease-out-cubic', 'ease-in-cubic', 'ease-in-out-cubic'
     },
     
     // Ripple settings

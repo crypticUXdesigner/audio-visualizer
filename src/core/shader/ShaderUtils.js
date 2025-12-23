@@ -66,7 +66,16 @@ export async function loadShader(url, retries = 3) {
     }
     
     // All retries failed
-    throw new Error(`Failed to load shader after ${retries} attempts: ${cleanUrl}. Last error: ${lastError?.message || 'Unknown error'}`);
+    const error = new Error(
+        `Failed to load shader after ${retries} attempts: ${cleanUrl}. Last error: ${lastError?.message || 'Unknown error'}`
+    );
+    error.details = {
+        url: cleanUrl,
+        attempts: retries,
+        lastError: lastError?.message || 'Unknown error',
+        baseUrl: baseUrl
+    };
+    throw error;
 }
 
 /**
@@ -107,39 +116,122 @@ export function compileShader(gl, source, type) {
  * @returns {Promise<string>} Shader source with includes inlined
  */
 export async function processIncludes(source, retries = 3, included = new Set(), basePath = '') {
+    // Use a more flexible regex that can match across multiple attempts
     const includeRegex = /#include\s+"([^"]+)"/g;
     let match;
     const includes = new Map();
+    const directivesToRemove = []; // Collect directives to remove after iteration
     
-    // Find all includes
+    // First pass: find all includes and collect ones to remove
+    includeRegex.lastIndex = 0;
     while ((match = includeRegex.exec(source)) !== null) {
         let includePath = match[1];
         const originalPath = includePath;
         
-        // If include path is relative and we have a base path, resolve it
-        if (!includePath.startsWith('/') && !includePath.startsWith('shaders/') && basePath) {
-            // Relative path: resolve relative to base path
+        // Normalize include paths to ensure they work with loadShader
+        // Paths starting with 'shaders/' are already correct (relative to root)
+        if (includePath.startsWith('shaders/')) {
+            // Keep as-is - loadShader will handle base URL prepending
+            // No change needed
+        } else if (includePath.startsWith('/')) {
+            // Absolute path starting with /: remove leading slash for loadShader
+            // loadShader expects paths without leading slash
+            includePath = includePath.substring(1);
+        } else if (includePath.startsWith('common/') || includePath.startsWith('strings/')) {
+            // Paths starting with 'common/' or 'strings/' are relative to shaders/ directory
+            // not relative to the current file's directory
+            // This handles cases like: #include "common/constants.glsl" from strings-fragment.glsl
+            includePath = 'shaders/' + includePath;
+        } else if (basePath) {
+            // Other relative paths: resolve relative to base path
             const baseDir = basePath.substring(0, basePath.lastIndexOf('/') + 1);
             includePath = baseDir + includePath;
-        } else if (!includePath.startsWith('/') && !includePath.startsWith('shaders/')) {
+        } else {
             // Relative path without base: assume it's relative to shaders/
             includePath = 'shaders/' + includePath;
         }
         
         if (!included.has(includePath)) {
-            includes.set(includePath, match[0]);
+            // Store both the normalized path and original path for error reporting
+            includes.set(includePath, { directive: match[0], originalPath });
             ShaderLogger.debug(`[processIncludes] Found include: "${originalPath}" -> "${includePath}" (base: "${basePath}")`);
         } else {
-            ShaderLogger.debug(`[processIncludes] Skipping already included: "${includePath}"`);
+            // Already included - collect for removal after iteration
+            ShaderLogger.debug(`[processIncludes] Marking already-included directive for removal: "${includePath}"`);
+            directivesToRemove.push({
+                directive: match[0],
+                includePath,
+                originalPath
+            });
+        }
+    }
+    
+    // Remove all already-included directives at once (after iteration to avoid regex issues)
+    for (const { directive, includePath, originalPath } of directivesToRemove) {
+        const beforeRemove = source;
+        
+        // Try multiple replacement strategies to ensure removal
+        // Strategy 1: Exact match with escaped special characters
+        const escapedDirective = directive.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        source = source.replace(new RegExp(escapedDirective, 'g'), '');
+        
+        if (source === beforeRemove) {
+            // Strategy 2: Try with original path (as it appears in source)
+            const originalDirective = `#include "${originalPath}"`;
+            source = source.replace(originalDirective, '');
+        }
+        
+        if (source === beforeRemove) {
+            // Strategy 3: Try with normalized path
+            const normalizedDirective = `#include "${includePath}"`;
+            source = source.replace(normalizedDirective, '');
+        }
+        
+        if (source === beforeRemove) {
+            // Strategy 4: Flexible regex that matches any whitespace
+            const flexiblePattern = new RegExp(`#include\\s+"${includePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"`, 'g');
+            source = source.replace(flexiblePattern, '');
+        }
+        
+        if (source === beforeRemove) {
+            // Strategy 5: Match with optional whitespace and newlines (including newline after)
+            const veryFlexiblePattern = new RegExp(`#include\\s*"${includePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"\\s*\\n?`, 'g');
+            source = source.replace(veryFlexiblePattern, '');
+        }
+        
+        // Verify removal worked
+        if (source === beforeRemove) {
+            // Strategy 6: Try matching the exact directive as found (with any surrounding whitespace)
+            // This handles cases where the directive might have been modified
+            const exactMatchPattern = new RegExp(directive.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+'), 'g');
+            source = source.replace(exactMatchPattern, '');
+        }
+        
+        // Final verification
+        if (source === beforeRemove) {
+            ShaderLogger.warn(`[processIncludes] Failed to remove already-included directive: "${includePath}" (directive: "${directive}")`);
+            // As a last resort, try to find and remove any variation
+            const lastResortPattern = new RegExp(`#include[^\\n]*"${includePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"[^\\n]*\\n?`, 'g');
+            const beforeLastResort = source;
+            source = source.replace(lastResortPattern, '');
+            if (source !== beforeLastResort) {
+                ShaderLogger.debug(`[processIncludes] Removed using last-resort pattern: "${includePath}"`);
+            }
+        } else {
+            ShaderLogger.debug(`[processIncludes] Successfully removed already-included directive: "${includePath}"`);
         }
     }
     
     // Load and replace includes
-    for (const [includePath, includeDirective] of includes) {
+    for (const [includePath, includeInfo] of includes) {
+        const includeDirective = includeInfo.directive;
+        const originalPath = includeInfo.originalPath;
+        
+        // Note: Already-included files are removed during the finding phase above,
+        // so we shouldn't encounter them here. But keep this check as a safety measure.
         if (included.has(includePath)) {
-            // Skip circular includes
-            ShaderLogger.debug(`[processIncludes] Removing circular include: "${includePath}"`);
-            source = source.replace(includeDirective, '');
+            // This shouldn't happen if removal worked correctly above, but handle it just in case
+            ShaderLogger.debug(`[processIncludes] Skipping already-included (should have been removed): "${includePath}"`);
             continue;
         }
         
@@ -169,8 +261,10 @@ export async function processIncludes(source, retries = 3, included = new Set(),
             // Log detailed error information
             const errorDetails = {
                 includePath,
+                originalPath: originalPath,
                 basePath,
-                error: error.message
+                error: error.message,
+                errorStack: error.stack
             };
             
             ShaderLogger.error(`[processIncludes] Failed to load include: "${includePath}"`, errorDetails);
@@ -194,6 +288,17 @@ export async function processIncludes(source, retries = 3, included = new Set(),
             if (source === beforeRemove) {
                 // Try a simpler replacement if regex fails
                 source = source.replace(includeDirective, '');
+                if (source === beforeRemove) {
+                    // Last resort: try matching just the include path part
+                    ShaderLogger.warn(`[processIncludes] Regex replacement failed, trying direct string replacement`);
+                    const simpleDirective = `#include "${originalPath}"`;
+                    source = source.replace(simpleDirective, '');
+                    if (source === beforeRemove) {
+                        // Final fallback: try with normalized path
+                        const normalizedDirective = `#include "${includePath}"`;
+                        source = source.replace(normalizedDirective, '');
+                    }
+                }
             }
             // Don't re-throw - continue processing other includes
             // This allows the shader to compile even if some includes fail

@@ -11,8 +11,8 @@ export const LogLevel = {
 // Current log level (can be configured via environment or config)
 // In production, set to LogLevel.WARN or LogLevel.ERROR
 let currentLogLevel = (typeof process !== 'undefined' && process.env?.NODE_ENV === 'production') 
-    ? LogLevel.WARN 
-    : LogLevel.INFO;
+    ? LogLevel.DEBUG 
+    : LogLevel.DEBUG;
 
 /**
  * Shader logging utility
