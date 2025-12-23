@@ -1,6 +1,8 @@
 // PixelSizeAnimationManager - Manages pixel size animation on loud triggers
 // Handles rate limiting, cooldown, and animation timing
 
+import { ShaderLogger } from '../utils/ShaderLogger.js';
+
 export class PixelSizeAnimationManager {
     constructor(config = {}) {
         this.pixelSizeMultiplier = 1.0;
@@ -51,6 +53,15 @@ export class PixelSizeAnimationManager {
      * @param {number} currentTimeMs - Current time in milliseconds
      */
     update(volume, currentTime, currentTimeMs) {
+        if (typeof volume !== 'number' || volume < 0 || volume > 1) {
+            ShaderLogger.warn('PixelSizeAnimationManager: Invalid volume', { volume });
+            return;
+        }
+        if (typeof currentTime !== 'number' || typeof currentTimeMs !== 'number') {
+            ShaderLogger.warn('PixelSizeAnimationManager: Invalid time values', { currentTime, currentTimeMs });
+            return;
+        }
+        
         // Update animation if active
         if (this.isPixelSizeAnimating) {
             const animationElapsed = currentTime - this.pixelSizeAnimationStartTime;

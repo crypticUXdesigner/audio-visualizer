@@ -225,6 +225,17 @@ export class StringsShaderPlugin extends BaseShaderPlugin {
     
     /**
      * Update tempo-based smoothing for noise brightness and contrast
+     * Applies tempo-relative smoothing to audio levels for noise brightness and contrast modulation
+     * @param {Object} audioData - Audio data from AudioAnalyzer
+     * @param {number} audioData.volume - Overall volume (0-1)
+     * @param {number} audioData.bass - Bass level (0-1)
+     * @param {number} audioData.mid - Mid level (0-1)
+     * @param {number} audioData.treble - Treble level (0-1)
+     * @param {number} audioData.estimatedBPM - Estimated BPM for tempo-relative calculations
+     * @param {number} deltaTime - Time since last frame in seconds
+     * @example
+     * // Called automatically by render loop
+     * plugin.updateSmoothing(audioData, 0.016); // ~60fps
      */
     updateSmoothing(audioData, deltaTime) {
         if (!audioData) return;

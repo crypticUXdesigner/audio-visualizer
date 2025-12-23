@@ -1,6 +1,9 @@
 // WebGL Utility Functions
 // Reusable WebGL helpers for shader compilation and setup
 
+import { ShaderError, ErrorCodes } from '../../shaders/utils/ShaderErrors.js';
+import { ShaderLogger } from '../../shaders/utils/ShaderLogger.js';
+
 /**
  * Loads a shader source file from URL with retry mechanism
  * @param {string} url - Path to shader file
@@ -29,9 +32,9 @@ export async function loadShader(url, retries = 3) {
             const fetchUrl = cleanUrl + cacheBuster;
             
             if (attempt > 0) {
-                console.log(`Retrying shader load (attempt ${attempt + 1}/${retries}): ${fetchUrl}`);
+                ShaderLogger.info(`Retrying shader load (attempt ${attempt + 1}/${retries}): ${fetchUrl}`);
             } else {
-                console.log(`Loading shader: ${fetchUrl}`);
+                ShaderLogger.debug(`Loading shader: ${fetchUrl}`);
             }
             
             const response = await fetch(fetchUrl, {
@@ -56,7 +59,7 @@ export async function loadShader(url, retries = 3) {
             // Wait before retrying (exponential backoff)
             if (attempt < retries - 1) {
                 const delay = 1000 * (attempt + 1); // 1s, 2s, 3s...
-                console.warn(`Shader load failed, retrying in ${delay}ms...`, error.message);
+                ShaderLogger.warn(`Shader load failed, retrying in ${delay}ms...`, error.message);
                 await new Promise(resolve => setTimeout(resolve, delay));
             }
         }
@@ -81,7 +84,14 @@ export function compileShader(gl, source, type) {
     if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
         const error = gl.getShaderInfoLog(shader);
         gl.deleteShader(shader);
-        throw new Error(`Shader compilation error: ${error}`);
+        throw new ShaderError(
+            `Shader compilation error: ${error}`,
+            ErrorCodes.SHADER_COMPILATION_FAILED,
+            { 
+                shaderType: type === gl.VERTEX_SHADER ? 'vertex' : 'fragment',
+                error: error 
+            }
+        );
     }
     
     return shader;
@@ -118,9 +128,9 @@ export async function processIncludes(source, retries = 3, included = new Set(),
         
         if (!included.has(includePath)) {
             includes.set(includePath, match[0]);
-            console.log(`[processIncludes] Found include: "${originalPath}" -> "${includePath}" (base: "${basePath}")`);
+            ShaderLogger.debug(`[processIncludes] Found include: "${originalPath}" -> "${includePath}" (base: "${basePath}")`);
         } else {
-            console.log(`[processIncludes] Skipping already included: "${includePath}"`);
+            ShaderLogger.debug(`[processIncludes] Skipping already included: "${includePath}"`);
         }
     }
     
@@ -128,17 +138,17 @@ export async function processIncludes(source, retries = 3, included = new Set(),
     for (const [includePath, includeDirective] of includes) {
         if (included.has(includePath)) {
             // Skip circular includes
-            console.log(`[processIncludes] Removing circular include: "${includePath}"`);
+            ShaderLogger.debug(`[processIncludes] Removing circular include: "${includePath}"`);
             source = source.replace(includeDirective, '');
             continue;
         }
         
         included.add(includePath);
-        console.log(`[processIncludes] Processing include: "${includePath}"`);
+        ShaderLogger.debug(`[processIncludes] Processing include: "${includePath}"`);
         
         try {
             const includeSource = await loadShader(includePath, retries);
-            console.log(`[processIncludes] Successfully loaded: "${includePath}" (${includeSource.length} chars)`);
+            ShaderLogger.debug(`[processIncludes] Successfully loaded: "${includePath}" (${includeSource.length} chars)`);
             
             // Recursively process includes in the included file
             const processedInclude = await processIncludes(includeSource, retries, included, includePath);
@@ -149,11 +159,11 @@ export async function processIncludes(source, retries = 3, included = new Set(),
             source = source.replace(new RegExp(escapedDirective, 'g'), processedInclude);
             
             if (source === beforeReplace) {
-                console.warn(`[processIncludes] WARNING: Include directive not replaced for "${includePath}"`);
-                console.warn(`[processIncludes] Directive: "${includeDirective}"`);
-                console.warn(`[processIncludes] Escaped: "${escapedDirective}"`);
+                ShaderLogger.warn(`[processIncludes] WARNING: Include directive not replaced for "${includePath}"`);
+                ShaderLogger.warn(`[processIncludes] Directive: "${includeDirective}"`);
+                ShaderLogger.warn(`[processIncludes] Escaped: "${escapedDirective}"`);
             } else {
-                console.log(`[processIncludes] Successfully replaced include: "${includePath}"`);
+                ShaderLogger.debug(`[processIncludes] Successfully replaced include: "${includePath}"`);
             }
         } catch (error) {
             // Log detailed error information
@@ -163,7 +173,7 @@ export async function processIncludes(source, retries = 3, included = new Set(),
                 error: error.message
             };
             
-            console.error(`[processIncludes] Failed to load include: "${includePath}"`, errorDetails);
+            ShaderLogger.error(`[processIncludes] Failed to load include: "${includePath}"`, errorDetails);
             
             // Check if this is a critical include (could be determined by naming convention or config)
             // Import ShaderConstants to check critical includes
@@ -176,7 +186,7 @@ export async function processIncludes(source, retries = 3, included = new Set(),
             }
             
             // Non-critical includes: remove directive and continue
-            console.warn(`[processIncludes] Removing failed include directive (non-critical): "${includePath}"`);
+            ShaderLogger.warn(`[processIncludes] Removing failed include directive (non-critical): "${includePath}"`);
             const escapedDirective = includeDirective.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
             const regex = new RegExp(escapedDirective, 'g');
             const beforeRemove = source;
@@ -187,7 +197,7 @@ export async function processIncludes(source, retries = 3, included = new Set(),
             }
             // Don't re-throw - continue processing other includes
             // This allows the shader to compile even if some includes fail
-            console.warn(`[processIncludes] Continuing despite failed include: "${includePath}"`);
+            ShaderLogger.warn(`[processIncludes] Continuing despite failed include: "${includePath}"`);
         }
     }
     
@@ -195,8 +205,8 @@ export async function processIncludes(source, retries = 3, included = new Set(),
     // This prevents compilation errors if something went wrong
     const remainingIncludes = source.match(/#include\s+"[^"]+"/g);
     if (remainingIncludes && remainingIncludes.length > 0) {
-        console.warn(`[processIncludes] WARNING: ${remainingIncludes.length} include directives still remain after processing!`);
-        console.warn(`[processIncludes] Removing remaining includes:`, remainingIncludes);
+        ShaderLogger.warn(`[processIncludes] WARNING: ${remainingIncludes.length} include directives still remain after processing!`);
+        ShaderLogger.warn(`[processIncludes] Removing remaining includes:`, remainingIncludes);
         source = source.replace(/#include\s+"[^"]+"/g, '');
     }
     
@@ -222,7 +232,11 @@ export function createProgram(gl, vertexSource, fragmentSource) {
     if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
         const error = gl.getProgramInfoLog(program);
         gl.deleteProgram(program);
-        throw new Error(`Program linking error: ${error}`);
+        throw new ShaderError(
+            `Program linking error: ${error}`,
+            ErrorCodes.PROGRAM_LINKING_FAILED,
+            { error }
+        );
     }
     
     return program;

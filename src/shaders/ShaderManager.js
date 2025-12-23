@@ -2,6 +2,7 @@
 // Handles shader registration, switching, and parameter management
 
 import { ShaderInstance } from './ShaderInstance.js';
+import { ShaderLogger } from './utils/ShaderLogger.js';
 
 export class ShaderManager {
     constructor() {
@@ -27,7 +28,7 @@ export class ShaderManager {
      */
     registerShader(config) {
         if (this.shaders.has(config.name)) {
-            console.warn(`Shader "${config.name}" already registered, overwriting`);
+            ShaderLogger.warn(`Shader "${config.name}" already registered, overwriting`);
         }
         
         // Store config, will create instance when needed
@@ -37,7 +38,7 @@ export class ShaderManager {
             canvasId: config.canvasId || `canvas-${config.name}`
         });
         
-        console.log(`Registered shader: ${config.name}`);
+        ShaderLogger.info(`Registered shader: ${config.name}`);
     }
     
     /**
@@ -78,7 +79,7 @@ export class ShaderManager {
             this.activeShader.startRenderLoop(this.audioAnalyzer, null);
         }
         
-        console.log(`Activated shader: ${name}`);
+        ShaderLogger.info(`Activated shader: ${name}`);
         return this.activeShader;
     }
     

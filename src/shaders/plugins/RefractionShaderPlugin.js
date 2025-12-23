@@ -4,6 +4,7 @@
 import { BaseShaderPlugin } from './BaseShaderPlugin.js';
 import { TempoSmoothingConfig, getTempoRelativeTimeConstant, applyTempoRelativeSmoothing } from '../../config/tempoSmoothing.js';
 import { ShaderConstants } from '../config/ShaderConstants.js';
+import { UniformUpdateHelper } from '../utils/UniformUpdateHelper.js';
 
 export class RefractionShaderPlugin extends BaseShaderPlugin {
     constructor(shaderInstance, config) {
@@ -14,6 +15,20 @@ export class RefractionShaderPlugin extends BaseShaderPlugin {
             smoothedVolumeScale: 0.3,
             smoothedFbmZoom: 1.0
         };
+        
+        // Uniform update helper (will be initialized in onInit)
+        this.uniformHelper = null;
+    }
+    
+    onInit() {
+        // Initialize uniform update helper
+        if (this.shaderInstance.gl && this.shaderInstance.uniformLocations) {
+            this.uniformHelper = new UniformUpdateHelper(
+                this.shaderInstance.gl,
+                this.shaderInstance.uniformLocations,
+                this.shaderInstance._lastUniformValues || {}
+            );
+        }
     }
     
     getSmoothingState() {
@@ -122,39 +137,62 @@ export class RefractionShaderPlugin extends BaseShaderPlugin {
      * Update refraction shader-specific parameter uniforms
      */
     onUpdateParameterUniforms(parameters, config, uniformManager) {
-        const gl = this.shaderInstance.gl;
-        const locations = uniformManager.locations;
-        const lastValues = uniformManager.lastValues;
+        if (!this.uniformHelper) {
+            // Fallback to manual updates if helper not initialized
+            const gl = this.shaderInstance.gl;
+            const locations = uniformManager.locations;
+            const lastValues = uniformManager.lastValues;
+            
+            const refractionParams = [
+                { name: 'uOuterGridSize', param: 'outerGridSize', default: 15.0 },
+                { name: 'uInnerGridSize', param: 'innerGridSize', default: 3.0 },
+                { name: 'uBlurStrength', param: 'blurStrength', default: 18.0 },
+                { name: 'uOffsetStrength', param: 'offsetStrength', default: 0.2 },
+                { name: 'uPixelizeLevels', param: 'pixelizeLevels', default: 4.0 },
+                { name: 'uCellBrightnessVariation', param: 'cellBrightnessVariation', default: 0.025 },
+                { name: 'uCellAnimNote1', param: 'cellAnimNote1', default: 4.0 },
+                { name: 'uCellAnimNote2', param: 'cellAnimNote2', default: 2.0 },
+                { name: 'uCellAnimNote3', param: 'cellAnimNote3', default: 1.0 },
+                { name: 'uDistortionStrength', param: 'distortionStrength', default: 1.0 },
+                { name: 'uDistortionSize', param: 'distortionSize', default: 1.0 },
+                { name: 'uDistortionFalloff', param: 'distortionFalloff', default: 2.0 },
+                { name: 'uDistortionPerspectiveStrength', param: 'distortionPerspectiveStrength', default: 1.0 },
+                { name: 'uDistortionEasing', param: 'distortionEasing', default: 1.0 }
+            ];
+            
+            refractionParams.forEach(({ name, param, default: defaultValue }) => {
+                if (locations[name]) {
+                    const paramConfig = config.parameters?.[param];
+                    const value = parameters[param] !== undefined 
+                        ? parameters[param] 
+                        : (paramConfig?.default ?? defaultValue);
+                    if (lastValues[name] !== value) {
+                        gl.uniform1f(locations[name], value);
+                        lastValues[name] = value;
+                    }
+                }
+            });
+            return;
+        }
         
-        // Refraction shader parameters
+        // Use helper for cleaner code
         const refractionParams = [
-            { name: 'uOuterGridSize', param: 'outerGridSize', default: 15.0 },
-            { name: 'uInnerGridSize', param: 'innerGridSize', default: 3.0 },
-            { name: 'uBlurStrength', param: 'blurStrength', default: 18.0 },
-            { name: 'uOffsetStrength', param: 'offsetStrength', default: 0.2 },
-            { name: 'uPixelizeLevels', param: 'pixelizeLevels', default: 4.0 },
-            { name: 'uCellBrightnessVariation', param: 'cellBrightnessVariation', default: 0.025 },
-            { name: 'uCellAnimNote1', param: 'cellAnimNote1', default: 4.0 },
-            { name: 'uCellAnimNote2', param: 'cellAnimNote2', default: 2.0 },
-            { name: 'uCellAnimNote3', param: 'cellAnimNote3', default: 1.0 },
-            { name: 'uDistortionStrength', param: 'distortionStrength', default: 1.0 },
-            { name: 'uDistortionSize', param: 'distortionSize', default: 1.0 },
-            { name: 'uDistortionFalloff', param: 'distortionFalloff', default: 2.0 },
-            { name: 'uDistortionPerspectiveStrength', param: 'distortionPerspectiveStrength', default: 1.0 },
-            { name: 'uDistortionEasing', param: 'distortionEasing', default: 1.0 }
+            { name: 'uOuterGridSize', param: 'outerGridSize', default: 15.0, type: 'float' },
+            { name: 'uInnerGridSize', param: 'innerGridSize', default: 3.0, type: 'float' },
+            { name: 'uBlurStrength', param: 'blurStrength', default: 18.0, type: 'float' },
+            { name: 'uOffsetStrength', param: 'offsetStrength', default: 0.2, type: 'float' },
+            { name: 'uPixelizeLevels', param: 'pixelizeLevels', default: 4.0, type: 'float' },
+            { name: 'uCellBrightnessVariation', param: 'cellBrightnessVariation', default: 0.025, type: 'float' },
+            { name: 'uCellAnimNote1', param: 'cellAnimNote1', default: 4.0, type: 'float' },
+            { name: 'uCellAnimNote2', param: 'cellAnimNote2', default: 2.0, type: 'float' },
+            { name: 'uCellAnimNote3', param: 'cellAnimNote3', default: 1.0, type: 'float' },
+            { name: 'uDistortionStrength', param: 'distortionStrength', default: 1.0, type: 'float' },
+            { name: 'uDistortionSize', param: 'distortionSize', default: 1.0, type: 'float' },
+            { name: 'uDistortionFalloff', param: 'distortionFalloff', default: 2.0, type: 'float' },
+            { name: 'uDistortionPerspectiveStrength', param: 'distortionPerspectiveStrength', default: 1.0, type: 'float' },
+            { name: 'uDistortionEasing', param: 'distortionEasing', default: 1.0, type: 'float' }
         ];
         
-        refractionParams.forEach(({ name, param, default: defaultValue }) => {
-            if (locations[name]) {
-                const paramConfig = config.parameters?.[param];
-                const value = parameters[param] !== undefined 
-                    ? parameters[param] 
-                    : (paramConfig?.default ?? defaultValue);
-                if (lastValues[name] !== value) {
-                    gl.uniform1f(locations[name], value);
-                    lastValues[name] = value;
-                }
-            }
-        });
+        this.uniformHelper.updateFromParamDefs(refractionParams, parameters, config);
     }
 }

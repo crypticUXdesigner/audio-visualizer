@@ -41,7 +41,11 @@ export class ColorTransitionManager {
     
     /**
      * Get current colors (interpolated if transitioning)
-     * @returns {Object} Current colors object
+     * Returns smoothly interpolated colors during transitions using ease-out cubic easing
+     * @returns {Object|null} Current colors object with color, color2, etc. properties, or null if not initialized
+     * @example
+     * const colors = colorTransitionManager.getCurrentColors();
+     * // Returns { color: [1.0, 0.5, 0.2], color2: [0.3, 0.8, 0.1], ... }
      */
     getCurrentColors() {
         if (!this.isTransitioning) {

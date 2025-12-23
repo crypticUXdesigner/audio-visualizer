@@ -13,6 +13,7 @@ import { PixelSizeAnimationManager } from './managers/PixelSizeAnimationManager.
 import { PerformanceMonitor } from './managers/PerformanceMonitor.js';
 import { ShaderConstants } from './config/ShaderConstants.js';
 import { ShaderError, ErrorCodes } from './utils/ShaderErrors.js';
+import { ShaderLogger } from './utils/ShaderLogger.js';
 
 export class ShaderInstance {
     constructor(canvasId, config) {
@@ -145,13 +146,17 @@ export class ShaderInstance {
      */
     async init() {
         if (this.isInitialized) {
-            console.warn(`ShaderInstance ${this.config.name} already initialized`);
+            ShaderLogger.warn(`ShaderInstance ${this.config.name} already initialized`);
             return;
         }
         
         this.canvas = document.getElementById(this.canvasId);
         if (!this.canvas) {
-            throw new Error(`Canvas with id "${this.canvasId}" not found`);
+            throw new ShaderError(
+                `Canvas with id "${this.canvasId}" not found`,
+                ErrorCodes.CANVAS_NOT_FOUND,
+                { canvasId: this.canvasId }
+            );
         }
         
         // Get WebGL context with fallback support
@@ -172,7 +177,7 @@ export class ShaderInstance {
         
         if (!this.gl) {
             // WebGL not supported - show fallback UI
-            console.error('WebGL not supported on this device');
+            ShaderLogger.error('WebGL not supported on this device');
             this.showWebGLFallback();
             this.webglFallbackActive = true;
             return; // Don't continue initialization
@@ -214,7 +219,7 @@ export class ShaderInstance {
             fragmentSource = fragmentSource.replace(/FWIDTH\(/g, 'fwidth(');
         } else {
             // Extension not available - use fallback implementation
-            console.warn('OES_standard_derivatives extension not supported - using fallback');
+            ShaderLogger.warn('OES_standard_derivatives extension not supported - using fallback');
             // Replace the macro definition to use a constant instead of fwidth
             fragmentSource = fragmentSource.replace(/#define FWIDTH\(x\) fwidth\(x\)/g, 
                 '#define FWIDTH(x) 0.01');
@@ -263,7 +268,7 @@ export class ShaderInstance {
         }
         
         this.isInitialized = true;
-        console.log(`ShaderInstance ${this.config.name} initialized`);
+        ShaderLogger.info(`ShaderInstance ${this.config.name} initialized`);
     }
     
     /**
@@ -331,11 +336,11 @@ export class ShaderInstance {
         // Range validation with clamping
         let finalValue = value;
         if (paramConfig.min !== undefined && finalValue < paramConfig.min) {
-            console.warn(`Parameter "${name}" value ${finalValue} below minimum ${paramConfig.min}, clamping`);
+            ShaderLogger.warn(`Parameter "${name}" value ${finalValue} below minimum ${paramConfig.min}, clamping`);
             finalValue = paramConfig.min;
         }
         if (paramConfig.max !== undefined && finalValue > paramConfig.max) {
-            console.warn(`Parameter "${name}" value ${finalValue} above maximum ${paramConfig.max}, clamping`);
+            ShaderLogger.warn(`Parameter "${name}" value ${finalValue} above maximum ${paramConfig.max}, clamping`);
             finalValue = paramConfig.max;
         }
         
@@ -373,7 +378,7 @@ export class ShaderInstance {
         if (!this.uniformManager || !this.timeOffsetManager || 
             !this.pixelSizeAnimationManager || !this.colorTransitionManager ||
             !this.performanceMonitor) {
-            console.warn('ShaderInstance: Managers not initialized, skipping render');
+            ShaderLogger.warn('ShaderInstance: Managers not initialized, skipping render');
             return;
         }
         
@@ -485,7 +490,7 @@ export class ShaderInstance {
         if (colors && !this._hasRenderedWithColors) {
             this._hasRenderedWithColors = true;
             if (this._shaderManager && this._shaderManager.onFirstColorUpdate) {
-                console.log('First frame rendered with colors - triggering callback');
+                ShaderLogger.debug('First frame rendered with colors - triggering callback');
                 this._shaderManager.onFirstColorUpdate();
             }
         }
@@ -607,7 +612,7 @@ export class ShaderInstance {
             ctx.fillText(line, this.canvas.width / 2, startY + index * lineHeight);
         });
         
-        console.error('WebGL fallback UI displayed');
+        ShaderLogger.error('WebGL fallback UI displayed');
     }
     
     stopRenderLoop() {

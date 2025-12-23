@@ -178,5 +178,47 @@ export class UniformUpdateHelper {
         }
         return fallbackDefault;
     }
+    
+    /**
+     * Update uniforms from a parameter definition array
+     * Reduces boilerplate in plugin uniform update methods
+     * @param {Array<{name: string, param: string, default: *, type?: 'float'|'int'|'bool'}>} paramDefs - Parameter definitions
+     * @param {Object} parameters - Current parameter values
+     * @param {Object} [config] - Shader config (for fallback defaults)
+     * @returns {number} Number of uniforms updated
+     * @example
+     * const params = [
+     *   { name: 'uOuterGridSize', param: 'outerGridSize', default: 15.0, type: 'float' },
+     *   { name: 'uInnerGridSize', param: 'innerGridSize', default: 3.0, type: 'float' }
+     * ];
+     * const updated = helper.updateFromParamDefs(params, shaderInstance.parameters, config);
+     */
+    updateFromParamDefs(paramDefs, parameters, config = {}) {
+        let updated = 0;
+        paramDefs.forEach(({ name, param, default: defaultValue, type = 'float' }) => {
+            const paramConfig = config.parameters?.[param];
+            const value = parameters[param] !== undefined 
+                ? parameters[param] 
+                : (paramConfig?.default ?? defaultValue);
+            
+            let wasUpdated = false;
+            switch (type) {
+                case 'float':
+                    wasUpdated = this.updateFloat(name, value, defaultValue);
+                    break;
+                case 'int':
+                    wasUpdated = this.updateInt(name, value, defaultValue);
+                    break;
+                case 'bool':
+                    wasUpdated = this.updateBool(name, value, defaultValue);
+                    break;
+                default:
+                    // Unknown type - skip
+                    break;
+            }
+            if (wasUpdated) updated++;
+        });
+        return updated;
+    }
 }
 

@@ -1,6 +1,9 @@
 // TextureManager - Centralized texture management
 // Handles WebGL texture creation and updates for frequency data
 
+import { ShaderError, ErrorCodes } from '../utils/ShaderErrors.js';
+import { ShaderLogger } from '../utils/ShaderLogger.js';
+
 export class TextureManager {
     /**
      * @param {WebGLRenderingContext} gl - WebGL context
@@ -9,27 +12,76 @@ export class TextureManager {
         this.gl = gl;
         this.textures = new Map();
         this.textureUnitBindings = new Map(); // textureKey -> textureUnit
+        this.textureUnitToKey = new Map(); // textureUnit -> textureKey
+        this.textureUnitUsage = new Map(); // textureKey -> lastUsedTime
         this.nextAvailableUnit = 0;
         this.maxTextureUnits = gl.getParameter(gl.MAX_COMBINED_TEXTURE_IMAGE_UNITS) || 8;
     }
     
     /**
+     * Find the least recently used texture key
+     * @returns {string|null} LRU texture key or null if none found
+     */
+    findLRUTexture() {
+        let oldestTime = Infinity;
+        let lruKey = null;
+        for (const [key, time] of this.textureUnitUsage) {
+            if (time < oldestTime) {
+                oldestTime = time;
+                lruKey = key;
+            }
+        }
+        return lruKey;
+    }
+    
+    /**
+     * Evict a texture from its allocated unit
+     * @param {string} textureKey - Key identifying the texture to evict
+     */
+    evictTexture(textureKey) {
+        const unit = this.textureUnitBindings.get(textureKey);
+        if (unit !== undefined) {
+            this.textureUnitBindings.delete(textureKey);
+            this.textureUnitToKey.delete(unit);
+            this.textureUnitUsage.delete(textureKey);
+            // Update nextAvailableUnit to allow reuse of evicted unit
+            this.nextAvailableUnit = Math.min(this.nextAvailableUnit, unit);
+        }
+    }
+    
+    /**
      * Allocate a texture unit for a texture
+     * Uses LRU eviction if all units are exhausted
      * @param {string} textureKey - Key identifying the texture
      * @returns {number} Texture unit number
+     * @throws {ShaderError} If all texture units are in use and cannot evict
      */
     allocateTextureUnit(textureKey) {
         if (this.textureUnitBindings.has(textureKey)) {
+            // Update usage time
+            this.textureUnitUsage.set(textureKey, performance.now());
             return this.textureUnitBindings.get(textureKey);
         }
         
         if (this.nextAvailableUnit >= this.maxTextureUnits) {
-            console.warn(`TextureManager: All texture units in use (${this.maxTextureUnits}), reusing unit 0`);
-            this.nextAvailableUnit = 0;
+            // Evict least recently used texture
+            const lruKey = this.findLRUTexture();
+            if (lruKey) {
+                ShaderLogger.warn(`TextureManager: Evicting LRU texture "${lruKey}" to allocate "${textureKey}"`);
+                this.evictTexture(lruKey);
+            } else {
+                throw new ShaderError(
+                    'All texture units in use and cannot evict',
+                    ErrorCodes.TEXTURE_UNIT_EXHAUSTED,
+                    { maxUnits: this.maxTextureUnits, requestedKey: textureKey }
+                );
+            }
         }
         
         const unit = this.nextAvailableUnit++;
         this.textureUnitBindings.set(textureKey, unit);
+        this.textureUnitToKey.set(unit, textureKey);
+        this.textureUnitUsage.set(textureKey, performance.now());
         return unit;
     }
     
@@ -138,11 +190,13 @@ export class TextureManager {
     bindTextureByKey(texture, textureKey) {
         const unit = this.textureUnitBindings.get(textureKey);
         if (unit === undefined) {
-            console.warn(`TextureManager: Texture key "${textureKey}" not found, allocating new unit`);
+            ShaderLogger.warn(`TextureManager: Texture key "${textureKey}" not found, allocating new unit`);
             const newUnit = this.allocateTextureUnit(textureKey);
             this.bindTexture(texture, newUnit);
             return newUnit;
         }
+        // Update usage time when binding
+        this.textureUnitUsage.set(textureKey, performance.now());
         this.bindTexture(texture, unit);
         return unit;
     }
@@ -167,7 +221,7 @@ export class TextureManager {
         if (texture) {
             this.gl.deleteTexture(texture);
             this.textures.delete(textureKey);
-            this.textureUnitBindings.delete(textureKey); // Free texture unit
+            this.evictTexture(textureKey); // Use evictTexture for consistent cleanup
         }
     }
     
@@ -179,5 +233,9 @@ export class TextureManager {
             this.gl.deleteTexture(texture);
         });
         this.textures.clear();
+        this.textureUnitBindings.clear();
+        this.textureUnitToKey.clear();
+        this.textureUnitUsage.clear();
+        this.nextAvailableUnit = 0;
     }
 }

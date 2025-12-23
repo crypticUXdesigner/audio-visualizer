@@ -2,6 +2,7 @@
 // Tracks FPS and automatically adjusts rendering quality
 
 import { safeSentryMetric, isSentryAvailable } from '../../core/monitoring/SentryInit.js';
+import { ShaderLogger } from '../utils/ShaderLogger.js';
 
 export class PerformanceMonitor {
     constructor(config = {}) {
@@ -70,11 +71,11 @@ export class PerformanceMonitor {
         if (currentFPS < this.targetFPS * 0.8 && this.qualityLevel > 0.5) {
             // Reduce quality
             this.qualityLevel = Math.max(0.5, this.qualityLevel - 0.1);
-            console.log(`Performance: Reducing quality to ${(this.qualityLevel * 100).toFixed(0)}% (FPS: ${currentFPS.toFixed(1)})`);
+            ShaderLogger.info(`Performance: Reducing quality to ${(this.qualityLevel * 100).toFixed(0)}% (FPS: ${currentFPS.toFixed(1)})`);
         } else if (currentFPS > this.targetFPS * 1.2 && this.qualityLevel < 1.0) {
             // Increase quality
             this.qualityLevel = Math.min(1.0, this.qualityLevel + 0.1);
-            console.log(`Performance: Increasing quality to ${(this.qualityLevel * 100).toFixed(0)}% (FPS: ${currentFPS.toFixed(1)})`);
+            ShaderLogger.info(`Performance: Increasing quality to ${(this.qualityLevel * 100).toFixed(0)}% (FPS: ${currentFPS.toFixed(1)})`);
         }
     }
     

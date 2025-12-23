@@ -3,6 +3,7 @@
 
 import { COLOR_KEYS } from '../managers/ColorTransitionManager.js';
 import { ShaderConstants } from '../config/ShaderConstants.js';
+import { ShaderLogger } from '../utils/ShaderLogger.js';
 
 export class UniformManager {
     /**
@@ -24,6 +25,11 @@ export class UniformManager {
      * @param {Array<number>} resolution - [width, height]
      */
     updateStandardUniforms(params, currentTime, timeOffset, pixelSizeMultiplier, resolution) {
+        if (!params || typeof currentTime !== 'number' || !Array.isArray(resolution) || resolution.length !== 2) {
+            ShaderLogger.warn('UniformManager: Invalid parameters for updateStandardUniforms', { params, currentTime, resolution });
+            return;
+        }
+        
         const gl = this.gl;
         const locations = this.locations;
         const lastValues = this.lastValues;
@@ -278,7 +284,15 @@ export class UniformManager {
      * @param {Object} parameters - Current parameter values
      */
     updateAudioUniforms(audioData, uniformMapping, parameters) {
-        if (!audioData || !uniformMapping) return;
+        if (!audioData || !uniformMapping) {
+            // Silently return - audio data may not be available yet
+            return;
+        }
+        
+        if (!this.gl || !this.locations) {
+            ShaderLogger.warn('UniformManager: Not initialized, cannot update audio uniforms');
+            return;
+        }
         
         const gl = this.gl;
         const locations = this.locations;

@@ -2,6 +2,7 @@
 // Handles volume-based time offset with hysteresis and tempo-relative smoothing
 
 import { TempoSmoothingConfig, getTempoRelativeTimeConstant, applyTempoRelativeSmoothing } from '../../config/tempoSmoothing.js';
+import { ShaderLogger } from '../utils/ShaderLogger.js';
 
 export class TimeOffsetManager {
     constructor(config = {}) {
@@ -40,6 +41,10 @@ export class TimeOffsetManager {
      * @param {number} x2 - Second control point X coordinate (0-1)
      * @param {number} y2 - Second control point Y coordinate (0-1)
      * @returns {number} Corresponding y value (0-1)
+     * @example
+     * // Ease-out cubic bezier: (0.9, 0.0, 0.8, 1.0)
+     * const easing = cubicBezierSolve(0.5, 0.9, 0.0, 0.8, 1.0);
+     * // Returns ~0.7 (eased value)
      */
     cubicBezierSolve(x, x1, y1, x2, y2) {
         // Cubic bezier formula: B(t) = (1-t)³P₀ + 3(1-t)²tP₁ + 3(1-t)t²P₂ + t³P₃
@@ -109,9 +114,19 @@ export class TimeOffsetManager {
      * Uses hysteresis to prevent rapid switching between accumulation and decay
      * Applies tempo-relative smoothing for musical timing
      * @param {Object|null} audioData - Audio data with volume and estimatedBPM (can be null)
+     * @param {number} audioData.volume - Audio volume (0-1)
+     * @param {number} audioData.estimatedBPM - Estimated BPM for tempo-relative smoothing
      * @param {number} deltaTime - Time since last update in seconds
+     * @example
+     * // Called every frame in render loop
+     * timeOffsetManager.update(audioData, 0.016); // ~60fps
      */
     update(audioData, deltaTime) {
+        if (typeof deltaTime !== 'number' || deltaTime <= 0) {
+            ShaderLogger.warn('TimeOffsetManager: Invalid deltaTime', { deltaTime });
+            return;
+        }
+        
         if (!audioData || audioData.volume === undefined) {
             // No audio data: continue smoothing (will decay if loudness animation enabled)
             this.updateSmoothing(null, deltaTime);
