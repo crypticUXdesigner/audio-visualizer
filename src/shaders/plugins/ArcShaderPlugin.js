@@ -3,6 +3,8 @@
 
 import { BaseShaderPlugin } from './BaseShaderPlugin.js';
 import { TempoSmoothingConfig, getTempoRelativeTimeConstant, applyTempoRelativeSmoothing } from '../../config/tempoSmoothing.js';
+import { FrequencyTextureCalculator } from '../utils/FrequencyTextureCalculator.js';
+import { UniformUpdateHelper } from '../utils/UniformUpdateHelper.js';
 
 export class ArcShaderPlugin extends BaseShaderPlugin {
     constructor(shaderInstance, config) {
@@ -20,6 +22,18 @@ export class ArcShaderPlugin extends BaseShaderPlugin {
         };
         
         this._measuredBands = 24;
+        
+        // Initialize uniform update helper (will be set in onInit after shaderInstance is ready)
+        this.uniformHelper = null;
+    }
+    
+    onInit() {
+        // Initialize uniform update helper
+        this.uniformHelper = new UniformUpdateHelper(
+            this.shaderInstance.gl,
+            this.shaderInstance.uniformLocations,
+            this.shaderInstance._lastUniformValues
+        );
     }
     
     getSmoothingState() {
@@ -48,50 +62,14 @@ export class ArcShaderPlugin extends BaseShaderPlugin {
             this.smoothing.smoothedRightBands = new Float32Array(measuredBands);
         }
         
-        // Calculate configurable bands
-        let bandData;
-        if (audioData.audioContext && audioData.frequencyData) {
-            if (this.shaderInstance._audioAnalyzer && 
-                typeof this.shaderInstance._audioAnalyzer.calculateConfigurableBands === 'function') {
-                bandData = this.shaderInstance._audioAnalyzer.calculateConfigurableBands(measuredBands);
-            } else if (audioData.leftFrequencyData && audioData.rightFrequencyData) {
-                // Fallback: calculate directly
-                const sampleRate = audioData.audioContext?.sampleRate || 44100;
-                const nyquist = sampleRate / 2;
-                const binSize = nyquist / audioData.frequencyData.length;
-                const hzToBin = (hz) => Math.floor(hz / binSize);
-                const getAverage = (data, start, end) => {
-                    let sum = 0;
-                    const count = Math.min(end, data.length - 1) - start + 1;
-                    if (count <= 0) return 0;
-                    for (let i = start; i <= end && i < data.length; i++) {
-                        sum += data[i];
-                    }
-                    return sum / count / 255.0;
-                };
-                
-                const minFreq = 20;
-                const maxFreq = nyquist;
-                const leftBands = new Float32Array(measuredBands);
-                const rightBands = new Float32Array(measuredBands);
-                
-                for (let i = 0; i < measuredBands; i++) {
-                    const t = i / (measuredBands - 1);
-                    const freqStart = minFreq * Math.pow(maxFreq / minFreq, t);
-                    const freqEnd = (i === measuredBands - 1) 
-                        ? maxFreq 
-                        : minFreq * Math.pow(maxFreq / minFreq, (i + 1) / (measuredBands - 1));
-                    const binStart = hzToBin(freqStart);
-                    const binEnd = Math.min(hzToBin(freqEnd), audioData.leftFrequencyData.length - 1);
-                    leftBands[i] = getAverage(audioData.leftFrequencyData, binStart, binEnd);
-                    rightBands[i] = getAverage(audioData.rightFrequencyData, binStart, binEnd);
-                }
-                
-                bandData = { leftBands, rightBands, numBands: measuredBands };
-            } else {
-                return;
-            }
-        } else {
+        // Calculate configurable bands using shared utility
+        const bandData = FrequencyTextureCalculator.calculateBands(
+            audioData,
+            measuredBands,
+            this.shaderInstance._audioAnalyzer
+        );
+        
+        if (!bandData) {
             return;
         }
         
@@ -137,12 +115,11 @@ export class ArcShaderPlugin extends BaseShaderPlugin {
             );
         }
         
-        // Create texture data: LUMINANCE = left, ALPHA = right (using smoothed values)
-        const leftRightData = new Float32Array(measuredBands * 2);
-        for (let i = 0; i < measuredBands; i++) {
-            leftRightData[i * 2] = this.smoothing.smoothedLeftBands[i];
-            leftRightData[i * 2 + 1] = this.smoothing.smoothedRightBands[i];
-        }
+        // Create texture data using shared utility
+        const leftRightData = FrequencyTextureCalculator.createTextureData(
+            this.smoothing.smoothedLeftBands,
+            this.smoothing.smoothedRightBands
+        );
         
         // Create or update texture using texture manager
         const textureManager = this.shaderInstance.textureManager;
@@ -176,49 +153,17 @@ export class ArcShaderPlugin extends BaseShaderPlugin {
      * Update shader-specific uniforms
      */
     onUpdateUniforms(audioData, colors, deltaTime) {
-        const gl = this.shaderInstance.gl;
-        if (!gl) return;
+        if (!this.uniformHelper) return;
         
         const params = this.shaderInstance.parameters;
-        const locations = this.shaderInstance.uniformLocations;
-        const lastValues = this.shaderInstance._lastUniformValues;
+        const helper = this.uniformHelper;
         
         // Set arc parameters
-        if (locations.uBaseRadius) {
-            const val = params.baseRadius !== undefined ? params.baseRadius : 0.3;
-            if (lastValues.uBaseRadius !== val) {
-                gl.uniform1f(locations.uBaseRadius, val);
-                lastValues.uBaseRadius = val;
-            }
-        }
-        if (locations.uMaxRadiusOffset) {
-            const val = params.maxRadiusOffset !== undefined ? params.maxRadiusOffset : 0.2;
-            if (lastValues.uMaxRadiusOffset !== val) {
-                gl.uniform1f(locations.uMaxRadiusOffset, val);
-                lastValues.uMaxRadiusOffset = val;
-            }
-        }
-        if (locations.uCenterX) {
-            const val = params.centerX !== undefined ? params.centerX : 0.5;
-            if (lastValues.uCenterX !== val) {
-                gl.uniform1f(locations.uCenterX, val);
-                lastValues.uCenterX = val;
-            }
-        }
-        if (locations.uCenterY) {
-            const val = params.centerY !== undefined ? params.centerY : 0.5;
-            if (lastValues.uCenterY !== val) {
-                gl.uniform1f(locations.uCenterY, val);
-                lastValues.uCenterY = val;
-            }
-        }
-        if (locations.uColorTransitionWidth) {
-            const val = params.colorTransitionWidth !== undefined ? params.colorTransitionWidth : 0.003;
-            if (lastValues.uColorTransitionWidth !== val) {
-                gl.uniform1f(locations.uColorTransitionWidth, val);
-                lastValues.uColorTransitionWidth = val;
-            }
-        }
+        helper.updateFloat('uBaseRadius', params.baseRadius, 0.3);
+        helper.updateFloat('uMaxRadiusOffset', params.maxRadiusOffset, 0.2);
+        helper.updateFloat('uCenterX', params.centerX, 0.5);
+        helper.updateFloat('uCenterY', params.centerY, 0.5);
+        helper.updateFloat('uColorTransitionWidth', params.colorTransitionWidth, 0.003);
     }
 }
 

@@ -463,7 +463,7 @@ export default {
         uTreble: (data) => data?.treble || 0,
         uVolume: (data) => data?.volume || 0,
         
-        // Frequency band uniforms (for compatibility)
+        // Frequency band uniforms
         uFreq1: (data) => data?.smoothedFreq1 || 0,
         uFreq2: (data) => data?.smoothedFreq2 || 0,
         uFreq3: (data) => data?.smoothedFreq3 || 0,

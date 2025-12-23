@@ -7,6 +7,7 @@ import { TempoSmoothingConfig, getTempoRelativeTimeConstant, applyTempoRelativeS
 import { createShaderPlugin } from './plugins/pluginFactory.js';
 import { UniformManager } from './managers/UniformManager.js';
 import { TextureManager } from './managers/TextureManager.js';
+import { UniformLocationCache } from './managers/UniformLocationCache.js';
 
 export class ShaderInstance {
     constructor(canvasId, config) {
@@ -119,28 +120,6 @@ export class ShaderInstance {
         
         // Track if we've rendered with colors yet (for first render callback)
         this._hasRenderedWithColors = false;
-        
-        // Multi-layer smoothing for frequency visualizer
-        this._layerSmoothing = {
-            layer1: null,  // Background far
-            layer2: null,  // Background near
-            layer3: null   // Foreground
-        };
-        this._curveSmoothing = {
-            left: null,        // Smoothed left channel values (for curve mode)
-            right: null        // Smoothed right channel values (for curve mode)
-        };
-        this._lastBandData = null;
-        
-        // Texture management for frequency visualizer (legacy - may be moved to plugins)
-        this._frequencyTextures = {
-            leftRight: null,   // RG texture: R=left, G=right (raw frequency data)
-            layer1: null,      // Layer 1 smoothed heights
-            layer2: null,      // Layer 2 smoothed heights
-            layer3: null       // Layer 3 smoothed heights
-        };
-        // Will be set from config parameter
-        this._measuredBands = 24;  // Default number of bands we actually measure
         
         // Create shader plugin for shader-specific functionality
         this.plugin = createShaderPlugin(this, config);
@@ -358,12 +337,18 @@ export class ShaderInstance {
         // Create quad
         this.quadBuffer = createQuad(this.gl);
         
-        // Get uniform locations
-        this.cacheUniformLocations();
+        // Cache uniform locations using UniformLocationCache
+        this.uniformLocationCache = new UniformLocationCache(this.gl, this.program);
+        const standardUniforms = this.uniformLocationCache.cacheStandardUniforms();
+        const standardAttributes = this.uniformLocationCache.cacheStandardAttributes();
+        this.uniformLocations = { ...standardUniforms, ...standardAttributes };
+        
+        // Set default threshold values
+        const defaultThresholds = [0.9800, 0.9571, 0.9054, 0.8359, 0.7528, 0.6577, 0.5499, 0.4270, 0.2800, 0.0138];
+        this.uniformLocationCache.setDefaultThresholds(defaultThresholds);
         
         // Initialize uniform manager
         this.uniformManager = new UniformManager(this.gl, this.uniformLocations);
-        // Share lastValues reference for compatibility
         this.uniformManager.lastValues = this._lastUniformValues;
         
         // Initialize texture manager
@@ -412,241 +397,6 @@ export class ShaderInstance {
         return true;
     }
     
-    cacheUniformLocations() {
-        const gl = this.gl;
-        const program = this.program;
-        
-        // Standard uniforms
-        this.uniformLocations = {
-            uResolution: gl.getUniformLocation(program, 'uResolution'),
-            uTime: gl.getUniformLocation(program, 'uTime'),
-            uTimeOffset: gl.getUniformLocation(program, 'uTimeOffset'),
-            uPixelSize: gl.getUniformLocation(program, 'uPixelSize'),
-            uDevicePixelRatio: gl.getUniformLocation(program, 'uDevicePixelRatio'),
-            uSteps: gl.getUniformLocation(program, 'uSteps'),
-            uMouse: gl.getUniformLocation(program, 'uMouse'),
-            uShapeType: gl.getUniformLocation(program, 'uShapeType'),
-            
-            // Dithering controls
-            uDitherStrength: gl.getUniformLocation(program, 'uDitherStrength'),
-            uTransitionWidth: gl.getUniformLocation(program, 'uTransitionWidth'),
-            
-            // Refraction shader uniforms
-            uOuterGridSize: gl.getUniformLocation(program, 'uOuterGridSize'),
-            uInnerGridSize: gl.getUniformLocation(program, 'uInnerGridSize'),
-            uPixelizeLevels: gl.getUniformLocation(program, 'uPixelizeLevels'),
-            uBlurStrength: gl.getUniformLocation(program, 'uBlurStrength'),
-            uOffsetStrength: gl.getUniformLocation(program, 'uOffsetStrength'),
-            uCellBrightnessVariation: gl.getUniformLocation(program, 'uCellBrightnessVariation'),
-            uCellAnimNote1: gl.getUniformLocation(program, 'uCellAnimNote1'),
-            uCellAnimNote2: gl.getUniformLocation(program, 'uCellAnimNote2'),
-            uCellAnimNote3: gl.getUniformLocation(program, 'uCellAnimNote3'),
-            uDistortionStrength: gl.getUniformLocation(program, 'uDistortionStrength'),
-            uDistortionSize: gl.getUniformLocation(program, 'uDistortionSize'),
-            uDistortionFalloff: gl.getUniformLocation(program, 'uDistortionFalloff'),
-            uDistortionPerspectiveStrength: gl.getUniformLocation(program, 'uDistortionPerspectiveStrength'),
-            uDistortionEasing: gl.getUniformLocation(program, 'uDistortionEasing'),
-            uSmoothedVolumeScale: gl.getUniformLocation(program, 'uSmoothedVolumeScale'),
-            uSmoothedFbmZoom: gl.getUniformLocation(program, 'uSmoothedFbmZoom'),
-            
-            // Colors
-            uColor: gl.getUniformLocation(program, 'uColor'),
-            uColor2: gl.getUniformLocation(program, 'uColor2'),
-            uColor3: gl.getUniformLocation(program, 'uColor3'),
-            uColor4: gl.getUniformLocation(program, 'uColor4'),
-            uColor5: gl.getUniformLocation(program, 'uColor5'),
-            uColor6: gl.getUniformLocation(program, 'uColor6'),
-            uColor7: gl.getUniformLocation(program, 'uColor7'),
-            uColor8: gl.getUniformLocation(program, 'uColor8'),
-            uColor9: gl.getUniformLocation(program, 'uColor9'),
-            uColor10: gl.getUniformLocation(program, 'uColor10'),
-            
-            // Audio uniforms
-            uBass: gl.getUniformLocation(program, 'uBass'),
-            uMid: gl.getUniformLocation(program, 'uMid'),
-            uTreble: gl.getUniformLocation(program, 'uTreble'),
-            uVolume: gl.getUniformLocation(program, 'uVolume'),
-            
-            // Frequency bands
-            uFreq1: gl.getUniformLocation(program, 'uFreq1'),
-            uFreq2: gl.getUniformLocation(program, 'uFreq2'),
-            uFreq3: gl.getUniformLocation(program, 'uFreq3'),
-            uFreq4: gl.getUniformLocation(program, 'uFreq4'),
-            uFreq5: gl.getUniformLocation(program, 'uFreq5'),
-            uFreq6: gl.getUniformLocation(program, 'uFreq6'),
-            uFreq7: gl.getUniformLocation(program, 'uFreq7'),
-            uFreq8: gl.getUniformLocation(program, 'uFreq8'),
-            uFreq9: gl.getUniformLocation(program, 'uFreq9'),
-            uFreq10: gl.getUniformLocation(program, 'uFreq10'),
-            
-            // Stereo
-            uBassStereo: gl.getUniformLocation(program, 'uBassStereo'),
-            uMidStereo: gl.getUniformLocation(program, 'uMidStereo'),
-            uTrebleStereo: gl.getUniformLocation(program, 'uTrebleStereo'),
-            
-            // Temporal and beat
-            uSmoothedBass: gl.getUniformLocation(program, 'uSmoothedBass'),
-            uSmoothedMid: gl.getUniformLocation(program, 'uSmoothedMid'),
-            uSmoothedTreble: gl.getUniformLocation(program, 'uSmoothedTreble'),
-            uPeakBass: gl.getUniformLocation(program, 'uPeakBass'),
-            uBeatTime: gl.getUniformLocation(program, 'uBeatTime'),
-            uBeatIntensity: gl.getUniformLocation(program, 'uBeatIntensity'),
-            uBPM: gl.getUniformLocation(program, 'uBPM'),
-            
-            // Multi-frequency beat
-            uBeatTimeBass: gl.getUniformLocation(program, 'uBeatTimeBass'),
-            uBeatTimeMid: gl.getUniformLocation(program, 'uBeatTimeMid'),
-            uBeatTimeTreble: gl.getUniformLocation(program, 'uBeatTimeTreble'),
-            uBeatIntensityBass: gl.getUniformLocation(program, 'uBeatIntensityBass'),
-            uBeatIntensityMid: gl.getUniformLocation(program, 'uBeatIntensityMid'),
-            uBeatIntensityTreble: gl.getUniformLocation(program, 'uBeatIntensityTreble'),
-            uBeatStereoBass: gl.getUniformLocation(program, 'uBeatStereoBass'),
-            uBeatStereoMid: gl.getUniformLocation(program, 'uBeatStereoMid'),
-            uBeatStereoTreble: gl.getUniformLocation(program, 'uBeatStereoTreble'),
-            
-            // Ripple effect parameters
-            uRippleSpeed: gl.getUniformLocation(program, 'uRippleSpeed'),
-            uRippleWidth: gl.getUniformLocation(program, 'uRippleWidth'),
-            uRippleMinRadius: gl.getUniformLocation(program, 'uRippleMinRadius'),
-            uRippleMaxRadius: gl.getUniformLocation(program, 'uRippleMaxRadius'),
-            uRippleIntensityThreshold: gl.getUniformLocation(program, 'uRippleIntensityThreshold'),
-            uRippleIntensity: gl.getUniformLocation(program, 'uRippleIntensity'),
-            
-            // Multiple ripple arrays
-            uRippleCenterX: gl.getUniformLocation(program, 'uRippleCenterX'),
-            uRippleCenterY: gl.getUniformLocation(program, 'uRippleCenterY'),
-            uRippleTimes: gl.getUniformLocation(program, 'uRippleTimes'),
-            uRippleIntensities: gl.getUniformLocation(program, 'uRippleIntensities'),
-            uRippleWidths: gl.getUniformLocation(program, 'uRippleWidths'),
-            uRippleMinRadii: gl.getUniformLocation(program, 'uRippleMinRadii'),
-            uRippleMaxRadii: gl.getUniformLocation(program, 'uRippleMaxRadii'),
-            uRippleIntensityMultipliers: gl.getUniformLocation(program, 'uRippleIntensityMultipliers'),
-            uRippleActive: gl.getUniformLocation(program, 'uRippleActive'),
-            uRippleCount: gl.getUniformLocation(program, 'uRippleCount'),
-            
-            // Threshold uniforms (calculated from thresholdCurve bezier)
-            uThreshold1: gl.getUniformLocation(program, 'uThreshold1'),
-            uThreshold2: gl.getUniformLocation(program, 'uThreshold2'),
-            uThreshold3: gl.getUniformLocation(program, 'uThreshold3'),
-            uThreshold4: gl.getUniformLocation(program, 'uThreshold4'),
-            uThreshold5: gl.getUniformLocation(program, 'uThreshold5'),
-            uThreshold6: gl.getUniformLocation(program, 'uThreshold6'),
-            uThreshold7: gl.getUniformLocation(program, 'uThreshold7'),
-            uThreshold8: gl.getUniformLocation(program, 'uThreshold8'),
-            uThreshold9: gl.getUniformLocation(program, 'uThreshold9'),
-            uThreshold10: gl.getUniformLocation(program, 'uThreshold10'),
-            
-            // Position attribute
-            a_position: gl.getAttribLocation(program, 'a_position'),
-            
-            // Frequency visualizer uniforms
-            uMode: gl.getUniformLocation(program, 'uMode'),
-            uNumBands: gl.getUniformLocation(program, 'uNumBands'),
-            uMeasuredBands: gl.getUniformLocation(program, 'uMeasuredBands'),
-            uMaxHeight: gl.getUniformLocation(program, 'uMaxHeight'),
-            uCenterY: gl.getUniformLocation(program, 'uCenterY'),
-            uBarWidth: gl.getUniformLocation(program, 'uBarWidth'),
-            uBlurStrength: gl.getUniformLocation(program, 'uBlurStrength'),
-            uPixelizeLevels: gl.getUniformLocation(program, 'uPixelizeLevels'),
-            uPostBlurStrength: gl.getUniformLocation(program, 'uPostBlurStrength'),
-            uNoiseStrength: gl.getUniformLocation(program, 'uNoiseStrength'),
-            uFrequencyTexture: gl.getUniformLocation(program, 'uFrequencyTexture'),
-            uHeightTexture: gl.getUniformLocation(program, 'uHeightTexture'),
-            
-            // Arc shader uniforms
-            uBaseRadius: gl.getUniformLocation(program, 'uBaseRadius'),
-            uMaxRadiusOffset: gl.getUniformLocation(program, 'uMaxRadiusOffset'),
-            uCenterX: gl.getUniformLocation(program, 'uCenterX'),
-            uCenterY: gl.getUniformLocation(program, 'uCenterY'),
-            
-            uLayer1Texture: gl.getUniformLocation(program, 'uLayer1Texture'),
-            uLayer2Texture: gl.getUniformLocation(program, 'uLayer2Texture'),
-            uLayer3Texture: gl.getUniformLocation(program, 'uLayer3Texture'),
-            uLayer1HeightMultiplier: gl.getUniformLocation(program, 'uLayer1HeightMultiplier'),
-            uLayer2HeightMultiplier: gl.getUniformLocation(program, 'uLayer2HeightMultiplier'),
-            uLayer3HeightMultiplier: gl.getUniformLocation(program, 'uLayer3HeightMultiplier'),
-            uLayer1Opacity: gl.getUniformLocation(program, 'uLayer1Opacity'),
-            uLayer2Opacity: gl.getUniformLocation(program, 'uLayer2Opacity'),
-            uLayer3Opacity: gl.getUniformLocation(program, 'uLayer3Opacity'),
-            
-            // Strings shader uniforms
-            uMinStringWidth: gl.getUniformLocation(program, 'uMinStringWidth'),
-            uMaxStringWidth: gl.getUniformLocation(program, 'uMaxStringWidth'),
-            uMaxAmplitude: gl.getUniformLocation(program, 'uMaxAmplitude'),
-            uWaveNote: gl.getUniformLocation(program, 'uWaveNote'),
-            uStringTop: gl.getUniformLocation(program, 'uStringTop'),
-            uStringBottom: gl.getUniformLocation(program, 'uStringBottom'),
-            uPaddingLeft: gl.getUniformLocation(program, 'uPaddingLeft'),
-            uPaddingRight: gl.getUniformLocation(program, 'uPaddingRight'),
-            uStringEndFadeMinAlpha: gl.getUniformLocation(program, 'uStringEndFadeMinAlpha'),
-            uMaxHeight: gl.getUniformLocation(program, 'uMaxHeight'),
-            uWaveCycles: gl.getUniformLocation(program, 'uWaveCycles'),
-            uShowBars: gl.getUniformLocation(program, 'uShowBars'),
-            uShowStrings: gl.getUniformLocation(program, 'uShowStrings'),
-            uWaveAmplitude: gl.getUniformLocation(program, 'uWaveAmplitude'),
-            uMaxStrings: gl.getUniformLocation(program, 'uMaxStrings'),
-            uThreshold2Strings: gl.getUniformLocation(program, 'uThreshold2Strings'),
-            uThreshold3Strings: gl.getUniformLocation(program, 'uThreshold3Strings'),
-            uBandMinHeight: gl.getUniformLocation(program, 'uBandMinHeight'),
-            uBandMaxHeight: gl.getUniformLocation(program, 'uBandMaxHeight'),
-            uBandHeightCurveX1: gl.getUniformLocation(program, 'uBandHeightCurveX1'),
-            uBandHeightCurveY1: gl.getUniformLocation(program, 'uBandHeightCurveY1'),
-            uBandHeightCurveX2: gl.getUniformLocation(program, 'uBandHeightCurveX2'),
-            uBandHeightCurveY2: gl.getUniformLocation(program, 'uBandHeightCurveY2'),
-            uStringHeightMultiplier: gl.getUniformLocation(program, 'uStringHeightMultiplier'),
-            uBackgroundNoiseScale: gl.getUniformLocation(program, 'uBackgroundNoiseScale'),
-            uBackgroundNoiseIntensity: gl.getUniformLocation(program, 'uBackgroundNoiseIntensity'),
-            uBackgroundNoiseTimeSpeed: gl.getUniformLocation(program, 'uBackgroundNoiseTimeSpeed'),
-            uBackgroundNoiseTimeOffset: gl.getUniformLocation(program, 'uBackgroundNoiseTimeOffset'),
-            uBackgroundNoiseAudioReactive: gl.getUniformLocation(program, 'uBackgroundNoiseAudioReactive'),
-            uBackgroundNoiseAudioSource: gl.getUniformLocation(program, 'uBackgroundNoiseAudioSource'),
-            uBackgroundNoiseBrightnessCurveX1: gl.getUniformLocation(program, 'uBackgroundNoiseBrightnessCurveX1'),
-            uBackgroundNoiseBrightnessCurveY1: gl.getUniformLocation(program, 'uBackgroundNoiseBrightnessCurveY1'),
-            uBackgroundNoiseBrightnessCurveX2: gl.getUniformLocation(program, 'uBackgroundNoiseBrightnessCurveX2'),
-            uBackgroundNoiseBrightnessCurveY2: gl.getUniformLocation(program, 'uBackgroundNoiseBrightnessCurveY2'),
-            uBackgroundNoiseBrightnessMin: gl.getUniformLocation(program, 'uBackgroundNoiseBrightnessMin'),
-            uBackgroundNoiseBrightnessMax: gl.getUniformLocation(program, 'uBackgroundNoiseBrightnessMax'),
-            uSmoothedNoiseAudioLevel: gl.getUniformLocation(program, 'uSmoothedNoiseAudioLevel'),
-            uSmoothedContrastAudioLevel: gl.getUniformLocation(program, 'uSmoothedContrastAudioLevel'),
-            uColorTransitionWidth: gl.getUniformLocation(program, 'uColorTransitionWidth'),
-            uBarAlphaMin: gl.getUniformLocation(program, 'uBarAlphaMin'),
-            uBarAlphaMax: gl.getUniformLocation(program, 'uBarAlphaMax'),
-            uBandWidthThreshold: gl.getUniformLocation(program, 'uBandWidthThreshold'),
-            uBandWidthMinMultiplier: gl.getUniformLocation(program, 'uBandWidthMinMultiplier'),
-            uBandWidthMaxMultiplier: gl.getUniformLocation(program, 'uBandWidthMaxMultiplier'),
-            uContrast: gl.getUniformLocation(program, 'uContrast'),
-            uContrastAudioReactive: gl.getUniformLocation(program, 'uContrastAudioReactive'),
-            uContrastAudioSource: gl.getUniformLocation(program, 'uContrastAudioSource'),
-            uContrastMin: gl.getUniformLocation(program, 'uContrastMin'),
-            uContrastMax: gl.getUniformLocation(program, 'uContrastMax'),
-            uGlowRadius: gl.getUniformLocation(program, 'uGlowRadius'),
-            uMaskExpansion: gl.getUniformLocation(program, 'uMaskExpansion'),
-            uMaskCutoutIntensity: gl.getUniformLocation(program, 'uMaskCutoutIntensity'),
-            uMaskFeathering: gl.getUniformLocation(program, 'uMaskFeathering'),
-            uMaskNoiseStrength: gl.getUniformLocation(program, 'uMaskNoiseStrength'),
-            uMaskNoiseScale: gl.getUniformLocation(program, 'uMaskNoiseScale'),
-            uMaskNoiseSpeed: gl.getUniformLocation(program, 'uMaskNoiseSpeed'),
-            // Glitch effect uniforms
-            uGlitchColumnCount: gl.getUniformLocation(program, 'uGlitchColumnCount'),
-            uGlitchRandomSeed: gl.getUniformLocation(program, 'uGlitchRandomSeed'),
-            uGlitchFlipProbability: gl.getUniformLocation(program, 'uGlitchFlipProbability'),
-            uGlitchIntensity: gl.getUniformLocation(program, 'uGlitchIntensity'),
-            uGlitchBlurAmount: gl.getUniformLocation(program, 'uGlitchBlurAmount'),
-            uGlitchPixelSize: gl.getUniformLocation(program, 'uGlitchPixelSize')
-        };
-        
-        // Set default threshold values (will be overridden when colors are initialized)
-        // Using default curve [0.2, 0.2, 1.0, 0.7]
-        const defaultThresholds = [0.9800, 0.9571, 0.9054, 0.8359, 0.7528, 0.6577, 0.5499, 0.4270, 0.2800, 0.0138];
-        gl.useProgram(program);
-        defaultThresholds.forEach((threshold, index) => {
-            const uniformName = `uThreshold${index + 1}`;
-            const location = this.uniformLocations[uniformName];
-            if (location) {
-                gl.uniform1f(location, threshold);
-            }
-        });
-    }
     
     resize() {
         if (!this.canvas || !this.gl) return;
@@ -718,7 +468,7 @@ export class ShaderInstance {
             const volume = audioData.volume || 0;
             const deltaTime = elapsed / 1000.0;
             
-            // Get loudness controls (backward compatibility)
+            // Get loudness controls
             const loudnessAnimationEnabled = window._loudnessControls?.loudnessAnimationEnabled ?? true;
             const loudnessThreshold = window._loudnessControls?.loudnessThreshold ?? 0.1;
             
@@ -1206,15 +956,6 @@ export class ShaderInstance {
         // Clean up textures
         if (this.textureManager) {
             this.textureManager.destroyAll();
-        }
-        
-        // Legacy cleanup (for deprecated _frequencyTextures)
-        if (this.gl) {
-            Object.values(this._frequencyTextures).forEach(texture => {
-                if (texture) {
-                    this.gl.deleteTexture(texture);
-                }
-            });
         }
         
         this.isInitialized = false;
