@@ -79,7 +79,7 @@ export class ShaderSwitcher {
         const shaderNames = this.shaderManager.getShaderNames();
         
         // Define desired order: final shaders first, then draft shaders
-        const shaderOrder = ['refraction', 'heightmap', 'strings'];
+        const shaderOrder = ['heightmap', 'refraction', 'strings'];
         
         // Sort shaders according to desired order
         const sortedShaderNames = shaderNames.sort((a, b) => {

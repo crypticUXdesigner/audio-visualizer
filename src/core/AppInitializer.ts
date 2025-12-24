@@ -107,10 +107,7 @@ export async function initializeApp(app: VisualPlayer): Promise<void> {
                     app.audioControls.waveformScrubber.setColors(colors);
                 }
                 
-                // 8. Initialize dev tools
-                app.initDevTools();
-                
-                // 9. Initialize top control buttons
+                // 8. Initialize top control buttons
                 app.initTopControls();
                 
                 

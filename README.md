@@ -20,7 +20,6 @@ The project uses a modular architecture with clear separation of concerns:
 - **AudioControls.js** - Audio playback controls and track selection
 - **ColorPresetSwitcher.js** - Color preset selection UI
 - **UIToggle.js** - UI visibility toggle
-- **DevTools.js** - Development tools management
 
 ### Configuration (`src/config/`)
 - **color-presets.js** - Predefined color palette presets
@@ -33,7 +32,6 @@ The project uses a modular architecture with clear separation of concerns:
 - `index.html` - Main HTML page with canvas elements and UI controls
 - `style.css` - Styling for the application
 - `src/main.js` - Application entry point
-- `frequency-visualizer.js` - Development tool for frequency band visualization
 - `shaders/vertex.glsl` - Vertex shader
 - `shaders/heightmap-fragment.glsl` - Fragment shader with animated fBm noise
 
@@ -217,7 +215,7 @@ The main application instance is also exposed as `window.VisualPlayer`.
 - **Curated Track Library** - 170+ validated tracks from Audiotool's community
 - **WebGL Shaders** - Fractional Brownian motion (fBm) noise with multi-step dithering effects
 - **Waveform Scrubber** - Interactive audio navigation with visual waveform display
-- **Development Tools** - Frequency visualizer and debug mode for testing (add `?debug` to URL)
+- **Debug Mode** - FPS display for performance monitoring (add `?debug` to URL)
 - **Error Tracking** - Integrated Sentry monitoring with graceful fallbacks
 
 ## Security & Environment Variables

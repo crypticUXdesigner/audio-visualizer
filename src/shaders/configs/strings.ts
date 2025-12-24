@@ -7,7 +7,7 @@ import type { ShaderConfig } from '../../types/index.js';
 
 const stringsConfig: ShaderConfig = {
     name: 'strings',
-    displayName: 'draft: Strings',
+    displayName: 'Strings',
     canvasId: 'backgroundCanvas',
     vertexPath: 'shaders/vertex.glsl',
     fragmentPath: 'shaders/strings-fragment.glsl',

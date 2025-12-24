@@ -183,18 +183,9 @@ input[type="submit"] {
 
 /* Debug Mode Styles */
 html.debug-mode {
-  #frequencyVisualizerBtn {
-    display: flex !important;
-  }
-
   .fps-display {
     display: flex !important;
   }
-}
-
-/* Hide debug buttons by default - only show when ?debug is in URL */
-#frequencyVisualizerBtn {
-  display: none !important;
 }
 
 /* FPS Display - Hidden by default, shown in debug mode */

@@ -29,20 +29,5 @@ body {
       opacity: 1;
     }
   }
-
-  /* Frequency Band Visualizer - Bottom Right */
-  #frequencyCanvas {
-    display: none;
-    position: fixed;
-    bottom: 70px;
-    right: var(--spacing-xl);
-    z-index: var(--z-overlay);
-    pointer-events: none;
-    border-radius: var(--radius-lg);
-    background: rgba(0, 0, 0, 0.3);
-    backdrop-filter: var(--blur-sm);
-    border: 1px solid var(--border-transparent);
-    opacity: 1;
-  }
 }
 

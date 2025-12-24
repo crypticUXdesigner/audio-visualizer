@@ -10,10 +10,7 @@
 /* Mobile Optimization - Hide elements and adjust layout */
 body {
   @media (max-width: 768px) {
-    /* Hide frequency visualizer completely on mobile */
-    #frequencyCanvas {
-      display: none !important;
-    }
+    /* Mobile-specific styles can be added here */
   }
 }
 

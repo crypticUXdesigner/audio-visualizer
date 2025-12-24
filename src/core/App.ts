@@ -9,7 +9,6 @@ import { ShaderLogger } from '../shaders/utils/ShaderLogger.js';
 import { colorPresets } from '../config/color-presets.js';
 import { AudioControls } from '../ui/PlaybackControls.js';
 import { ColorPresetSwitcher } from '../ui/ColorControls.js';
-import { DevTools } from '../../tools/DevTools.js';
 import { ShaderSwitcher } from '../ui/ShaderControls.js';
 import { initializeApp } from './AppInitializer.js';
 import { UI_CONFIG } from '../config/constants.js';
@@ -26,7 +25,6 @@ export class VisualPlayer {
     audioControls: AudioControls | null = null;
     colorPresetSwitcher: ColorPresetSwitcher | null = null;
     shaderSwitcher: ShaderSwitcher | null = null;
-    devTools: DevTools | null = null;
     
     constructor() {
         this.audioAnalyzer = null;
@@ -37,7 +35,6 @@ export class VisualPlayer {
         this.audioControls = null;
         this.colorPresetSwitcher = null;
         this.shaderSwitcher = null;
-        this.devTools = null;
     }
     
     /**
@@ -336,10 +333,6 @@ export class VisualPlayer {
         );
         
         // Shader parameter panel removed - controls are now hardcoded
-    }
-    
-    initDevTools(): void {
-        this.devTools = new DevTools();
     }
     
     initTopControls(): void {
