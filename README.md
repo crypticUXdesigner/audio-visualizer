@@ -7,33 +7,78 @@ An immersive WebGL audio visualizer with dynamic color palettes and real-time fr
 The project uses a modular architecture with clear separation of concerns:
 
 ### Core Modules (`src/core/`)
-- **AudioAnalyzer.js** - Handles audio analysis, frequency bands, beat detection, and stereo processing
-- **ColorGenerator.js** - OKLCH color space conversion, cubic bezier interpolation, and color palette generation
-- **WebGLUtils.js** - WebGL helper functions (shader loading, compilation, program creation)
+- **App.ts** - Main application class orchestrating all components
+- **AppInitializer.ts** - Handles initialization sequence and error recovery
+- **audio/** - Audio analysis pipeline:
+  - `AudioAnalyzer.ts` - Main audio analysis orchestrator
+  - `FrequencyAnalyzer.ts` - Frequency band calculations and stereo analysis
+  - `VolumeAnalyzer.ts` - Volume and peak detection
+  - `BeatDetector.ts` - Beat detection and ripple management
+  - `SmoothingProcessor.ts` - Tempo-relative smoothing
+  - `AudioLoader.ts` - Audio file loading and management
+- **color/** - Color generation and modulation:
+  - `ColorGenerator.ts` - OKLCH color space conversion and palette generation
+  - `ColorModulator.ts` - Dynamic color modulation based on audio
+  - `ColorConverter.ts` - Color space conversions
+- **services/** - Business logic services:
+  - `ColorService.ts` - Centralized color management and state
+  - `TrackLoadingService.ts` - Track loading and caching
 
 ### Shader System (`src/shaders/`)
-- **ShaderInstance.js** - Manages a single shader instance (WebGL context, uniforms, rendering)
-- **ShaderManager.js** - Manages multiple shader instances, activation, and rendering
-- **shader-configs/** - Configuration files for each shader (parameters, uniform mappings, color configs)
+- **ShaderManager.ts** - Manages multiple shader instances, registration, and switching
+- **ShaderInstance.ts** - Manages a single shader instance (WebGL context, uniforms, rendering)
+- **plugins/** - Shader-specific functionality via plugin pattern:
+  - `BaseShaderPlugin.ts` - Abstract base class for shader plugins
+  - `pluginFactory.ts` - Factory for creating shader-specific plugins
+  - Individual shader plugins (Arc, Heightmap, Refraction, Strings)
+- **managers/** - Specialized managers for shader state:
+  - `TimeOffsetManager.ts` - Time offset accumulation and smoothing
+  - `ColorTransitionManager.ts` - Smooth color transitions
+  - `PixelSizeAnimationManager.ts` - Pixel size animation
+  - `PerformanceMonitor.ts` - Performance monitoring and quality scaling
+  - `UniformManager.ts` - Uniform updates and caching
+  - `TextureManager.ts` - Texture management
+  - `WebGLContextManager.ts` - WebGL context lifecycle
+- **configs/** - Shader configuration files (parameters, uniform mappings, color configs)
+- **utils/** - Shader utilities (logging, errors, render loop, etc.)
 
 ### UI Modules (`src/ui/`)
-- **AudioControls.js** - Audio playback controls and track selection
-- **ColorPresetSwitcher.js** - Color preset selection UI
-- **UIToggle.js** - UI visibility toggle
+- **PlaybackControls.ts** - Audio playback controls and track selection
+- **ColorControls.ts** - Color preset selection UI
+- **ShaderControls.ts** - Shader switching UI
+- **WaveformScrubber.ts** - Interactive waveform navigation
+- **components/** - Reusable UI components (track selector, dropdown, search, etc.)
+
+### API Layer (`src/api/`)
+- **TrackService.ts** - Track data fetching
+- **AudiographService.ts** - Waveform/audiograph data
+- **EngagementService.ts** - Engagement metrics
+- **services/** - API infrastructure:
+  - `ApiClient.ts` - HTTP client with authentication
+  - `AuthService.ts` - Authentication management
+  - `BatchService.ts` - Batch request handling
 
 ### Configuration (`src/config/`)
-- **color-presets.js** - Predefined color palette presets
+- **color-presets.ts** - Predefined color palette presets
+- **constants.ts** - Application constants and configuration
+- **env.ts** - Environment variable validation
+- **trackRegistry.ts** - Track registry management
+- **trackRegistryLoader.ts** - Track registry loading
 
-### Entry Point
-- **src/main.js** - Main application entry point that wires everything together
+### Type System (`src/types/`)
+- Comprehensive TypeScript type definitions
+- Separate type files by domain (api, audio, shader, webgl)
+- Result type for functional error handling
 
-## Files
+## Technology Stack
 
-- `index.html` - Main HTML page with canvas elements and UI controls
-- `style.css` - Styling for the application
-- `src/main.js` - Application entry point
-- `shaders/vertex.glsl` - Vertex shader
-- `shaders/heightmap-fragment.glsl` - Fragment shader with animated fBm noise
+- **TypeScript** - Strict type checking with ES2020 target
+- **Vite** - Build tool and dev server
+- **WebGL** - Hardware-accelerated rendering
+- **Web Audio API** - Real-time audio analysis
+- **Connect-RPC** - Type-safe API client
+- **Sentry** - Error tracking and monitoring
+- **Zod** - Runtime validation
 
 ## Development
 
@@ -49,7 +94,7 @@ npm install
 npm run dev
 ```
 
-The dev server will start on `http://localhost:5173` (or another port if 5173 is busy) with hot module replacement. Changes to HTML, CSS, JS, and shader files will automatically reload in the browser.
+The dev server will start on `http://localhost:5173` (or another port if 5173 is busy) with hot module replacement. Changes to HTML, CSS, TS, and shader files will automatically reload in the browser.
 
 ### Build
 
@@ -59,6 +104,22 @@ npm run build
 ```
 
 The build output will be in the `dist/` directory, ready for deployment.
+
+### Type Checking
+
+Run TypeScript type checking:
+```bash
+npm run type-check
+```
+
+### Linting and Formatting
+
+```bash
+npm run lint          # Check for linting errors
+npm run lint:fix      # Fix linting errors
+npm run format        # Format code
+npm run format:check  # Check formatting
+```
 
 ## Deployment
 
@@ -121,19 +182,22 @@ npm run preview
 3. Select an audio track from the bottom-left controls
 4. The shader will automatically initialize and run fullscreen
 5. Use color preset buttons to change the color scheme
+6. Use shader switcher to change visual effects
 
 ## Customization
 
 ### Adding a New Shader
 
-1. Create a new shader config file in `src/shaders/shader-configs/`:
-```javascript
+1. Create a new shader config file in `src/shaders/configs/`:
+```typescript
+import type { ShaderConfig } from '../../types/index.js';
+
 export default {
     name: 'my-shader',
     displayName: 'My Custom Shader',
     canvasId: 'backgroundCanvas',
-    vertexPath: 'shaders/vertex.glsl',
-    fragmentPath: 'shaders/my-fragment.glsl',
+    vertexPath: 'shaders/source/vertex.glsl',
+    fragmentPath: 'shaders/source/my-fragment.glsl',
     
     parameters: {
         myParam: { 
@@ -162,20 +226,36 @@ export default {
         uVolume: (data) => data?.volume || 0,
         // ... map audio data to shader uniforms
     }
-};
+} satisfies ShaderConfig;
 ```
 
-2. Register the shader in `src/main.js`:
-```javascript
-import myShaderConfig from './shaders/shader-configs/my-shader.js';
+2. Create a shader plugin (optional, for shader-specific logic):
+```typescript
+import { BaseShaderPlugin } from '../plugins/BaseShaderPlugin.js';
+import type { ExtendedAudioData, ColorMap } from '../../../types/index.js';
+
+export class MyShaderPlugin extends BaseShaderPlugin {
+    onInit(): void {
+        // Plugin-specific initialization
+    }
+    
+    onUpdateUniforms(audioData: ExtendedAudioData | null, colors: ColorMap | null, deltaTime: number): void {
+        // Update shader-specific uniforms
+    }
+}
+```
+
+3. Register the shader in `src/core/AppInitializer.ts`:
+```typescript
+import myShaderConfig from '../shaders/configs/my-shader.js';
 // ...
-this.shaderManager.registerShader(myShaderConfig);
-await this.shaderManager.setActiveShader('my-shader');
+shaderManager.registerShader(myShaderConfig);
+await shaderManager.setActiveShader('my-shader');
 ```
 
 ### Customizing Colors
 
-Color presets are defined in `src/config/color-presets.js`. You can:
+Color presets are defined in `src/config/color-presets.ts`. You can:
 - Modify existing presets
 - Add new presets
 - Change the color configuration in shader configs
@@ -184,9 +264,12 @@ Color presets are defined in `src/config/color-presets.js`. You can:
 
 Shader parameters can be adjusted programmatically:
 
-```javascript
-window.BackgroundShader.setParameter('pixelSize', 2.0);
-const value = window.BackgroundShader.getParameter('pixelSize');
+```typescript
+const shader = shaderManager.getActiveShader();
+if (shader) {
+    shader.setParameter('pixelSize', 2.0);
+    const value = shader.getParameter('pixelSize');
+}
 ```
 
 ## API
@@ -206,6 +289,7 @@ The main application instance is also exposed as `window.VisualPlayer`.
 - Modern browser with WebGL support
 - Local server required (due to CORS restrictions when loading shader files)
 - ES6 modules support
+- TypeScript 5.9+ (for development)
 
 ## Features
 
@@ -217,6 +301,8 @@ The main application instance is also exposed as `window.VisualPlayer`.
 - **Waveform Scrubber** - Interactive audio navigation with visual waveform display
 - **Debug Mode** - FPS display for performance monitoring (add `?debug` to URL)
 - **Error Tracking** - Integrated Sentry monitoring with graceful fallbacks
+- **Type Safety** - Full TypeScript support with strict type checking
+- **Plugin System** - Extensible shader plugin architecture
 
 ## Security & Environment Variables
 
@@ -253,3 +339,5 @@ The GitHub Actions workflow builds the app WITHOUT API tokens by default (using 
 - The shader automatically handles window resizing
 - Performance is throttled to the target FPS for efficiency
 - Beat detection creates ripple effects synchronized with music
+- Color transitions are smooth and non-blocking
+- Audio analysis uses tempo-relative smoothing for natural feel

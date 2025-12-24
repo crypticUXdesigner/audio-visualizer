@@ -1,0 +1,278 @@
+---
+alwaysApply: true
+---
+# Visual Player - Code Guidelines
+
+## TypeScript Standards
+
+### Type Safety
+- Use strict TypeScript configuration (enforced via tsconfig.json)
+- Always provide explicit types for function parameters and return values
+- Use `interface` for object shapes, `type` for unions/intersections
+- Prefer `satisfies` over `as` for type checking without widening
+- Use type guards (`is`, `has`) for runtime type checking
+- Avoid `any` - use `unknown` and narrow with type guards
+
+### Type Definitions
+- Place type definitions in `src/types/` organized by domain
+- Use descriptive interface names (e.g., `ExtendedAudioData`, `ColorConfig`)
+- Export types from domain-specific files (e.g., `api.d.ts`, `audio.d.ts`)
+- Re-export commonly used types from `src/types/index.d.ts`
+- Use JSDoc comments for complex types
+
+### Error Handling
+- Use custom error classes with error codes (see `ShaderError` pattern)
+- Prefer `Result<T, E>` type for functional error handling where appropriate
+- Always handle errors at the appropriate level (don't swallow errors silently)
+- Log errors using `ShaderLogger` with appropriate context
+- Use type guards for error checking: `isError()`, `hasErrorDetails()`
+
+## Architecture Patterns
+
+### Class Organization
+- **Core Classes**: Main application logic (`App.ts`, `AudioAnalyzer.ts`)
+- **Service Classes**: Business logic and state management (`ColorService.ts`, `TrackLoadingService.ts`)
+- **Manager Classes**: Complex state management (`TimeOffsetManager.ts`, `ColorTransitionManager.ts`)
+- **Plugin Classes**: Extensible functionality (`BaseShaderPlugin.ts` and implementations)
+- **UI Classes**: User interface components (`AudioControls.ts`, `ColorPresetSwitcher.ts`)
+
+### Naming Conventions
+- **Classes**: PascalCase (`AudioAnalyzer`, `ShaderManager`)
+- **Methods/Variables**: camelCase (`getData()`, `audioAnalyzer`)
+- **Constants**: UPPER_SNAKE_CASE (`AUDIO_THRESHOLDS`, `UI_CONFIG`)
+- **Private Methods**: Prefix with `_` (`_validateManagers()`, `_doInitializeColors()`)
+- **Interfaces**: PascalCase, often with descriptive suffix (`ColorConfig`, `ShaderConfig`)
+- **Types**: PascalCase (`ColorMap`, `ParameterValue`)
+
+### File Organization
+- One class/interface per file (with exceptions for closely related types)
+- Group related functionality in directories (`audio/`, `color/`, `shaders/managers/`)
+- Use index files for clean imports (`src/types/index.d.ts`)
+- Keep utility functions in `utils/` directory
+- Place configuration in `config/` directory
+
+## Code Structure
+
+### Class Structure
+```typescript
+// 1. Imports (grouped: external, internal, types)
+import { ExternalLib } from 'external-lib';
+import { InternalUtil } from './utils/InternalUtil.js';
+import type { SomeType } from '../types/index.js';
+
+// 2. Interfaces/Types (if class-specific)
+interface ClassConfig {
+    // ...
+}
+
+// 3. Class definition with JSDoc
+/**
+ * Class description
+ * 
+ * Additional details about the class purpose and usage
+ */
+export class MyClass {
+    // 4. Public properties
+    publicProperty: Type;
+    
+    // 5. Private properties
+    private _privateProperty: Type;
+    
+    // 6. Constructor
+    constructor(config: ClassConfig) {
+        // ...
+    }
+    
+    // 7. Public methods (grouped by functionality)
+    publicMethod(): void {
+        // ...
+    }
+    
+    // 8. Private methods (prefixed with _)
+    private _privateMethod(): void {
+        // ...
+    }
+}
+```
+
+### Method Documentation
+- Always include JSDoc comments for public methods
+- Document parameters with `@param {Type} name - Description`
+- Document return values with `@returns {Type} Description`
+- Document exceptions with `@throws {ErrorType} Description`
+- Include usage examples for complex methods
+
+### Async/Await Patterns
+- Prefer `async/await` over Promise chains
+- Always handle errors in async functions
+- Use `Promise.all()` for parallel operations
+- Use `withTimeout()` utility for operations that may hang
+
+### Dependency Injection
+- Pass dependencies via constructor (avoid global state)
+- Use optional parameters with defaults for configuration
+- Inject managers/services rather than creating them internally
+- Example: `TimeOffsetManager` receives `loudnessControls` via `setLoudnessControls()`
+
+## Shader System Patterns
+
+### Shader Configuration
+- Define shader configs in `src/shaders/configs/`
+- Use `satisfies ShaderConfig` for type checking
+- Include all required properties: `name`, `displayName`, `fragmentPath`, `vertexPath`, `colorConfig`
+- Define `parameters` with proper types, defaults, min/max, and labels
+- Provide `uniformMapping` functions for audio data
+
+### Shader Plugins
+- Extend `BaseShaderPlugin` for shader-specific functionality
+- Override only necessary methods (don't override no-ops)
+- Keep plugin logic focused and cohesive
+- Use plugin factory pattern for creation
+- Document plugin-specific behavior
+
+### Manager Pattern
+- Managers handle complex state and calculations
+- Managers are initialized in constructor, reset in `destroy()`
+- Managers expose `update()` methods called from render loop
+- Managers use configuration objects for initialization
+- Managers support dependency injection for external controls
+
+## Error Handling Patterns
+
+### Custom Errors
+```typescript
+export class CustomError extends Error {
+    code: string;
+    details: Record<string, unknown>;
+    
+    constructor(message: string, code: string, details: Record<string, unknown> = {}) {
+        super(message);
+        this.name = 'CustomError';
+        this.code = code;
+        this.details = details;
+    }
+}
+
+export const ErrorCodes = {
+    NOT_INITIALIZED: 'NOT_INITIALIZED',
+    INVALID_INPUT: 'INVALID_INPUT',
+    // ...
+} as const;
+```
+
+### Result Type Usage
+```typescript
+import { Result, ok, err, isOk } from '../utils/result.js';
+
+function riskyOperation(): Result<Data, Error> {
+    try {
+        const data = doSomething();
+        return ok(data);
+    } catch (error) {
+        return err(error instanceof Error ? error : new Error(String(error)));
+    }
+}
+
+// Usage
+const result = riskyOperation();
+if (isOk(result)) {
+    useData(result.data);
+} else {
+    handleError(result.error);
+}
+```
+
+## Performance Considerations
+
+### WebGL Optimization
+- Cache uniform locations (use `UniformLocationCache`)
+- Avoid unnecessary WebGL state changes
+- Use object pooling for frequently allocated arrays (e.g., `_rippleArrays`)
+- Track last uniform values to skip redundant updates
+- Throttle frame rate to target FPS
+
+### Memory Management
+- Clean up event listeners using `EventListenerManager`
+- Destroy WebGL resources in `destroy()` methods
+- Reset managers to clear state
+- Use `Float32Array` for performance-critical data
+- Avoid creating objects in render loops
+
+### Render Loop
+- Use `RenderLoop` class for consistent frame timing
+- Skip frames if delta time is too small (throttling)
+- Update managers before rendering
+- Batch uniform updates when possible
+
+## Testing & Validation
+
+### Input Validation
+- Validate configuration objects in constructors
+- Use type guards for runtime type checking
+- Provide helpful error messages with context
+- Use Zod for complex runtime validation (if needed)
+
+### Logging
+- Use `ShaderLogger` for all logging (not `console.log`)
+- Use appropriate log levels: `debug`, `info`, `warn`, `error`
+- Include context in log messages
+- Don't log sensitive data (tokens, passwords)
+
+## Code Quality
+
+### Comments
+- Write self-documenting code (prefer clear names over comments)
+- Use comments to explain "why", not "what"
+- Document complex algorithms and non-obvious behavior
+- Keep comments up-to-date with code changes
+
+### Formatting
+- Use Prettier for consistent formatting
+- Run `npm run format` before committing
+- Follow existing code style in the file
+
+### Imports
+- Group imports: external libraries, internal modules, types
+- Use absolute imports with `@/` prefix when configured
+- Use `.js` extension in imports (required for ES modules)
+- Sort imports logically (alphabetically within groups)
+
+## Git & Version Control
+
+### Commit Messages
+- Use descriptive commit messages
+- Reference issues/PRs when applicable
+- Keep commits focused (one logical change per commit)
+
+### Branching
+- Use feature branches for new features
+- Keep `main` branch stable and deployable
+- Use descriptive branch names
+
+## Security
+
+### Environment Variables
+- Never commit `.env.local` or `.env` files
+- Use `VITE_` prefix for client-side variables
+- Validate environment variables on startup
+- Provide helpful error messages for missing required variables
+
+### API Keys
+- Never hardcode API keys or tokens
+- Use environment variables for sensitive data
+- Document which endpoints require authentication
+- Handle authentication errors gracefully
+
+## Documentation
+
+### Code Documentation
+- Document all public APIs (classes, methods, interfaces)
+- Include usage examples for complex APIs
+- Keep README.md up-to-date with architecture changes
+- Document configuration options and their effects
+
+### Inline Documentation
+- Use JSDoc for all public methods
+- Explain complex algorithms
+- Document non-obvious behavior or workarounds
+- Include parameter and return type information
