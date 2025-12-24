@@ -1,7 +1,7 @@
 // Mathematical Utility Functions
 // Common mathematical operations used in strings shader
 
-#include "shaders/common/constants.glsl"
+#include "common/constants.glsl"
 
 #define CUBIC_BEZIER_MAX_ITERATIONS 10
 

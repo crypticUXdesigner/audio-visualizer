@@ -1,9 +1,9 @@
 // Post-Processing Effects
 // Contrast adjustment and glow effects
 
-#include "shaders/common/constants.glsl"
-#include "shaders/strings/math-utils.glsl"
-#include "shaders/strings/validation.glsl"
+#include "common/constants.glsl"
+#include "strings/math-utils.glsl"
+#include "strings/validation.glsl"
 
 // Apply post-processing effects (contrast and glow)
 vec3 applyPostProcessing(vec3 finalColor) {

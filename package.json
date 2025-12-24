@@ -7,10 +7,10 @@
     "build": "vite build",
     "preview": "vite preview",
     "deploy": "npm run build && gh-pages -d dist",
-    "lint": "eslint src --ext .js,.jsx",
-    "lint:fix": "eslint src --ext .js,.jsx --fix",
-    "format": "prettier --write \"src/**/*.{js,jsx,json,css,md}\"",
-    "format:check": "prettier --check \"src/**/*.{js,jsx,json,css,md}\"",
+    "lint": "eslint src --ext .js,.jsx,.ts,.tsx",
+    "lint:fix": "eslint src --ext .js,.jsx,.ts,.tsx --fix",
+    "format": "prettier --write \"src/**/*.{js,jsx,ts,tsx,json,css,md}\"",
+    "format:check": "prettier --check \"src/**/*.{js,jsx,ts,tsx,json,css,md}\"",
     "type-check": "tsc --noEmit"
   },
   "devDependencies": {
@@ -23,6 +23,7 @@
     "postcss": "^8.5.6",
     "postcss-nesting": "^13.0.2",
     "prettier": "^3.7.4",
+    "rollup-plugin-visualizer": "^6.0.5",
     "typescript": "^5.9.3",
     "vite": "^5.0.0"
   },
@@ -30,6 +31,7 @@
     "@bufbuild/protobuf": "^2.10.2",
     "@connectrpc/connect-web": "^2.1.1",
     "@sentry/browser": "^10.31.0",
-    "node-fetch": "^3.3.2"
+    "node-fetch": "^3.3.2",
+    "zod": "^4.2.1"
   }
 }

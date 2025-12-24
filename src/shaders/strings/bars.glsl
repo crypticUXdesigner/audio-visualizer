@@ -1,9 +1,9 @@
 // Frequency Bar Rendering
 // Renders frequency level bars behind strings
 
-#include "shaders/common/constants.glsl"
-#include "shaders/strings/math-utils.glsl"
-#include "shaders/strings/band-utils.glsl"
+#include "common/constants.glsl"
+#include "strings/math-utils.glsl"
+#include "strings/band-utils.glsl"
 
 // Render frequency bars
 vec3 renderBars(vec2 uv, int band, bool isLeftSide, float leftLevel, float rightLevel, vec3 finalBackground) {

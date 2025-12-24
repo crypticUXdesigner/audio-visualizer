@@ -13,7 +13,6 @@ export interface AudioData {
   beatTime: number;
   beatIntensity: number;
   stereoBalance: number;
-  // ... additional audio properties
 }
 
 /**
@@ -41,13 +40,20 @@ export interface ColorRange {
  * Interpolation curve configuration
  */
 export interface InterpolationCurve {
-  lightness: number[];
-  chroma: number[];
-  hue: number[];
+  lightness: [number, number, number, number];
+  chroma: [number, number, number, number];
+  hue: [number, number, number, number];
 }
 
 /**
+ * Color map type - maps color names to RGB tuples [r, g, b] in range [0, 1]
+ */
+export type ColorMap = Record<string, [number, number, number]>;
+
+/**
  * Shader configuration
+ * Note: plugin, onInit, and onRender use unknown to avoid circular dependencies.
+ * Use ShaderConfigWithHooks in ShaderInstance.ts for properly typed versions.
  */
 export interface ShaderConfig {
   name: string;
@@ -57,13 +63,18 @@ export interface ShaderConfig {
   canvasId?: string;
   parameters?: Record<string, ParameterConfig>;
   colorConfig: ColorConfig;
-  uniformMapping?: Record<string, (data: AudioData) => number>;
+  uniformMapping?: Record<string, (data: ExtendedAudioData | null) => number>;
+  // These use unknown to avoid circular dependency with ShaderInstance
+  // ShaderInstance.ts defines ShaderConfigWithHooks with proper types
+  plugin?: new (instance: unknown, config: ShaderConfig) => unknown;
+  onInit?: (instance: unknown) => void;
+  onRender?: (instance: unknown, audioData: ExtendedAudioData | null) => void;
 }
 
 /**
  * Parameter configuration for shader parameters
  */
-export interface ParameterConfig {
+export interface ParameterConfig extends Record<string, unknown> {
   type: 'float' | 'int';
   default: number;
   min?: number;
@@ -72,17 +83,9 @@ export interface ParameterConfig {
   label?: string;
 }
 
-/**
- * Track information from API
- */
-export interface Track {
-  name: string;
-  display_name?: string;
-  displayName?: string;
-  contributor_names?: string[];
-  contributorNames?: string[];
-  mp3Url?: string;
-  bpm?: number;
-  // ... additional track properties
-}
+// Re-export API types
+export type { Track, ListTracksResponse, GetTrackResponse } from './api.js';
+export type { ExtendedAudioData, FrequencyBandData, StereoData, BeatData, RippleData as AudioRippleData } from './audio.js';
+export type { WebGLExtension, UniformType, UniformLocation, TextureInfo, ShaderSource, WebGLRippleData, RippleData } from './webgl.js';
+export type { ShaderEntry, LoudnessControls, RippleArrays, LastUniformValues, UniformLocations, ParameterValue, ParameterDef, PluginFactoryOptions } from './shader.js';
 

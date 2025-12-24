@@ -92,13 +92,13 @@ uniform float uGlitchBlurAmount;       // Blur amount (0.0-1.0)
 uniform float uGlitchPixelSize;        // Pixelization size (0.0 = off, >0.0 = pixel size)
 
 // Include utility modules
-#include "shaders/strings/math-utils.glsl"
-#include "shaders/strings/band-utils.glsl"
-#include "shaders/strings/effects.glsl"
-#include "shaders/strings/background.glsl"
-#include "shaders/strings/bars.glsl"
-#include "shaders/strings/strings.glsl"
-#include "shaders/strings/post-processing.glsl"
+#include "strings/math-utils.glsl"
+#include "strings/band-utils.glsl"
+#include "strings/effects.glsl"
+#include "strings/background.glsl"
+#include "strings/bars.glsl"
+#include "strings/strings.glsl"
+#include "strings/post-processing.glsl"
 
 void main() {
     vec2 fragCoord = gl_FragCoord.xy;

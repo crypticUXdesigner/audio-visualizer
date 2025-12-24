@@ -3,16 +3,47 @@
 
 // Sample frequency level for a specific band
 float sampleBandFrequencyLevel(int band, bool isLeftSide, sampler2D frequencyTexture) {
-    float bandX = (float(band) + 0.5) / float(uNumBands);
-    vec2 texCoord = vec2(bandX, 0.5);
+    // Texture width = measuredBands, visual bands = uNumBands
+    // Map visual band index to texture coordinate
+    float numBandsFloat = float(uNumBands);
+    float measuredBandsFloat = uMeasuredBands;
+    float bandIndex = float(band);
+    
+    // Calculate texture X coordinate: map visual band [0, uNumBands-1] to texture [0, measuredBands-1]
+    // If they're equal, direct mapping. If different, scale proportionally.
+    float textureX;
+    if (numBandsFloat == measuredBandsFloat) {
+        // Direct mapping when counts match
+        textureX = (bandIndex + 0.5) / measuredBandsFloat;
+    } else {
+        // Scale visual band index to measured band space
+        float normalizedBand = bandIndex / max(numBandsFloat - 1.0, 1.0);
+        float measuredBandIndex = normalizedBand * (measuredBandsFloat - 1.0);
+        textureX = (measuredBandIndex + 0.5) / measuredBandsFloat;
+    }
+    
+    vec2 texCoord = vec2(textureX, 0.5);
     vec4 freqData = texture2D(frequencyTexture, texCoord);
     return isLeftSide ? freqData.r : freqData.a;
 }
 
 // Sample height level for a specific band
 float sampleBandHeightLevel(int band, bool isLeftSide, sampler2D heightTexture) {
-    float bandX = (float(band) + 0.5) / float(uNumBands);
-    vec2 texCoord = vec2(bandX, 0.5);
+    // Same logic as above
+    float numBandsFloat = float(uNumBands);
+    float measuredBandsFloat = uMeasuredBands;
+    float bandIndex = float(band);
+    
+    float textureX;
+    if (numBandsFloat == measuredBandsFloat) {
+        textureX = (bandIndex + 0.5) / measuredBandsFloat;
+    } else {
+        float normalizedBand = bandIndex / max(numBandsFloat - 1.0, 1.0);
+        float measuredBandIndex = normalizedBand * (measuredBandsFloat - 1.0);
+        textureX = (measuredBandIndex + 0.5) / measuredBandsFloat;
+    }
+    
+    vec2 texCoord = vec2(textureX, 0.5);
     vec4 heightData = texture2D(heightTexture, texCoord);
     return isLeftSide ? heightData.r : heightData.a;
 }

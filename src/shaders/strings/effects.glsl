@@ -1,7 +1,7 @@
 // Post-Processing Effects
 // Glitch, pixelization, and other visual effects
 
-#include "shaders/common/constants.glsl"
+#include "common/constants.glsl"
 
 // Glitch effect function - applies randomized column reordering and flipping
 vec2 applyGlitchDistortion(vec2 uv, float time) {

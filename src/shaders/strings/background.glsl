@@ -1,11 +1,11 @@
 // Background Noise and Mask Calculation
 // Handles background noise pattern, audio-reactive brightness, and visualization mask
 
-#include "shaders/common/constants.glsl"
-#include "shaders/strings/math-utils.glsl"
-#include "shaders/strings/validation.glsl"
-#include "shaders/strings/effects.glsl"
-#include "shaders/strings/band-utils.glsl"
+#include "common/constants.glsl"
+#include "strings/math-utils.glsl"
+#include "strings/validation.glsl"
+#include "strings/effects.glsl"
+#include "strings/band-utils.glsl"
 
 // Shader-specific constants
 #define FBM_OCTAVES     7
