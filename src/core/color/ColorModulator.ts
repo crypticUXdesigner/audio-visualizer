@@ -202,16 +202,6 @@ export class ColorModulator {
     }
     
     /**
-     * Set smoothing factor (deprecated - now using tempo-relative smoothing)
-     * Kept for backward compatibility but no longer used
-     * @param {number} factor - Smoothing factor (ignored)
-     */
-    setSmoothingFactor(_factor: number): void {
-        // No-op: tempo-relative smoothing is now used instead
-        ShaderLogger.warn('ColorModulator.setSmoothingFactor() is deprecated. Tempo-relative smoothing is now used automatically.');
-    }
-    
-    /**
      * Get current hue shift value
      * @returns {number} Current smoothed hue shift in degrees
      */

@@ -253,14 +253,14 @@ export class AudioControls {
             this.playRandomTrack();
         };
         this.playbackController.onLoadPreviousTrack = async () => {
-            const previousTrack = this.getPreviousTrack();
+            const previousTrack = this.trackSelector.getPreviousTrack();
             if (previousTrack && previousTrack.dataset.track) {
                 const trackBPM = previousTrack?.dataset.trackBpm ? parseFloat(previousTrack.dataset.trackBpm) : null;
                 await this.loadTrack(previousTrack.dataset.track, { bpm: trackBPM ?? undefined });
             }
         };
         this.playbackController.onLoadNextTrack = async () => {
-            const nextTrack = this.getNextTrack();
+            const nextTrack = this.trackSelector.getNextTrack();
             if (nextTrack && nextTrack.dataset.track) {
                 const trackBPM = nextTrack?.dataset.trackBpm ? parseFloat(nextTrack.dataset.trackBpm) : null;
                 await this.loadTrack(nextTrack.dataset.track, { bpm: trackBPM ?? undefined });
@@ -343,16 +343,6 @@ export class AudioControls {
         this.titleDisplay.stopMonitoring();
     }
     
-    // Track dropdown methods delegated to TrackSelector
-    toggleDropdown(): void {
-        this.trackSelector.toggleDropdown();
-    }
-    
-    closeDropdown(): void {
-        this.trackSelector.closeDropdown();
-    }
-    
-    
     async loadTrack(filenameOrUrl: string, metadata: { bpm?: number } = {}): Promise<void> {
         try {
             // Show loading spinner
@@ -362,17 +352,43 @@ export class AudioControls {
             const isUrl = filenameOrUrl.startsWith('http://') || filenameOrUrl.startsWith('https://');
             const filePath = isUrl ? filenameOrUrl : `audio/${filenameOrUrl}`;
             
+            // Update trackOptions reference to ensure we have the latest tracks
+            this.trackOptions = document.querySelectorAll('.track-option');
+            
             // Update active option and dropdown text
             let selectedOption: HTMLElement | null = null;
             this.trackOptions.forEach((htmlOption) => {
                 const trackId = htmlOption.dataset.track;
-                if (trackId === filenameOrUrl || trackId === filePath) {
+                // Match by exact URL or by checking if the URL contains the track identifier
+                if (trackId === filenameOrUrl || trackId === filePath || 
+                    (filenameOrUrl && trackId && (trackId.includes(filenameOrUrl) || filenameOrUrl.includes(trackId)))) {
                     htmlOption.classList.add('active');
                     selectedOption = htmlOption;
                 } else {
                     htmlOption.classList.remove('active');
                 }
             });
+            
+            // If no exact match found, try to find by API track ID (for API tracks)
+            if (!selectedOption && filenameOrUrl) {
+                const allOptions = Array.from(this.trackOptions) as HTMLElement[];
+                selectedOption = allOptions.find(option => {
+                    const apiTrackId = option.dataset.apiTrackId;
+                    // Check if the URL contains the API track ID
+                    return apiTrackId && filenameOrUrl.includes(apiTrackId);
+                }) || null;
+                
+                if (selectedOption) {
+                    // Mark as active
+                    this.trackOptions.forEach((htmlOption) => {
+                        if (htmlOption === selectedOption) {
+                            htmlOption.classList.add('active');
+                        } else {
+                            htmlOption.classList.remove('active');
+                        }
+                    });
+                }
+            }
             
             // If metadata not provided but track option has BPM, use it
             if (!metadata.bpm && selectedOption !== null) {
@@ -385,9 +401,14 @@ export class AudioControls {
             
             if (selectedOption !== null && this.trackDropdownText) {
                 const option = selectedOption as HTMLElement;
-                this.trackDropdownText.textContent = option.textContent || '';
+                // Get track name from dataset or name element, fallback to textContent
+                const trackName = option.dataset.trackName || 
+                                 option.querySelector('.track-option-name')?.textContent || 
+                                 option.textContent || 
+                                 '';
+                this.trackDropdownText.textContent = trackName;
                 // Update title texture
-                this.updateTrackTitle(option.textContent || '');
+                this.updateTrackTitle(trackName);
                 
                 // Update cover image
                 this.updateTrackCover(option);
@@ -463,7 +484,10 @@ export class AudioControls {
      * @param {boolean} prepend - Whether to prepend to the list
      */
     async addTrackFromAPI(songName: string, username: string, autoLoad: boolean = false, preloadedTrack: Track | null = null, prepend: boolean = false): Promise<HTMLElement | null> {
-        return this.trackSelector.addTrackFromAPI(songName, username, autoLoad, preloadedTrack ?? undefined, prepend);
+        const result = await this.trackSelector.addTrackFromAPI(songName, username, autoLoad, preloadedTrack ?? undefined, prepend);
+        // Update trackOptions reference after adding
+        this.trackOptions = document.querySelectorAll('.track-option');
+        return result;
     }
     
     /**
@@ -481,82 +505,10 @@ export class AudioControls {
     }
     
     /**
-     * Setup playback mode button (delegated to PlaybackController)
-     */
-    setupPlaybackModeButton(): void {
-        // Handled by PlaybackController.init()
-    }
-    
-    /**
      * Update playback mode button state
      */
     updatePlaybackModeButtonState(): void {
         this.playbackController.updatePlaybackModeButtonState();
-    }
-    
-    /**
-     * Setup keyboard controls (delegated to PlaybackController)
-     */
-    setupKeyboardControls(): void {
-        // Handled by PlaybackController.init()
-    }
-    
-    /**
-     * Skip backward by specified seconds
-     * @param {number} seconds - Seconds to skip backward
-     */
-    skipBackward(seconds: number): void {
-        this.playbackController.skipBackward(seconds);
-    }
-    
-    /**
-     * Skip forward by specified seconds
-     * @param {number} seconds - Seconds to skip forward
-     */
-    skipForward(seconds: number): void {
-        this.playbackController.skipForward(seconds);
-    }
-    
-    // Track search is now handled by TrackSelector.init()
-    setupTrackSearch(): void {
-        // Delegated to TrackSelector.init() - no longer needed here
-    }
-    
-    // Track filtering and navigation methods delegated to TrackSelector
-    filterTracks(query: string): void {
-        this.trackSelector.filterTracks(query);
-    }
-    
-    setupTrackListKeyboardNavigation(): void {
-        // Delegated to TrackSelector.init()
-    }
-    
-    updateTrackOptionsFocusability(): void {
-        this.trackSelector.updateTrackOptionsFocusability();
-    }
-    
-    getVisibleTracks(): HTMLElement[] {
-        return this.trackSelector.getVisibleTracks();
-    }
-    
-    focusFirstVisibleTrack(): void {
-        this.trackSelector.focusFirstVisibleTrack();
-    }
-    
-    focusLastVisibleTrack(): void {
-        this.trackSelector.focusLastVisibleTrack();
-    }
-    
-    focusNextTrack(currentTrack: HTMLElement): void {
-        this.trackSelector.focusNextTrack(currentTrack);
-    }
-    
-    focusPreviousTrack(currentTrack: HTMLElement): void {
-        this.trackSelector.focusPreviousTrack(currentTrack);
-    }
-    
-    scrollTrackIntoView(track: HTMLElement): void {
-        this.trackSelector.scrollTrackIntoView(track);
     }
     
     async playRandomTrack(): Promise<void> {
@@ -610,18 +562,6 @@ export class AudioControls {
         }
     }
     
-    getCurrentTrackIndex(): number {
-        return this.trackSelector.getCurrentTrackIndex();
-    }
-    
-    getPreviousTrack(): HTMLElement | null {
-        return this.trackSelector.getPreviousTrack();
-    }
-    
-    getNextTrack(): HTMLElement | null {
-        return this.trackSelector.getNextTrack();
-    }
-    
     /**
      * Handle skip left button (previous track or restart)
      */
@@ -649,6 +589,9 @@ export class AudioControls {
     }
     
     selectRandomTrack(): void {
+        // Update trackOptions reference to ensure we have the latest tracks
+        this.trackOptions = document.querySelectorAll('.track-option');
+        
         if (!this.trackOptions || this.trackOptions.length === 0) {
             return;
         }

@@ -5,6 +5,15 @@
   box-sizing: border-box;
 }
 
+/* Font Face Declarations */
+@font-face {
+  font-family: 'FivoSansModern';
+  src: url('/fonts/FivoSansModern-ExtBlack.otf') format('opentype');
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
+}
+
 /* Ensure all text uses Lexend font */
 body,
 button,
@@ -14,5 +23,25 @@ textarea,
 h1, h2, h3, h4, h5, h6,
 p, span, div, a, label {
   font-family: var(--font-brand);
+}
+
+/* Global Focus Styles */
+*:focus,
+*:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Apply active styles when focused for buttons */
+button,
+input[type="button"],
+input[type="submit"] {
+  &:focus {
+    outline: none !important;
+  }
+
+  &:focus:not(:active) {
+    opacity: 1;
+  }
 }
 

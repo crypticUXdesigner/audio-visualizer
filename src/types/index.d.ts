@@ -86,6 +86,6 @@ export interface ParameterConfig extends Record<string, unknown> {
 // Re-export API types
 export type { Track, ListTracksResponse, GetTrackResponse } from './api.js';
 export type { ExtendedAudioData, FrequencyBandData, StereoData, BeatData, RippleData as AudioRippleData } from './audio.js';
-export type { WebGLExtension, UniformType, UniformLocation, TextureInfo, ShaderSource, WebGLRippleData, RippleData } from './webgl.js';
+export type { WebGLExtension, UniformType, UniformLocation, TextureInfo, ShaderSource, WebGLRippleData } from './webgl.js';
 export type { ShaderEntry, LoudnessControls, RippleArrays, LastUniformValues, UniformLocations, ParameterValue, ParameterDef, PluginFactoryOptions } from './shader.js';
 

@@ -32,10 +32,18 @@ export class TrackLoadingService {
    */
   async loadAllTracks(hideLoader?: () => void): Promise<void> {
     try {
+      // Load track registry data from JSON files first
+      const { ensureTrackRegistryLoaded } = await import('../../config/trackRegistry.js');
+      await ensureTrackRegistryLoaded();
+      
       // Dynamically import services to avoid circular dependencies
       const { loadTracks } = await import('../../api/TrackService.js');
       const { getTopEngagementTracks } = await import('../../api/EngagementService.js');
-      const { getTrackIdentifier, TRACK_REGISTRY, ENGAGEMENT_TRACKS_CACHE } = await import('../../config/trackRegistry.js');
+      const { getTrackIdentifier, getENGAGEMENT_TRACKS_CACHE, getTRACK_REGISTRY } = await import('../../config/trackRegistry.js');
+      
+      // Get loaded data
+      const TRACK_REGISTRY = getTRACK_REGISTRY();
+      const ENGAGEMENT_TRACKS_CACHE = getENGAGEMENT_TRACKS_CACHE();
       
       // Load engagement tracks first
       await this._loadEngagementTracks(getTopEngagementTracks, ENGAGEMENT_TRACKS_CACHE);
@@ -44,6 +52,7 @@ export class TrackLoadingService {
       await this._loadRegistryTracks(loadTracks, getTrackIdentifier, TRACK_REGISTRY);
       
       // Sort all tracks alphabetically after loading
+      // This will also auto-select and play a random track
       if (this.audioControls) {
         this.audioControls.sortTrackListAlphabetically();
       }

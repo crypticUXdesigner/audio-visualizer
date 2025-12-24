@@ -8,7 +8,7 @@ import { UniformUpdateHelper } from '../utils/UniformUpdateHelper.js';
 import type { ExtendedAudioData, ShaderConfig, ParameterValue } from '../../types/index.js';
 import type { ShaderInstance } from '../ShaderInstance.js';
 import type { UniformManager } from '../managers/UniformManager.js';
-import type { Colors } from '../../types/webgl.js';
+import type { ColorMap } from '../../types/index.js';
 
 interface SmoothingState extends Record<string, unknown> {
     smoothedVolumeScale: number;
@@ -126,7 +126,7 @@ export class RefractionShaderPlugin extends BaseShaderPlugin {
     /**
      * Update shader-specific uniforms
      */
-    onUpdateUniforms(_audioData: ExtendedAudioData | null, _colors: Colors | null, _deltaTime: number): void {
+    onUpdateUniforms(_audioData: ExtendedAudioData | null, _colors: ColorMap | null, _deltaTime: number): void {
         const gl = this.shaderInstance.gl;
         if (!gl) return;
         

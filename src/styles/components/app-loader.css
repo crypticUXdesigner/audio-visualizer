@@ -1,0 +1,82 @@
+/* App Loader Component */
+
+.app-loader {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  z-index: 10000;
+  opacity: 1;
+  transition: 
+    opacity var(--effects-default),
+    transform var(--spatial-default);
+  pointer-events: none;
+
+  &.hidden {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .loader {
+    width: var(--size-lg);
+    height: var(--size-lg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    
+    .loader-bar {
+      fill: var(--color-brand-150);
+      
+      &.loader-bar-1 {
+        animation: loader-pulse-bar-1 1s ease-in-out infinite;
+        animation-delay: 0s;
+      }
+      
+      &.loader-bar-2 {
+        animation: loader-pulse-bar-2 1s ease-in-out infinite;
+        animation-delay: 0.2s;
+      }
+      
+      &.loader-bar-3 {
+        animation: loader-pulse-bar-3 1s ease-in-out infinite;
+        animation-delay: 0.4s;
+      }
+    }
+  }
+}
+
+@keyframes loader-pulse-bar-1 {
+  0%, 100% {
+    y: 11px;
+    height: 2px;
+  }
+  50% {
+    y: 4px;
+    height: 16px;
+  }
+}
+
+@keyframes loader-pulse-bar-2 {
+  0%, 100% {
+    y: 11px;
+    height: 2px;
+  }
+  50% {
+    y: 4px;
+    height: 16px;
+  }
+}
+
+@keyframes loader-pulse-bar-3 {
+  0%, 100% {
+    y: 11px;
+    height: 2px;
+  }
+  50% {
+    y: 4px;
+    height: 16px;
+  }
+}
+

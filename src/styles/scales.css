@@ -621,4 +621,40 @@
     --z-base: 1;
     --z-overlay: 100;
     --z-modal: 1000;
+
+    /* Base Colors */
+    --color-black: #000;
+    --color-white: #fff;
+
+    /* Accent Colors (raw values) */
+    --color-accent: #00C8E8;
+    --color-accent-hover: #00E8FF;
+    --color-accent-secondary: rgba(0, 136, 164, 0.8);
+
+    /* Animation Scales - Timing Functions */
+    --spatial-fast-bezier: cubic-bezier(0.42, 1.67, 0.21, 0.90);
+    --spatial-default-bezier: cubic-bezier(0.38, 1.21, 0.22, 1.00);
+    --spatial-slow-bezier: cubic-bezier(0.39, 1.29, 0.35, 0.98);
+    --effects-fast-bezier: cubic-bezier(0.31, 0.94, 0.34, 1.00);
+    --effects-default-bezier: cubic-bezier(0.34, 0.80, 0.34, 1.00);
+    --effects-slow-bezier: cubic-bezier(0.34, 0.88, 0.34, 1.00);
+
+    /* Animation Scales - Spatial Animations (Material Design Expressive Motion) */
+    --spatial-fast: 120ms var(--spatial-fast-bezier);
+    --spatial-default: 350ms var(--spatial-default-bezier);
+    --spatial-slow: 650ms var(--spatial-slow-bezier);
+
+    /* Animation Scales - Effect Animations */
+    --effects-fast: 120ms var(--effects-fast-bezier);
+    --effects-default: 350ms var(--effects-default-bezier);
+    --effects-slow: 650ms var(--effects-slow-bezier);
+
+    /* Animation Scales - Legacy Transitions */
+    --transition-fast: 0.2s ease;
+    --transition-base: 0.4s ease;
+
+    /* Effect Scales */
+    --blur-sm: blur(10px);
+    --blur-md: blur(20px);
+    --shadow-sm: 0 8px 32px rgba(0, 0, 0, 0.4);
   }

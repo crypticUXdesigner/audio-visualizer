@@ -5,7 +5,15 @@
 @import './scales.css';
 @import './token.css';
 @import './layout.css';
-@import './components.css';
+
+/* Component Styles */
+@import './components/app-loader.css';
+@import './components/top-controls.css';
+@import './components/top-control-menu.css';
+@import './components/audio-controls.css';
+@import './components/track-dropdown.css';
+@import './components/track-title.css';
+@import './components/fps-display.css';
 
 /* Mobile Optimization - Hide elements and adjust layout */
 body {

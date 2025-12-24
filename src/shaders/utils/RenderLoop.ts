@@ -5,16 +5,16 @@ import { ShaderLogger } from './ShaderLogger.js';
 import type { ExtendedAudioData } from '../../types/index.js';
 import type { AudioAnalyzer } from '../../core/audio/AudioAnalyzer.js';
 import type { ShaderInstance } from '../ShaderInstance.js';
-import type { Colors } from '../../types/webgl.js';
+import type { ColorMap } from '../../types/index.js';
 
 export class RenderLoop {
     private renderLoopId: number | null = null;
     private audioAnalyzer: AudioAnalyzer | null = null;
-    private colors: Colors | null = null;
+    private colors: ColorMap | null = null;
     private shaderInstance: ShaderInstance;
     private shaderManager: { 
         colorUpdateCallback?: (data: ExtendedAudioData) => void;
-        colors?: Colors;
+        colors?: ColorMap;
         onFirstColorUpdate?: () => void;
     } | null = null;
     
@@ -27,7 +27,7 @@ export class RenderLoop {
      */
     setShaderManager(shaderManager: { 
         colorUpdateCallback?: (data: ExtendedAudioData) => void;
-        colors?: Colors;
+        colors?: ColorMap;
         onFirstColorUpdate?: () => void;
     } | null): void {
         this.shaderManager = shaderManager;
@@ -39,7 +39,7 @@ export class RenderLoop {
      * @param audioAnalyzer - Audio analyzer instance
      * @param colors - Initial color values (optional)
      */
-    start(audioAnalyzer: AudioAnalyzer, colors: Colors | null): void {
+    start(audioAnalyzer: AudioAnalyzer, colors: ColorMap | null): void {
         // Stop existing loop if running
         if (this.renderLoopId) {
             this.stop();
@@ -129,7 +129,7 @@ export class RenderLoop {
      * Starts a smooth transition from current colors to new colors
      * @param colors - New colors object with color, color2, etc. properties
      */
-    updateColors(colors: Colors): void {
+    updateColors(colors: ColorMap): void {
         if (!colors) return;
         
         const isFirstColorUpdate = !this.colors || 
@@ -141,7 +141,7 @@ export class RenderLoop {
     /**
      * Get current colors
      */
-    getColors(): Colors | null {
+    getColors(): ColorMap | null {
         return this.colors;
     }
     

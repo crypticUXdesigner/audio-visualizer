@@ -21,7 +21,7 @@ import type { ShaderManager } from './ShaderManager.js';
 import type { UniformManager } from './managers/UniformManager.js';
 import type { TextureManager } from './managers/TextureManager.js';
 import type { UniformLocationCache } from './managers/UniformLocationCache.js';
-import type { Colors } from '../types/webgl.js';
+import type { ColorMap } from '../types/index.js';
 import type { RippleArrays, LastUniformValues, UniformLocations, ParameterValue } from '../types/shader.js';
 
 interface ShaderConfigWithHooks extends Omit<ShaderConfig, 'plugin' | 'onInit' | 'onRender'> {
@@ -215,25 +215,19 @@ export class ShaderInstance {
     
     /**
      * Initialize the shader instance
-     * Loads and compiles shaders, sets up WebGL context, initializes managers
-     * @throws Error If canvas element is not found
-     * @throws Error If shader compilation or linking fails
+     * Delegates to ShaderInitializer for all initialization logic
      * @returns Promise that resolves when initialization is complete
      */
     async init(): Promise<void> {
         if (this.isInitialized) {
             ShaderLogger.warn(`ShaderInstance ${this.config.name} already initialized`);
             return;
-            }
-            
-            // Set up context lost/restored handlers
-            this.webglContext.onContextLost = () => {
-                this._onContextLost();
-            };
-            this.webglContext.onContextRestored = () => {
-                this._onContextRestored();
-            };
-            
+        }
+        
+        // Set up context lost/restored handlers before initialization
+        this._setupContextHandlers();
+        
+        // Delegate initialization to ShaderInitializer
         const initContext: ShaderInitContext = {
             config: this.config,
             webglContext: this.webglContext,
@@ -254,33 +248,46 @@ export class ShaderInstance {
         }
         
         // Apply initialization results
-        this.gl = result.gl;
-        this.canvas = result.canvas;
-        this.ext = result.ext;
-        this.program = result.program;
-        this.quadBuffer = result.quadBuffer;
-        this.uniformLocationCache = result.uniformLocationCache;
-        this.uniformLocations = result.uniformLocations;
-        this.uniformManager = result.uniformManager;
-        this.textureManager = result.textureManager;
-        this.webglFallbackActive = result.webglFallbackActive;
+        Object.assign(this, {
+            gl: result.gl,
+            canvas: result.canvas,
+            ext: result.ext,
+            program: result.program,
+            quadBuffer: result.quadBuffer,
+            uniformLocationCache: result.uniformLocationCache,
+            uniformLocations: result.uniformLocations,
+            uniformManager: result.uniformManager,
+            textureManager: result.textureManager,
+            webglFallbackActive: result.webglFallbackActive
+        });
         
-        // Call plugin onInit() AFTER all managers are assigned
-        // This ensures textureManager and uniformLocations are available
+        // Call plugin onInit() after all managers are assigned
         if (this.plugin) {
             this.plugin.onInit();
         }
-            
-        // Call custom init hook if provided (after initialization is complete)
+        
+        // Call custom init hook if provided
         if (this.config.onInit) {
             this.config.onInit(this);
         }
         
         // Ensure canvas is resized with current quality after initialization
-        // This ensures quality scaling is applied from the start
         this.resize();
         
         this.isInitialized = true;
+    }
+    
+    /**
+     * Set up WebGL context lost/restored handlers
+     * @private
+     */
+    _setupContextHandlers(): void {
+        this.webglContext.onContextLost = () => {
+            this._onContextLost();
+        };
+        this.webglContext.onContextRestored = () => {
+            this._onContextRestored();
+        };
     }
     
     /**
@@ -411,7 +418,7 @@ export class ShaderInstance {
      * @param audioData - Audio data from AudioAnalyzer (optional)
      * @param colors - Color values (optional)
      */
-    render(audioData: ExtendedAudioData | null = null, colors: Colors | null = null): void {
+    render(audioData: ExtendedAudioData | null = null, colors: ColorMap | null = null): void {
         if (!this.isInitialized || !this.gl || !this.program) return;
         
         // Validate managers are initialized
@@ -548,11 +555,11 @@ export class ShaderInstance {
      * @param audioAnalyzer - Audio analyzer instance
      * @param colors - Initial color values (optional)
      */
-    startRenderLoop(audioAnalyzer: AudioAnalyzer, colors: Colors | null): void {
+    startRenderLoop(audioAnalyzer: AudioAnalyzer, colors: ColorMap | null): void {
         // Set shader manager reference for color updates
         this.renderLoop.setShaderManager(this._shaderManager as { 
             colorUpdateCallback?: (data: ExtendedAudioData) => void;
-            colors?: Colors;
+            colors?: ColorMap;
             onFirstColorUpdate?: () => void;
         } | null);
         
@@ -568,7 +575,7 @@ export class ShaderInstance {
      * Starts a smooth transition from current colors to new colors
      * @param colors - New colors object with color, color2, etc. properties
      */
-    updateColors(colors: Colors): void {
+    updateColors(colors: ColorMap): void {
         this.renderLoop.updateColors(colors);
     }
     

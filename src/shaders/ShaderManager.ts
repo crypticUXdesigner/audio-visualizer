@@ -5,14 +5,14 @@ import { ShaderInstance } from './ShaderInstance.js';
 import { ShaderLogger } from './utils/ShaderLogger.js';
 import type { ShaderConfig, ExtendedAudioData } from '../types/index.js';
 import type { AudioAnalyzer } from '../core/audio/AudioAnalyzer.js';
-import type { Colors } from '../types/webgl.js';
+import type { ColorMap } from '../types/index.js';
 import type { ShaderEntry, LoudnessControls, ParameterValue } from '../types/shader.js';
 
 export class ShaderManager {
     shaders: Map<string, ShaderEntry>;
     activeShader: ShaderInstance | null;
     audioAnalyzer: AudioAnalyzer | null;
-    colors: Colors | null;
+    colors: ColorMap | null;
     colorUpdateCallback: ((audioData: ExtendedAudioData) => void) | null;
     onFirstColorUpdate: (() => void) | null;
     loudnessControls: LoudnessControls | null;
@@ -197,7 +197,7 @@ export class ShaderManager {
      * Set colors for all shaders
      * @param colors - Color object with color, color2, etc.
      */
-    setColors(colors: Colors | null): void {
+    setColors(colors: ColorMap | null): void {
         this.colors = colors;
         
         // Update active shader's render loop with new colors

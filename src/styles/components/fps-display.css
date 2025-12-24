@@ -1,0 +1,40 @@
+/* FPS Display Component (Debug) */
+
+html.debug-mode .fps-display {
+  display: flex !important;
+}
+
+.fps-display {
+  display: none !important;
+  position: fixed;
+  top: var(--scale-4);
+  right: var(--scale-4);
+  background: rgba(0, 0, 0, 0.8);
+  color: var(--color-white);
+  padding: var(--scale-2) var(--scale-3);
+  border-radius: var(--radius-md);
+  font-family: 'Courier New', monospace;
+  font-size: var(--text-sm);
+  z-index: 1000;
+  gap: var(--scale-1);
+  flex-direction: column;
+  backdrop-filter: var(--blur-sm);
+  border: 1px solid var(--border-transparent);
+
+  .fps-stat {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--scale-2);
+  }
+
+  .fps-label {
+    opacity: 0.7;
+    font-size: var(--text-xs);
+  }
+
+  .fps-value {
+    font-weight: bold;
+    font-size: var(--text-sm);
+  }
+}
+

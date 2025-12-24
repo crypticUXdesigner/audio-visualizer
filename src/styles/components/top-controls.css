@@ -1,0 +1,62 @@
+/* Top Controls Component */
+
+.top-controls {
+  position: fixed;
+  top: var(--pd-xl);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: var(--z-modal);
+  display: flex;
+  gap: var(--pd-sm);
+  align-items: center;
+  transition: opacity var(--effects-default), transform var(--spatial-default);
+
+  &.ui-hidden {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-20px);
+    pointer-events: none;
+  }
+
+  .top-control-item {
+    position: relative;
+  }
+
+  .top-control-btn {
+    width: var(--size-lg);
+    height: var(--size-lg);
+    padding: 0;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--radius-lg);
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: 
+      background var(--effects-fast), 
+      border-color var(--effects-fast), 
+      color var(--effects-fast);
+    user-select: none;
+
+    svg {
+      width: var(--icon-lg);
+      height: var(--icon-lg);
+    }
+
+    &:hover {
+      background: rgba(0, 0, 0, 0);
+      backdrop-filter: var(--blur-md);
+      border-color: var(--border-transparent);
+      color: var(--text-primary);
+    }
+
+    &.active {
+      background: rgba(0, 0, 0, 0);
+      backdrop-filter: var(--blur-md);
+      border-color: var(--border-light);
+      color: var(--text-primary);
+    }
+  }
+}
+

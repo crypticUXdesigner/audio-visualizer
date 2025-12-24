@@ -2,7 +2,6 @@
 // Main application class containing all application logic
 
 import { AudioAnalyzer } from './audio/AudioAnalyzer.js';
-import { hexToRgb, rgbToOklch, interpolateHue } from './color/ColorConverter.js';
 import { ColorModulator } from './color/ColorModulator.js';
 import { ShaderManager } from '../shaders/ShaderManager.js';
 import { ShaderLogger } from '../shaders/utils/ShaderLogger.js';
@@ -250,72 +249,12 @@ export class VisualPlayer {
         }, UI_CONFIG.TRACK_LOAD_DELAY);
         
         // Initialize color preset switcher
+        if (!this.colorService) {
+            throw new Error('ColorService not initialized');
+        }
         this.colorPresetSwitcher = new ColorPresetSwitcher(
             colorPresets,
-            (presetConfig) => {
-                // Update color config and regenerate colors
-                if (!this.colorConfig) {
-                    return;
-                }
-                
-                // Deep merge to preserve structure
-                if (presetConfig.baseHue) this.colorConfig.baseHue = presetConfig.baseHue;
-                if (presetConfig.darkest) Object.assign(this.colorConfig.darkest, presetConfig.darkest);
-                if (presetConfig.brightest) Object.assign(this.colorConfig.brightest, presetConfig.brightest);
-                if (presetConfig.interpolationCurve) this.colorConfig.interpolationCurve = presetConfig.interpolationCurve;
-                
-                // Calculate and store actual hue values for sliders
-                if (presetConfig.baseHue && presetConfig.darkest.hueOffset !== undefined) {
-                    const baseRgb = hexToRgb(presetConfig.baseHue);
-                    const [, , baseH] = rgbToOklch(baseRgb);
-                    this.colorConfig.darkest.hue = interpolateHue(baseH, baseH + presetConfig.darkest.hueOffset, 1.0);
-                }
-                if (presetConfig.baseHue && presetConfig.brightest.hueOffset !== undefined) {
-                    const baseRgb = hexToRgb(presetConfig.baseHue);
-                    const [, , baseH] = rgbToOklch(baseRgb);
-                    this.colorConfig.brightest.hue = interpolateHue(baseH, baseH + presetConfig.brightest.hueOffset, 1.0);
-                }
-                
-                // Update color service with new config
-                if (this.colorService) {
-                    this.colorService.updateColorConfig(this.colorConfig);
-                    // Regenerate colors (this will update shader manager)
-                    this.colorService.initializeColors().catch(err => {
-                        ShaderLogger.error('Error initializing colors:', err);
-                    });
-                }
-            },
-            (property, value, target) => {
-                // Handle individual property changes from sliders
-                if (!this.colorConfig) {
-                    return;
-                }
-                
-                if (target === 'darkest' && this.colorConfig.darkest) {
-                    const darkest = this.colorConfig.darkest;
-                    if (property === 'hue' || property === 'chroma' || property === 'lightness' || property === 'hueOffset') {
-                        darkest[property] = value;
-                    }
-                } else if (target === 'brightest' && this.colorConfig.brightest) {
-                    const brightest = this.colorConfig.brightest;
-                    if (property === 'hue' || property === 'chroma' || property === 'lightness' || property === 'hueOffset') {
-                        brightest[property] = value;
-                    }
-                }
-                
-                // Update color service with new config
-                if (this.colorService) {
-                    this.colorService.updateColorConfig(this.colorConfig);
-                    // Regenerate colors
-                    this.colorService.initializeColors().catch(() => {
-                        // Error handling is done in ColorService
-                    });
-                }
-            },
-            () => {
-                // Provide current color config when menu opens
-                return this.colorConfig;
-            },
+            this.colorService,
             this.audioControls // Pass audioControls for menu open/close behavior
         );
         

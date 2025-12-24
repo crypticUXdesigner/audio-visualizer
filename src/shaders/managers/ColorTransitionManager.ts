@@ -5,7 +5,7 @@
 export const COLOR_KEYS = ['color', 'color2', 'color3', 'color4', 'color5', 
                           'color6', 'color7', 'color8', 'color9', 'color10'] as const;
 
-import type { Colors } from '../../types/webgl.js';
+import type { ColorMap } from '../../types/index.js';
 
 interface ColorTransitionConfig {
     duration?: number;
@@ -15,9 +15,9 @@ interface ColorTransitionConfig {
 export class ColorTransitionManager {
     duration: number;
     easingType: 'linear' | 'ease-out-cubic' | 'ease-in-cubic' | 'ease-in-out-cubic';
-    currentColors: Colors | null;
-    previousColors: Colors | null;
-    targetColors: Colors | null;
+    currentColors: ColorMap | null;
+    previousColors: ColorMap | null;
+    targetColors: ColorMap | null;
     isTransitioning: boolean;
     startTime: number;
     
@@ -59,7 +59,7 @@ export class ColorTransitionManager {
      * @param newColors - Target colors object
      * @param isFirstUpdate - If true, sets immediately without transition
      */
-    startTransition(newColors: Colors, isFirstUpdate: boolean = false): void {
+    startTransition(newColors: ColorMap, isFirstUpdate: boolean = false): void {
         if (!newColors) return;
         
         if (isFirstUpdate || !this.currentColors) {
@@ -86,7 +86,7 @@ export class ColorTransitionManager {
      * const colors = colorTransitionManager.getCurrentColors();
      * // Returns { color: [1.0, 0.5, 0.2], color2: [0.3, 0.8, 0.1], ... }
      */
-    getCurrentColors(): Colors | null {
+    getCurrentColors(): ColorMap | null {
         if (!this.isTransitioning) {
             return this.currentColors;
         }
@@ -105,7 +105,7 @@ export class ColorTransitionManager {
         }
         
         // Interpolate between previous and target
-        const interpolated: Colors = {};
+        const interpolated: ColorMap = {};
         COLOR_KEYS.forEach(key => {
             if (this.previousColors![key] && this.targetColors![key]) {
                 interpolated[key] = this.lerpColor(
@@ -125,8 +125,8 @@ export class ColorTransitionManager {
      * @param colors - Colors to clone
      * @returns Cloned colors
      */
-    cloneColors(colors: Colors): Colors {
-        const cloned: Colors = {};
+    cloneColors(colors: ColorMap): ColorMap {
+        const cloned: ColorMap = {};
         COLOR_KEYS.forEach(key => {
             if (colors[key]) {
                 cloned[key] = [colors[key][0], colors[key][1], colors[key][2]];
@@ -154,7 +154,7 @@ export class ColorTransitionManager {
      * Reset to a color state
      * @param colors - Colors to reset to (optional)
      */
-    reset(colors?: Colors): void {
+    reset(colors?: ColorMap): void {
         this.currentColors = colors ? this.cloneColors(colors) : null;
         this.previousColors = null;
         this.targetColors = null;

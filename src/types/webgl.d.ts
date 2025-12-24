@@ -28,11 +28,6 @@ export interface WebGLRippleData {
   count: number;
 }
 
-/**
- * @deprecated Use WebGLRippleData instead
- */
-export interface RippleData extends WebGLRippleData {}
-
 export interface TextureInfo {
   texture: WebGLTexture | null;
   width: number;
@@ -44,12 +39,4 @@ export interface ShaderSource {
   fragment: string;
 }
 
-/**
- * Color map interface for shader colors
- * Maps color names to RGB tuples [r, g, b] in range [0, 1]
- * @deprecated Use ColorMap from './index.js' instead
- */
-export interface Colors {
-  [key: string]: [number, number, number];
-}
 

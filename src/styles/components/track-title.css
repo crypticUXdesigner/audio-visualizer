@@ -1,0 +1,46 @@
+/* Track Title Display Component */
+
+.track-title-display {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 100vh;
+  width: 65vw;
+  padding: 0 0 10vh var(--pd-xl);
+  z-index: 10;
+  pointer-events: none;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  transition: opacity 1.6s var(--effects-slow);
+  mix-blend-mode: color-dodge;
+  opacity: 0;
+
+  &.visible {
+    opacity: 1;
+  }
+
+  .track-title-text {
+    font-family: 'FivoSansModern', var(--font-brand, 'Montserrat', sans-serif);
+    font-weight: 900;
+    font-size: clamp(2rem, 14vh, 14rem);
+    line-height: 0.8;
+    color: rgba(255, 255, 255, 0.9);
+    text-transform: uppercase;
+    letter-spacing: -0.075em;
+    word-break: break-word;
+    overflow-wrap: break-word;
+    word-wrap: break-word;
+    hyphens: none;
+    transition: 
+      color 0.06s var(--effects-fast),
+      opacity 0.06s var(--effects-fast);
+    filter: url(#textNoise);
+    --audio-opacity: 0.0;
+    opacity: var(--audio-opacity);
+    user-select: none;
+    -webkit-user-select: none;
+  }
+}
+

@@ -2,7 +2,7 @@
 // Centralized service for managing color operations and state
 
 import { generateColorsFromOklch, calculateThresholds } from '../color/ColorGenerator.js';
-import { normalizeColor } from '../color/ColorConverter.js';
+import { normalizeColor, hexToRgb, rgbToOklch, interpolateHue } from '../color/ColorConverter.js';
 import { ShaderLogger } from '../../shaders/utils/ShaderLogger.js';
 import { COLOR_CONFIG } from '../../config/constants.js';
 import type { ColorConfig, ExtendedAudioData, ColorMap } from '../../types/index.js';
@@ -195,6 +195,107 @@ export class ColorService {
     if (this.colorModulator) {
       this.colorModulator.setBaseConfig(this.colorConfig);
     }
+  }
+
+  /**
+   * Apply a color preset configuration
+   * Merges preset config with current config and regenerates colors
+   * 
+   * @param {Object} presetConfig - Partial color configuration from preset
+   * @returns {Promise<void>}
+   */
+  async applyPreset(presetConfig: Partial<ColorConfig>): Promise<void> {
+    if (!this.colorConfig) {
+      ShaderLogger.warn('Cannot apply preset: colorConfig not initialized');
+      return;
+    }
+
+    // Deep merge to preserve structure
+    if (presetConfig.baseHue) {
+      this.colorConfig.baseHue = presetConfig.baseHue;
+    }
+    if (presetConfig.darkest) {
+      Object.assign(this.colorConfig.darkest, presetConfig.darkest);
+    }
+    if (presetConfig.brightest) {
+      Object.assign(this.colorConfig.brightest, presetConfig.brightest);
+    }
+    if (presetConfig.interpolationCurve) {
+      this.colorConfig.interpolationCurve = presetConfig.interpolationCurve;
+    }
+
+    // Calculate and store actual hue values for sliders
+    if (presetConfig.baseHue && presetConfig.darkest?.hueOffset !== undefined) {
+      const baseRgb = hexToRgb(presetConfig.baseHue);
+      const [, , baseH] = rgbToOklch(baseRgb);
+      this.colorConfig.darkest.hue = interpolateHue(baseH, baseH + presetConfig.darkest.hueOffset, 1.0);
+    }
+    if (presetConfig.baseHue && presetConfig.brightest?.hueOffset !== undefined) {
+      const baseRgb = hexToRgb(presetConfig.baseHue);
+      const [, , baseH] = rgbToOklch(baseRgb);
+      this.colorConfig.brightest.hue = interpolateHue(baseH, baseH + presetConfig.brightest.hueOffset, 1.0);
+    }
+
+    // Update color modulator with new config
+    if (this.colorModulator) {
+      this.colorModulator.setBaseConfig(this.colorConfig);
+    }
+
+    // Regenerate colors (this will update shader manager)
+    try {
+      await this.initializeColors();
+    } catch (err) {
+      ShaderLogger.error('Error initializing colors after preset change:', err);
+      throw err;
+    }
+  }
+
+  /**
+   * Update a single color property (for slider changes)
+   * 
+   * @param {string} property - Property name ('hue', 'chroma', 'lightness', 'hueOffset')
+   * @param {number} value - New property value
+   * @param {string} target - Target range ('darkest' or 'brightest')
+   * @returns {Promise<void>}
+   */
+  async updateColorProperty(property: string, value: number, target: 'darkest' | 'brightest'): Promise<void> {
+    if (!this.colorConfig) {
+      ShaderLogger.warn('Cannot update color property: colorConfig not initialized');
+      return;
+    }
+
+    const targetRange = target === 'darkest' ? this.colorConfig.darkest : this.colorConfig.brightest;
+    if (!targetRange) {
+      ShaderLogger.warn(`Cannot update color property: ${target} range not found`);
+      return;
+    }
+
+    // Update the property
+    if (property === 'hue' || property === 'chroma' || property === 'lightness' || property === 'hueOffset') {
+      (targetRange as Record<string, number>)[property] = value;
+    }
+
+    // Update color modulator with new config
+    if (this.colorModulator) {
+      this.colorModulator.setBaseConfig(this.colorConfig);
+    }
+
+    // Regenerate colors
+    try {
+      await this.initializeColors();
+    } catch (err) {
+      // Error handling is done in ColorService
+      ShaderLogger.error('Error initializing colors after property change:', err);
+    }
+  }
+
+  /**
+   * Get current color configuration
+   * 
+   * @returns {Object|null} Current color configuration or null
+   */
+  getColorConfig(): ColorConfig | null {
+    return this.colorConfig;
   }
   
   /**

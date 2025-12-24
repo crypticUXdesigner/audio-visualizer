@@ -7,12 +7,11 @@ import { safeGetItem, safeSetItem } from '../utils/storage.js';
 import { UI_CONFIG } from '../config/constants.js';
 import type { ColorConfig } from '../types/index.js';
 import type { AudioControls } from './PlaybackControls.js';
+import type { ColorService } from '../core/services/ColorService.js';
 
 export class ColorPresetSwitcher {
     colorPresets: Record<string, ColorConfig>;
-    onPresetChange: ((presetConfig: ColorConfig) => void) | null;
-    onPropertyChange: ((property: string, value: number, target: string) => void) | null;
-    getCurrentColorConfig: (() => ColorConfig | null) | null;
+    colorService: ColorService | null;
     audioControls: AudioControls | null;
     currentPresetName: string;
     currentColorConfig: ColorConfig | null;
@@ -21,15 +20,11 @@ export class ColorPresetSwitcher {
     
     constructor(
         colorPresets: Record<string, ColorConfig>, 
-        onPresetChange: ((presetConfig: ColorConfig) => void) | null, 
-        onPropertyChange: ((property: string, value: number, target: string) => void) | null,
-        getCurrentColorConfig: (() => ColorConfig | null) | null,
+        colorService: ColorService,
         audioControls: AudioControls | null = null
     ) {
         this.colorPresets = colorPresets;
-        this.onPresetChange = onPresetChange; // Callback: (presetConfig) => void
-        this.onPropertyChange = onPropertyChange; // Callback: (property, value, target) => void
-        this.getCurrentColorConfig = getCurrentColorConfig; // Callback: () => colorConfig
+        this.colorService = colorService;
         this.audioControls = audioControls; // Reference to AudioControls for hideControls/showControls
         this.currentPresetName = safeGetItem('colorPreset', Object.keys(colorPresets)[0]) || Object.keys(colorPresets)[0];
         this.currentColorConfig = null; // Store current color config for sliders
@@ -110,8 +105,10 @@ export class ColorPresetSwitcher {
                 
                 // Apply preset
                 const preset = this.colorPresets[presetName];
-                if (this.onPresetChange) {
-                    this.onPresetChange(preset);
+                if (this.colorService) {
+                    this.colorService.applyPreset(preset).catch(err => {
+                        console.error('Error applying preset:', err);
+                    });
                 }
                 this.currentPresetName = presetName;
                 safeSetItem('colorPreset', presetName);
@@ -130,14 +127,17 @@ export class ColorPresetSwitcher {
         if (this.currentPresetName && this.colorPresets[this.currentPresetName]) {
             const savedPreset = this.colorPresets[this.currentPresetName];
             const applyPreset = (): void => {
-                if (this.onPresetChange) {
-                    this.onPresetChange(savedPreset);
-                    // Update sliders after preset is applied
-                    setTimeout(() => {
-                        this.updateSlidersFromPreset(savedPreset);
-                    }, 100);
+                if (this.colorService) {
+                    this.colorService.applyPreset(savedPreset).then(() => {
+                        // Update sliders after preset is applied
+                        setTimeout(() => {
+                            this.updateSlidersFromPreset(savedPreset);
+                        }, 100);
+                    }).catch(err => {
+                        console.error('Error applying saved preset:', err);
+                    });
                 } else {
-                    // Retry if callback not ready yet
+                    // Retry if colorService not ready yet
                     setTimeout(applyPreset, 100);
                 }
             };
@@ -243,14 +243,20 @@ export class ColorPresetSwitcher {
         const [lightness, chroma, hue] = rgbToOklch(rgb);
         
         // Update all three properties at once
-        if (this.onPropertyChange) {
+        if (this.colorService) {
             // Update lightness
-            this.onPropertyChange('lightness', lightness, target);
+            this.colorService.updateColorProperty('lightness', lightness, target as 'darkest' | 'brightest').catch(() => {
+                // Error handling is done in ColorService
+            });
             // Update chroma
-            this.onPropertyChange('chroma', chroma, target);
+            this.colorService.updateColorProperty('chroma', chroma, target as 'darkest' | 'brightest').catch(() => {
+                // Error handling is done in ColorService
+            });
             // Update hue (with wrap-around)
             const normalizedHue = ((hue % 360) + 360) % 360;
-            this.onPropertyChange('hue', normalizedHue, target);
+            this.colorService.updateColorProperty('hue', normalizedHue, target as 'darkest' | 'brightest').catch(() => {
+                // Error handling is done in ColorService
+            });
         }
     }
     
@@ -337,8 +343,10 @@ export class ColorPresetSwitcher {
         const randomPreset = this.colorPresets[randomPresetName];
         
         // Apply the preset
-        if (this.onPresetChange) {
-            this.onPresetChange(randomPreset);
+        if (this.colorService) {
+            this.colorService.applyPreset(randomPreset).catch(err => {
+                console.error('Error applying random preset:', err);
+            });
         }
         
         // Update current preset name and save to localStorage
@@ -377,7 +385,7 @@ export class ColorPresetSwitcher {
                 // If opening menu, update color pickers with current config values
                 setTimeout(() => {
                     // Get current color config (which may have custom values)
-                    const currentConfig = this.getCurrentColorConfig ? this.getCurrentColorConfig() : null;
+                    const currentConfig = this.colorService ? this.colorService.getColorConfig() : null;
                     if (currentConfig) {
                         // Use current config values (preserves custom colors)
                         this.updateSlidersFromConfig(currentConfig);

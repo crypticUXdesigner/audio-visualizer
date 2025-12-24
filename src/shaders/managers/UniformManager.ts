@@ -5,7 +5,7 @@ import { COLOR_KEYS } from './ColorTransitionManager.js';
 import { ShaderConstants } from '../config/ShaderConstants.js';
 import { ShaderLogger } from '../utils/ShaderLogger.js';
 import type { ExtendedAudioData, ShaderConfig, ParameterValue } from '../../types/index.js';
-import type { Colors } from '../../types/webgl.js';
+import type { ColorMap } from '../../types/index.js';
 
 interface UniformLocations {
     [key: string]: WebGLUniformLocation | null;
@@ -285,7 +285,7 @@ export class UniformManager {
      * @param getInterpolatedColors - Function to get interpolated colors
      * @param colorTransition - Color transition state
      */
-    updateColorUniforms(colors: Colors | null, getInterpolatedColors: () => Colors | null, colorTransition: ColorTransition): void {
+    updateColorUniforms(colors: ColorMap | null, getInterpolatedColors: () => ColorMap | null, colorTransition: ColorTransition): void {
         if (!colors) return;
         
         const gl = this.gl;

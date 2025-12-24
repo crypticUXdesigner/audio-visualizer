@@ -4,7 +4,7 @@
 import type { ExtendedAudioData, ShaderConfig, ParameterValue } from '../../types/index.js';
 import type { ShaderInstance } from '../ShaderInstance.js';
 import type { UniformManager } from '../managers/UniformManager.js';
-import type { Colors } from '../../types/webgl.js';
+import type { ColorMap } from '../../types/index.js';
 
 export class BaseShaderPlugin {
     shaderInstance: ShaderInstance;
@@ -42,7 +42,7 @@ export class BaseShaderPlugin {
      * @param colors - Current color values
      * @param deltaTime - Time since last frame in seconds
      */
-    onBeforeRender(_audioData: ExtendedAudioData | null, _colors: Colors | null, _deltaTime: number): void {
+    onBeforeRender(_audioData: ExtendedAudioData | null, _colors: ColorMap | null, _deltaTime: number): void {
         // Default: no-op
     }
     
@@ -53,7 +53,7 @@ export class BaseShaderPlugin {
      * @param colors - Current color values
      * @param deltaTime - Time since last frame in seconds
      */
-    onAfterRender(_audioData: ExtendedAudioData | null, _colors: Colors | null, _deltaTime: number): void {
+    onAfterRender(_audioData: ExtendedAudioData | null, _colors: ColorMap | null, _deltaTime: number): void {
         // Default: no-op
     }
     
@@ -64,7 +64,7 @@ export class BaseShaderPlugin {
      * @param colors - Current color values
      * @param deltaTime - Time since last frame in seconds
      */
-    onUpdateUniforms(_audioData: ExtendedAudioData | null, _colors: Colors | null, _deltaTime: number): void {
+    onUpdateUniforms(_audioData: ExtendedAudioData | null, _colors: ColorMap | null, _deltaTime: number): void {
         // Default: no-op
     }
     

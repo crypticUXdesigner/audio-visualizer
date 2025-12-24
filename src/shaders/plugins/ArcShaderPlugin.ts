@@ -9,7 +9,7 @@ import type { ExtendedAudioData } from '../../types/index.js';
 import type { ShaderConfig } from '../../types/index.js';
 import type { ShaderInstance } from '../ShaderInstance.js';
 import type { AudioAnalyzer } from '../../core/audio/AudioAnalyzer.js';
-import type { Colors } from '../../types/webgl.js';
+import type { ColorMap } from '../../types/index.js';
 
 interface SmoothingState extends Record<string, unknown> {
     smoothedLeftBands: Float32Array | null;
@@ -172,7 +172,7 @@ export class ArcShaderPlugin extends BaseShaderPlugin {
     /**
      * Update shader-specific uniforms
      */
-    onUpdateUniforms(_audioData: ExtendedAudioData | null, _colors: Colors | null, _deltaTime: number): void {
+    onUpdateUniforms(_audioData: ExtendedAudioData | null, _colors: ColorMap | null, _deltaTime: number): void {
         if (!this.uniformHelper) return;
         
         const params = this.shaderInstance.parameters;
