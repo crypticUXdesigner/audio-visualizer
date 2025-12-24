@@ -89,6 +89,13 @@ export class ShaderInstance {
         this.pixelSizeAnimationManager = new PixelSizeAnimationManager(ShaderConstants.pixelSizeAnimation);
         this.performanceMonitor = new PerformanceMonitor(ShaderConstants.performance);
         
+        // Set callback to handle target FPS changes
+        this.performanceMonitor.setTargetFPSCallback((newTargetFPS: number) => {
+            ShaderLogger.info(`ShaderInstance: Target FPS changed to ${newTargetFPS}`);
+            // The throttling will automatically use the new targetFPS on next render
+            // No need to do anything else - the render() method reads targetFPS dynamically
+        });
+        
         // WebGL fallback state (managed by WebGLContextManager)
         this.webglFallbackActive = false; // Will be set by webglContext
         

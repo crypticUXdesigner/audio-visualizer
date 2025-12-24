@@ -4,7 +4,10 @@
 export const ShaderConstants = {
     // Performance settings
     performance: {
-        targetFPS: 30,
+        targetFPS: 30, // Initial target (will adapt upward if performance allows)
+        minTargetFPS: 30, // Minimum target FPS
+        maxTargetFPS: 60, // Maximum target FPS
+        enableAdaptiveFPS: true, // Enable adaptive FPS
         maxResolutionWidth: 2560,
         maxResolutionHeight: 1440,
         maxDPR: 2.0,

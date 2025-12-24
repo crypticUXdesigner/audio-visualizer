@@ -8,6 +8,9 @@ interface PerformanceMonitorConfig {
     enabled?: boolean;
     initialQuality?: number;
     targetFPS?: number;
+    minTargetFPS?: number;
+    maxTargetFPS?: number;
+    enableAdaptiveFPS?: boolean;
     maxResolutionWidth?: number;
     maxResolutionHeight?: number;
     maxDPR?: number;
@@ -30,18 +33,32 @@ export class PerformanceMonitor {
     enabled: boolean;
     qualityLevel: number;
     targetFPS: number;
+    minTargetFPS: number;
+    maxTargetFPS: number;
+    enableAdaptiveFPS: boolean;
     maxResolutionWidth: number;
     maxResolutionHeight: number;
     maxDPR: number;
     lastFrameTime: number;
     frameHistorySize: number;
     earlyCheckFrameCount: number;
+    private onTargetFPSChange: ((newTargetFPS: number) => void) | null = null;
+    private consecutiveGoodFrames: number = 0;
+    private consecutiveBadFrames: number = 0;
+    private readonly framesNeededForUpgrade: number = 30;
+    private readonly framesNeededForDowngrade: number = 15;
+    private readonly fpsUpgradeThreshold: number = 1.15;
+    private readonly fpsDowngradeThreshold: number = 0.85;
     
     constructor(config: PerformanceMonitorConfig = {}) {
         this.frameTimes = [];
         this.enabled = config.enabled ?? true;
         this.qualityLevel = config.initialQuality ?? 1.0;
-        this.targetFPS = config.targetFPS ?? 30;
+        this.minTargetFPS = config.minTargetFPS ?? 30;
+        this.maxTargetFPS = config.maxTargetFPS ?? 60;
+        this.enableAdaptiveFPS = config.enableAdaptiveFPS ?? true;
+        // Start at minTargetFPS, will adapt upward if performance allows
+        this.targetFPS = config.targetFPS ?? this.minTargetFPS;
         this.maxResolutionWidth = config.maxResolutionWidth ?? 2560;
         this.maxResolutionHeight = config.maxResolutionHeight ?? 1440;
         this.maxDPR = config.maxDPR ?? 2.0;
@@ -49,6 +66,14 @@ export class PerformanceMonitor {
         this.lastFrameTime = 0;
         this.frameHistorySize = 30; // Track last 30 frames (reduced from 60 for faster adjustments)
         this.earlyCheckFrameCount = 10; // Early quality check after 10 frames for faster ramp-up
+    }
+    
+    /**
+     * Set callback for when target FPS changes
+     * @param callback - Callback function (newTargetFPS) => void
+     */
+    setTargetFPSCallback(callback: ((newTargetFPS: number) => void) | null): void {
+        this.onTargetFPSChange = callback;
     }
     
     /**
@@ -106,6 +131,9 @@ export class PerformanceMonitor {
             const previousQuality = this.qualityLevel;
             this.adjustQuality(currentFPS);
             
+            // Adjust target FPS based on performance
+            this.adjustTargetFPS(currentFPS);
+            
             // Notify if quality changed
             if (onQualityChange && previousQuality !== this.qualityLevel) {
                 onQualityChange(this.qualityLevel);
@@ -134,6 +162,73 @@ export class PerformanceMonitor {
             const previousQuality = this.qualityLevel;
             this.qualityLevel = 1.0;
             ShaderLogger.info(`Performance: Increasing quality to 100% (FPS: ${currentFPS.toFixed(1)})`);
+        }
+    }
+    
+    /**
+     * Adjust target FPS based on performance
+     * Upgrades to higher FPS if performance is consistently good
+     * Downgrades to lower FPS if performance drops
+     * @param currentFPS - Current achieved FPS
+     */
+    private adjustTargetFPS(currentFPS: number): void {
+        if (!this.enableAdaptiveFPS) return;
+        
+        const targetFPSThreshold = this.targetFPS * this.fpsUpgradeThreshold;
+        const minFPSThreshold = this.targetFPS * this.fpsDowngradeThreshold;
+        
+        // Check if we should upgrade to higher FPS
+        if (this.targetFPS < this.maxTargetFPS && currentFPS >= targetFPSThreshold) {
+            this.consecutiveGoodFrames++;
+            this.consecutiveBadFrames = 0;
+            
+            if (this.consecutiveGoodFrames >= this.framesNeededForUpgrade) {
+                const previousTargetFPS = this.targetFPS;
+                // Upgrade to next tier (30 -> 60)
+                this.targetFPS = this.maxTargetFPS;
+                this.consecutiveGoodFrames = 0;
+                
+                ShaderLogger.info(
+                    `Performance: Upgrading target FPS from ${previousTargetFPS} to ${this.targetFPS} ` +
+                    `(achieved: ${currentFPS.toFixed(1)} FPS)`
+                );
+                
+                // Notify callback
+                if (this.onTargetFPSChange) {
+                    this.onTargetFPSChange(this.targetFPS);
+                }
+            }
+        }
+        // Check if we should downgrade to lower FPS
+        else if (this.targetFPS > this.minTargetFPS && currentFPS < minFPSThreshold) {
+            this.consecutiveBadFrames++;
+            this.consecutiveGoodFrames = 0;
+            
+            if (this.consecutiveBadFrames >= this.framesNeededForDowngrade) {
+                const previousTargetFPS = this.targetFPS;
+                // Downgrade to minimum
+                this.targetFPS = this.minTargetFPS;
+                this.consecutiveBadFrames = 0;
+                
+                ShaderLogger.info(
+                    `Performance: Downgrading target FPS from ${previousTargetFPS} to ${this.targetFPS} ` +
+                    `(achieved: ${currentFPS.toFixed(1)} FPS)`
+                );
+                
+                // Notify callback
+                if (this.onTargetFPSChange) {
+                    this.onTargetFPSChange(this.targetFPS);
+                }
+            }
+        }
+        // Reset counters if performance is in acceptable range
+        else {
+            // Only reset if we're not already at the target threshold
+            if (currentFPS >= minFPSThreshold && currentFPS < targetFPSThreshold) {
+                // Performance is acceptable, reset counters gradually
+                this.consecutiveGoodFrames = Math.max(0, this.consecutiveGoodFrames - 1);
+                this.consecutiveBadFrames = Math.max(0, this.consecutiveBadFrames - 1);
+            }
         }
     }
     
@@ -169,10 +264,12 @@ export class PerformanceMonitor {
         if (typeof document !== 'undefined' && 
             document.documentElement.classList.contains('debug-mode')) {
             const fpsElement = document.getElementById('currentFps');
+            const targetFpsElement = document.getElementById('targetFps');
+            
             if (fpsElement) {
                 fpsElement.textContent = currentFPS.toFixed(1);
                 
-                // Color code based on performance
+                // Color code based on performance relative to current target
                 if (currentFPS < this.targetFPS * 0.8) {
                     fpsElement.style.color = '#ff4444'; // Red if low
                 } else if (currentFPS > this.targetFPS * 1.1) {
@@ -180,6 +277,11 @@ export class PerformanceMonitor {
                 } else {
                     fpsElement.style.color = '#fff'; // White if on target
                 }
+            }
+            
+            // Update target FPS display
+            if (targetFpsElement) {
+                targetFpsElement.textContent = this.targetFPS.toString();
             }
         }
     }
@@ -211,6 +313,10 @@ export class PerformanceMonitor {
     reset(): void {
         this.frameTimes = [];
         this.lastFrameTime = 0;
+        this.consecutiveGoodFrames = 0;
+        this.consecutiveBadFrames = 0;
+        // Reset to minimum target FPS on reset
+        this.targetFPS = this.minTargetFPS;
     }
 }
 
