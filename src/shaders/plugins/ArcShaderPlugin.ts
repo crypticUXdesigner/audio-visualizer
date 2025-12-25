@@ -196,6 +196,17 @@ export class ArcShaderPlugin extends BaseShaderPlugin {
         helper.updateFloat('uMaskBorderInnerFeathering', params.maskBorderInnerFeathering as number | undefined, 0.002);
         helper.updateFloat('uMaskBorderOuterFeathering', params.maskBorderOuterFeathering as number | undefined, 0.002);
         helper.updateFloat('uMaskBorderNoiseMultiplier', params.maskBorderNoiseMultiplier as number | undefined, 1.0);
+        helper.updateFloat('uArcBorderWidth', params.arcBorderWidth as number | undefined, 0.01);
+        helper.updateFloat('uArcBorderNoiseSpeed', params.arcBorderNoiseSpeed as number | undefined, 0.5);
+        helper.updateFloat('uArcBorderInnerFeathering', params.arcBorderInnerFeathering as number | undefined, 0.002);
+        helper.updateFloat('uArcBorderOuterFeathering', params.arcBorderOuterFeathering as number | undefined, 0.002);
+        helper.updateFloat('uArcBorderNoiseMultiplier', params.arcBorderNoiseMultiplier as number | undefined, 1.0);
+        helper.updateFloat('uBorderNoiseBlur', params.borderNoiseBlur as number | undefined, 0.0);
+        helper.updateFloat('uDistortionStrength', params.distortionStrength as number | undefined, 0.0);
+        helper.updateFloat('uDistortionSize', params.distortionSize as number | undefined, 1.2);
+        helper.updateFloat('uDistortionFalloff', params.distortionFalloff as number | undefined, 2.0);
+        helper.updateFloat('uDistortionPerspectiveStrength', params.distortionPerspectiveStrength as number | undefined, 1.0);
+        helper.updateFloat('uDistortionEasing', params.distortionEasing as number | undefined, 1.0);
         
         // Calculate dynamic mask radius based on bass triggers
         const baseMaskRadius = (params.maskRadius as number | undefined) || 0.0;

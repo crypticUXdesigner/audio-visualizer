@@ -29,6 +29,17 @@ uniform float uMaskBorderNoiseSpeed; // Animation speed multiplier for border no
 uniform float uMaskBorderInnerFeathering; // Inner edge feathering (0.0-0.01)
 uniform float uMaskBorderOuterFeathering; // Outer edge feathering (0.0-0.01)
 uniform float uMaskBorderNoiseMultiplier; // Multiplier for noise value before color mapping (0.0-2.0)
+uniform float uArcBorderWidth;   // Thickness of border around arc outline (0.0-0.02)
+uniform float uArcBorderNoiseSpeed; // Animation speed multiplier for arc border noise (0.0-1.0)
+uniform float uArcBorderInnerFeathering; // Inner edge feathering (0.0-0.01)
+uniform float uArcBorderOuterFeathering; // Outer edge feathering (0.0-0.01)
+uniform float uArcBorderNoiseMultiplier; // Multiplier for noise value before color mapping (0.0-2.0)
+uniform float uBorderNoiseBlur; // Blur amount for border noise colors (0.0 = no blur, 1.0 = full blur)
+uniform float uDistortionStrength; // Multiplier for bass-reactive radial distortion (0.0 = disabled, 1.0 = default)
+uniform float uDistortionSize; // Size/radius of distortion effect (0.0 = center only, 1.0 = full screen, >1.0 = extends beyond screen)
+uniform float uDistortionFalloff; // Easing curve for distortion falloff (1.0 = linear, 2.0 = smooth, 4.0 = very sharp)
+uniform float uDistortionPerspectiveStrength; // Strength of center perspective scaling (0.0 = no scaling, 1.0 = default, 2.0 = double)
+uniform float uDistortionEasing; // Easing type for bass interpolation (0.0 = linear, 1.0 = smooth, 2.0 = exponential)
 uniform float uContrast; // Contrast adjustment (1.0 = normal, >1.0 = more contrast)
 uniform float uContrastAudioReactive; // How much audio affects contrast (0.0-1.0)
 uniform float uContrastMin; // Minimum contrast (at quiet audio)
@@ -39,9 +50,96 @@ uniform float uSmoothedContrastAudioLevel; // Smoothed audio level for contrast 
 
 // FBM parameters for mask border noise
 #define FBM_OCTAVES     7
-#define FBM_LACUNARITY  1.2
-#define FBM_GAIN        0.4
-#define FBM_SCALE       1.2
+#define FBM_LACUNARITY  1.3
+#define FBM_GAIN        0.3
+#define FBM_SCALE       1.5
+
+// Blur constants
+#define BLUR_SAMPLE_DISTANCE 0.01  // Distance for blur samples as fraction of screen
+
+// Distortion constants
+#define DISTORTION_MAX_STRENGTH 0.15  // Maximum distortion strength (15% of screen)
+
+// Apply easing curve to bass intensity for smoother or more dramatic response
+// easingType: 0.0 = linear, 1.0 = smooth (smoothstep), 2.0 = exponential
+float applyBassEasing(float bassValue, float easingType) {
+    float clampedBass = clamp(bassValue, 0.0, 1.0);
+    
+    if (easingType < 0.5) {
+        // Linear: no easing
+        return clampedBass;
+    } else if (easingType < 1.5) {
+        // Smooth: smoothstep curve (ease in/out)
+        return smoothstep(0.0, 1.0, clampedBass);
+    } else {
+        // Exponential: power curve (ease in)
+        // Map 1.5-2.0 to power range 2.0-4.0
+        float power = 2.0 + (easingType - 1.5) * 4.0; // 2.0 to 4.0
+        return pow(clampedBass, power);
+    }
+}
+
+// Apply radial pincushion distortion (like looking into a sphere)
+// Strongest at edges, weakest at center
+// Center appears to recede while staying flat
+// Reacts to bass intensity
+// Uses configured center (uCenterX, uCenterY) instead of screen center
+vec2 applyBassDistortion(vec2 uv, float aspectRatio, vec2 center, float bassIntensity) {
+    // Convert to centered coordinates relative to configured center
+    vec2 centeredUV = uv - center;
+    
+    // Scale x by aspect ratio to maintain circular shape
+    vec2 centeredUVScaled = vec2(centeredUV.x * aspectRatio, centeredUV.y);
+    
+    // Calculate distance from center
+    float distFromCenter = length(centeredUVScaled);
+    
+    // Normalize distance (0 = center, 1 = edge of screen)
+    // Use aspect ratio to get proper distance in screen space
+    float maxDist = length(vec2(aspectRatio * 0.5, 0.5));
+    float normalizedDist = distFromCenter / maxDist;
+    
+    // Apply size control: uDistortionSize controls how far the effect extends
+    // 0.0 = center only, 1.0 = full screen, >1.0 = extends beyond screen
+    // Clamp to prevent division by zero
+    float distortionSize = max(0.01, uDistortionSize);
+    float sizeAdjustedDist = clamp(normalizedDist / distortionSize, 0.0, 1.0);
+    
+    // INVERTED falloff curve: strong at edges (1.0), weak at center (0.0)
+    // This creates the "looking into sphere" effect
+    // uDistortionFalloff controls the easing: 1.0 = linear, 2.0 = smooth, 4.0 = very sharp
+    float falloffPower = max(0.1, uDistortionFalloff);
+    float falloff = pow(sizeAdjustedDist, falloffPower); // Inverted: use dist directly instead of (1.0 - dist)
+    falloff = clamp(falloff, 0.0, 1.0);
+    
+    // Calculate distortion strength based on bass with easing
+    // Apply easing curve to bass intensity for smoother or more dramatic response
+    float rawBassStrength = uSmoothedBass * bassIntensity;
+    float easedBassStrength = applyBassEasing(rawBassStrength, uDistortionEasing);
+    
+    // Calculate distortion amount with eased bass
+    float distortionAmount = easedBassStrength * DISTORTION_MAX_STRENGTH * falloff * uDistortionStrength;
+    
+    // REVERSE direction: pull inward toward center (negative direction)
+    // This creates pincushion effect (edges pulled in)
+    vec2 direction = normalize(centeredUVScaled);
+    // Convert direction back to non-scaled space for distortion
+    vec2 directionUnscaled = normalize(centeredUV);
+    vec2 distortion = directionUnscaled * -distortionAmount; // Negative = pull inward
+    
+    // Add perspective scaling: scale center down to make it appear to recede
+    // Stronger scaling at center, weaker at edges
+    // uDistortionPerspectiveStrength controls the strength
+    float centerFalloff = 1.0 - sizeAdjustedDist; // Inverse: strong at center, weak at edges
+    float perspectiveScale = 1.0 - (easedBassStrength * DISTORTION_MAX_STRENGTH * centerFalloff * uDistortionStrength * uDistortionPerspectiveStrength);
+    perspectiveScale = clamp(perspectiveScale, 0.7, 1.0); // Limit scaling to prevent too much zoom
+    
+    // Apply both distortion and perspective scaling
+    // Distortion is applied in unscaled space, then we scale around the center
+    vec2 distortedUV = (uv + distortion - center) * perspectiveScale + center;
+    
+    return distortedUV;
+}
 
 void main() {
     vec2 fragCoord = gl_FragCoord.xy;
@@ -51,6 +149,14 @@ void main() {
     // Account for aspect ratio to keep circles circular
     float aspectRatio = uResolution.x / uResolution.y;
     vec2 center = vec2(uCenterX, uCenterY);
+    
+    // Apply bass-reactive radial distortion BEFORE calculating arc shape
+    // This warps the entire visualization with a bulge effect (like looking into a bowl)
+    float bassIntensity = uBass; // Use raw bass for immediate response
+    if (uDistortionStrength > 0.0) {
+        uv = applyBassDistortion(uv, aspectRatio, center, bassIntensity);
+    }
+    
     vec2 toPixel = uv - center;
     // Scale x by aspect ratio to maintain circular shape
     vec2 toPixelScaled = vec2(toPixel.x * aspectRatio, toPixel.y);
@@ -124,6 +230,31 @@ void main() {
         // Apply corner rounding to final radius
         float finalRadius = targetRadius - cornerRadiusAdjust;
         
+        // Calculate arc outline border (similar to mask border)
+        float arcBorderFactor = 0.0;
+        
+        if (uArcBorderWidth > 0.0) {
+            // Calculate inner and outer edges of border around arc outline
+            float borderHalfWidth = uArcBorderWidth * 0.5;
+            float innerEdge = finalRadius - borderHalfWidth;
+            float outerEdge = finalRadius + borderHalfWidth;
+            
+            // Apply feathering on inner and outer edges
+            float innerFeatherStart = innerEdge - uArcBorderInnerFeathering;
+            float innerFeatherEnd = innerEdge;
+            float outerFeatherStart = outerEdge;
+            float outerFeatherEnd = outerEdge + uArcBorderOuterFeathering;
+            
+            // Check if pixel is within the border region (with feathering)
+            // Inner factor: fade out as we go toward center (dist < innerEdge)
+            float innerFactor = smoothstep(innerFeatherStart, innerFeatherEnd, dist);
+            // Outer factor: fade out as we go away from border (dist > outerEdge)
+            float outerFactor = 1.0 - smoothstep(outerFeatherStart, outerFeatherEnd, dist);
+            
+            // Border is visible where both inner and outer factors are active
+            arcBorderFactor = innerFactor * outerFactor;
+        }
+        
         // Check if pixel is inside the arc shape
         // Use smoothstep for anti-aliasing at the edge
         float edgeSmooth = 0.002; // Small smoothing for anti-aliasing
@@ -166,7 +297,7 @@ void main() {
         float finalFactor = insideFactor * maskFactor;
         
         // Render border if present (border is visible regardless of mask factor)
-        if (maskBorderFactor > 0.0 || finalFactor > 0.0) {
+        if (arcBorderFactor > 0.0 || maskBorderFactor > 0.0 || finalFactor > 0.0) {
             // Calculate frequency thresholds for color mapping
             float threshold1, threshold2, threshold3, threshold4, threshold5;
             float threshold6, threshold7, threshold8, threshold9, threshold10;
@@ -250,6 +381,123 @@ void main() {
                 finalColor = mix(finalColor, arcColor, finalFactor);
             }
             
+            // Render arc outline border (visible both inside and outside the arc)
+            if (arcBorderFactor > 0.0) {
+                // Calculate BPM-based animation speed with minimum fallback
+                float minSpeed = 0.1;
+                float bpmSpeed = (uBPM > 0.0) ? (uBPM / 120.0) : minSpeed;
+                float baseAnimationSpeed = max(bpmSpeed, minSpeed);
+                
+                // Apply beat-based speed boost (similar to refraction shader)
+                float beatSpeedBoost = 1.0;
+                const float BEAT_TIME_THRESHOLD = 0.3; // Time window for recent beat detection (seconds)
+                const float BEAT_INTENSITY_THRESHOLD = 0.5; // Minimum intensity to trigger boost
+                const float MAX_SPEED_BOOST = 2.0; // Maximum speed multiplier on strong beats
+                
+                // Check for recent bass or mid beats
+                bool hasBassBeat = (uBeatTimeBass < BEAT_TIME_THRESHOLD && uBeatIntensityBass > BEAT_INTENSITY_THRESHOLD);
+                bool hasMidBeat = (uBeatTimeMid < BEAT_TIME_THRESHOLD && uBeatIntensityMid > BEAT_INTENSITY_THRESHOLD);
+                
+                if (hasBassBeat || hasMidBeat) {
+                    // Get maximum beat intensity
+                    float maxBeatIntensity = 0.0;
+                    if (hasBassBeat) {
+                        maxBeatIntensity = max(maxBeatIntensity, uBeatIntensityBass);
+                    }
+                    if (hasMidBeat) {
+                        maxBeatIntensity = max(maxBeatIntensity, uBeatIntensityMid);
+                    }
+                    
+                    // Map intensity (BEAT_INTENSITY_THRESHOLD to 1.0) to speed boost (1.0 to MAX_SPEED_BOOST)
+                    float intensityFactor = (maxBeatIntensity - BEAT_INTENSITY_THRESHOLD) / (1.0 - BEAT_INTENSITY_THRESHOLD);
+                    intensityFactor = clamp(intensityFactor, 0.0, 1.0);
+                    beatSpeedBoost = 1.0 + intensityFactor * (MAX_SPEED_BOOST - 1.0);
+                }
+                
+                float animationSpeed = baseAnimationSpeed * uArcBorderNoiseSpeed * beatSpeedBoost;
+                float noiseTime = uTime * animationSpeed;
+                
+                // Use Cartesian coordinates scaled by reference radius to avoid distortion
+                float referenceRadius = 0.1;
+                float noiseScale = 1.0 / referenceRadius;
+                vec2 noiseUV = toPixelScaled * noiseScale;
+                
+                // Add time offset for animation
+                vec2 timeOffset = vec2(noiseTime * 0.1, noiseTime * 0.15);
+                noiseUV += timeOffset;
+                
+                float noiseValue = fbm2_standard(noiseUV, noiseTime, FBM_SCALE, FBM_OCTAVES, FBM_LACUNARITY, FBM_GAIN);
+                
+                // Apply same processing as mask border
+                float volumeScale = calculateVolumeScale(uVolume);
+                float feed = noiseValue * volumeScale;
+                
+                float aspectRatio = uResolution.x / uResolution.y;
+                vec2 borderUV = toPixelScaled;
+                float stereoBrightness = calculateStereoBrightness(
+                    borderUV, aspectRatio,
+                    uBassStereo, uMidStereo, uTrebleStereo,
+                    uBass, uMid, uTreble
+                );
+                feed *= stereoBrightness;
+                feed = applySoftCompression(feed, 0.7, 0.3);
+                feed = feed * uArcBorderNoiseMultiplier;
+                feed = clamp(feed, 0.0, 1.0);
+                
+                // Map to color using same method
+                vec3 borderColor = mapNoiseToColor(
+                    feed,
+                    threshold1, threshold2, threshold3, threshold4, threshold5,
+                    threshold6, threshold7, threshold8, threshold9, threshold10,
+                    uColorTransitionWidth
+                );
+                
+                // Apply blur to border color if enabled
+                if (uBorderNoiseBlur > 0.0) {
+                    vec3 blurredColor = borderColor;
+                    float sampleCount = 1.0;
+                    // Blur distance in noise UV space - use a larger value for visible effect
+                    // Scale by blur amount (0.0-1.0) to control intensity
+                    float blurDistance = 0.1 * uBorderNoiseBlur;
+                    
+                    // Sample neighboring positions in noise space
+                    for (int i = -1; i <= 1; i++) {
+                        for (int j = -1; j <= 1; j++) {
+                            if (i == 0 && j == 0) continue;
+                            
+                            // Calculate offset in noise UV space
+                            vec2 offsetNoiseUV = noiseUV + vec2(float(i), float(j)) * blurDistance;
+                            
+                            // Sample noise at offset position
+                            float offsetNoiseValue = fbm2_standard(offsetNoiseUV, noiseTime, FBM_SCALE, FBM_OCTAVES, FBM_LACUNARITY, FBM_GAIN);
+                            
+                            // Apply same processing as main noise
+                            float offsetFeed = offsetNoiseValue * volumeScale;
+                            offsetFeed *= stereoBrightness;
+                            offsetFeed = applySoftCompression(offsetFeed, 0.7, 0.3);
+                            offsetFeed = offsetFeed * uArcBorderNoiseMultiplier;
+                            offsetFeed = clamp(offsetFeed, 0.0, 1.0);
+                            
+                            // Map to color
+                            vec3 offsetColor = mapNoiseToColor(
+                                offsetFeed,
+                                threshold1, threshold2, threshold3, threshold4, threshold5,
+                                threshold6, threshold7, threshold8, threshold9, threshold10,
+                                uColorTransitionWidth
+                            );
+                            
+                            blurredColor += offsetColor;
+                            sampleCount += 1.0;
+                        }
+                    }
+                    
+                    blurredColor /= sampleCount;
+                    borderColor = mix(borderColor, blurredColor, uBorderNoiseBlur);
+                }
+                
+                finalColor = mix(finalColor, borderColor, arcBorderFactor);
+            }
+            
             // Render mask border (visible both inside and outside mask)
             if (maskBorderFactor > 0.0) {
                 // Calculate BPM-based animation speed with minimum fallback
@@ -258,8 +506,35 @@ void main() {
                 float minSpeed = 0.1;
                 float bpmSpeed = (uBPM > 0.0) ? (uBPM / 120.0) : minSpeed; // Normalize to 120 BPM = 1.0x speed
                 float baseAnimationSpeed = max(bpmSpeed, minSpeed); // Ensure minimum speed
+                
+                // Apply beat-based speed boost (similar to refraction shader)
+                float beatSpeedBoost = 1.0;
+                const float BEAT_TIME_THRESHOLD = 0.3; // Time window for recent beat detection (seconds)
+                const float BEAT_INTENSITY_THRESHOLD = 0.5; // Minimum intensity to trigger boost
+                const float MAX_SPEED_BOOST = 2.0; // Maximum speed multiplier on strong beats
+                
+                // Check for recent bass or mid beats
+                bool hasBassBeat = (uBeatTimeBass < BEAT_TIME_THRESHOLD && uBeatIntensityBass > BEAT_INTENSITY_THRESHOLD);
+                bool hasMidBeat = (uBeatTimeMid < BEAT_TIME_THRESHOLD && uBeatIntensityMid > BEAT_INTENSITY_THRESHOLD);
+                
+                if (hasBassBeat || hasMidBeat) {
+                    // Get maximum beat intensity
+                    float maxBeatIntensity = 0.0;
+                    if (hasBassBeat) {
+                        maxBeatIntensity = max(maxBeatIntensity, uBeatIntensityBass);
+                    }
+                    if (hasMidBeat) {
+                        maxBeatIntensity = max(maxBeatIntensity, uBeatIntensityMid);
+                    }
+                    
+                    // Map intensity (BEAT_INTENSITY_THRESHOLD to 1.0) to speed boost (1.0 to MAX_SPEED_BOOST)
+                    float intensityFactor = (maxBeatIntensity - BEAT_INTENSITY_THRESHOLD) / (1.0 - BEAT_INTENSITY_THRESHOLD);
+                    intensityFactor = clamp(intensityFactor, 0.0, 1.0);
+                    beatSpeedBoost = 1.0 + intensityFactor * (MAX_SPEED_BOOST - 1.0);
+                }
+                
                 // Apply user-configurable speed multiplier
-                float animationSpeed = baseAnimationSpeed * uMaskBorderNoiseSpeed;
+                float animationSpeed = baseAnimationSpeed * uMaskBorderNoiseSpeed * beatSpeedBoost;
                 float noiseTime = uTime * animationSpeed;
                 
                 // Use Cartesian coordinates scaled by reference radius to avoid distortion
@@ -306,6 +581,49 @@ void main() {
                     threshold6, threshold7, threshold8, threshold9, threshold10,
                     uColorTransitionWidth
                 );
+                
+                // Apply blur to border color if enabled
+                if (uBorderNoiseBlur > 0.0) {
+                    vec3 blurredColor = borderColor;
+                    float sampleCount = 1.0;
+                    // Blur distance in noise UV space - use a larger value for visible effect
+                    // Scale by blur amount (0.0-1.0) to control intensity
+                    float blurDistance = 0.1 * uBorderNoiseBlur;
+                    
+                    // Sample neighboring positions in noise space
+                    for (int i = -1; i <= 1; i++) {
+                        for (int j = -1; j <= 1; j++) {
+                            if (i == 0 && j == 0) continue;
+                            
+                            // Calculate offset in noise UV space
+                            vec2 offsetNoiseUV = noiseUV + vec2(float(i), float(j)) * blurDistance;
+                            
+                            // Sample noise at offset position
+                            float offsetNoiseValue = fbm2_standard(offsetNoiseUV, noiseTime, FBM_SCALE, FBM_OCTAVES, FBM_LACUNARITY, FBM_GAIN);
+                            
+                            // Apply same processing as main noise
+                            float offsetFeed = offsetNoiseValue * volumeScale;
+                            offsetFeed *= stereoBrightness;
+                            offsetFeed = applySoftCompression(offsetFeed, 0.7, 0.3);
+                            offsetFeed = offsetFeed * uMaskBorderNoiseMultiplier;
+                            offsetFeed = clamp(offsetFeed, 0.0, 1.0);
+                            
+                            // Map to color
+                            vec3 offsetColor = mapNoiseToColor(
+                                offsetFeed,
+                                threshold1, threshold2, threshold3, threshold4, threshold5,
+                                threshold6, threshold7, threshold8, threshold9, threshold10,
+                                uColorTransitionWidth
+                            );
+                            
+                            blurredColor += offsetColor;
+                            sampleCount += 1.0;
+                        }
+                    }
+                    
+                    blurredColor /= sampleCount;
+                    borderColor = mix(borderColor, blurredColor, uBorderNoiseBlur);
+                }
                 
                 finalColor = mix(finalColor, borderColor, maskBorderFactor);
             }

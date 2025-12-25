@@ -176,11 +176,99 @@ const arcConfig: ShaderConfig = {
         },
         maskBorderNoiseMultiplier: {
             type: 'float',
-            default: 1.1,
+            default: 1.2,
             min: 0.0,
             max: 2.0,
             step: 0.1,
             label: 'Mask Border Noise Multiplier (intensity before color mapping)'
+        },
+        arcBorderWidth: {
+            type: 'float',
+            default: 0.001,
+            min: 0.0,
+            max: 0.02,
+            step: 0.001,
+            label: 'Arc Border Width (thickness of border around arc outline)'
+        },
+        arcBorderNoiseSpeed: {
+            type: 'float',
+            default: 0.5,
+            min: 0.0,
+            max: 1.0,
+            step: 0.05,
+            label: 'Arc Border Noise Speed (animation speed multiplier)'
+        },
+        arcBorderInnerFeathering: {
+            type: 'float',
+            default: 0.03,
+            min: 0.0,
+            max: 0.01,
+            step: 0.001,
+            label: 'Arc Border Inner Feathering (soft edge on inner side)'
+        },
+        arcBorderOuterFeathering: {
+            type: 'float',
+            default: 0.03,
+            min: 0.0,
+            max: 0.01,
+            step: 0.001,
+            label: 'Arc Border Outer Feathering (soft edge on outer side)'
+        },
+        arcBorderNoiseMultiplier: {
+            type: 'float',
+            default: 1.2,
+            min: 0.0,
+            max: 2.0,
+            step: 0.1,
+            label: 'Arc Border Noise Multiplier (intensity before color mapping)'
+        },
+        borderNoiseBlur: {
+            type: 'float',
+            default: 0.0,
+            min: 0.0,
+            max: 1.0,
+            step: 0.05,
+            label: 'Border Noise Blur (0 = no blur, 1 = full blur)'
+        },
+        distortionStrength: {
+            type: 'float',
+            default: 1.3,
+            min: 0.0,
+            max: 5.0,
+            step: 0.1,
+            label: 'Distortion Strength (0 = off, 1 = default, >1 = stronger)'
+        },
+        distortionSize: {
+            type: 'float',
+            default: 0.6,
+            min: 0.1,
+            max: 3.0,
+            step: 0.1,
+            label: 'Distortion Size (0.1 = small, 1.0 = full screen, >1 = extends beyond)'
+        },
+        distortionFalloff: {
+            type: 'float',
+            default: 2.0,
+            min: 0.5,
+            max: 6.0,
+            step: 0.1,
+            label: 'Distortion Falloff (1.0 = linear, 2.0 = smooth, 4.0 = sharp)'
+        },
+        distortionPerspectiveStrength: {
+            type: 'float',
+            default: 1.0,
+            min: 0.0,
+            max: 3.0,
+            step: 0.1,
+            label: 'Distortion Perspective Strength (0 = no scaling, 1 = default, >1 = stronger)'
+        },
+        distortionEasing: {
+            type: 'float',
+            default: 1.0,
+            min: 0.0,
+            max: 2.0,
+            step: 0.1,
+            label: 'Distortion Easing (0 = linear, 1 = smooth, 2 = exponential)'
         },
         contrast: {
             type: 'float',
