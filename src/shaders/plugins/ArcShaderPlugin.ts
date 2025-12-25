@@ -14,6 +14,8 @@ import type { ColorMap } from '../../types/index.js';
 interface SmoothingState extends Record<string, unknown> {
     smoothedLeftBands: Float32Array | null;
     smoothedRightBands: Float32Array | null;
+    smoothedMaskRadius: number;
+    smoothedContrastAudioLevel: number;
 }
 
 interface FrequencyTextures {
@@ -32,7 +34,9 @@ export class ArcShaderPlugin extends BaseShaderPlugin {
         // Smoothing state for arc shader
         this.smoothing = {
             smoothedLeftBands: null,
-            smoothedRightBands: null
+            smoothedRightBands: null,
+            smoothedMaskRadius: 0.0,
+            smoothedContrastAudioLevel: 0.0
         };
         
         // Frequency texture
@@ -172,7 +176,7 @@ export class ArcShaderPlugin extends BaseShaderPlugin {
     /**
      * Update shader-specific uniforms
      */
-    onUpdateUniforms(_audioData: ExtendedAudioData | null, _colors: ColorMap | null, _deltaTime: number): void {
+    onUpdateUniforms(audioData: ExtendedAudioData | null, _colors: ColorMap | null, deltaTime: number): void {
         if (!this.uniformHelper) return;
         
         const params = this.shaderInstance.parameters;
@@ -184,6 +188,131 @@ export class ArcShaderPlugin extends BaseShaderPlugin {
         helper.updateFloat('uCenterX', params.centerX as number | undefined, 0.5);
         helper.updateFloat('uCenterY', params.centerY as number | undefined, 0.5);
         helper.updateFloat('uColorTransitionWidth', params.colorTransitionWidth as number | undefined, 0.003);
+        helper.updateFloat('uColorSmoothing', params.colorSmoothing as number | undefined, 1.0);
+        helper.updateFloat('uColorSmoothingRadius', params.colorSmoothingRadius as number | undefined, 2.0);
+        helper.updateFloat('uCornerRoundSize', params.cornerRoundSize as number | undefined, 0.25);
+        helper.updateFloat('uMaskBorderWidth', params.maskBorderWidth as number | undefined, 0.005);
+        helper.updateFloat('uMaskBorderNoiseSpeed', params.maskBorderNoiseSpeed as number | undefined, 0.1);
+        helper.updateFloat('uMaskBorderInnerFeathering', params.maskBorderInnerFeathering as number | undefined, 0.002);
+        helper.updateFloat('uMaskBorderOuterFeathering', params.maskBorderOuterFeathering as number | undefined, 0.002);
+        helper.updateFloat('uMaskBorderNoiseMultiplier', params.maskBorderNoiseMultiplier as number | undefined, 1.0);
+        
+        // Calculate dynamic mask radius based on bass triggers
+        const baseMaskRadius = (params.maskRadius as number | undefined) || 0.0;
+        const maxMaskRadius = (params.maxMaskRadius as number | undefined) || 0.15;
+        
+        if (audioData && maxMaskRadius > baseMaskRadius) {
+            // Get attack/release note values from config
+            const maskAttackNote = (params.maskAttackNote !== undefined
+                ? params.maskAttackNote
+                : 1.0 / 64.0) as number;
+            const maskReleaseNote = (params.maskReleaseNote !== undefined
+                ? params.maskReleaseNote
+                : 1.0 / 8.0) as number;
+            
+            // Calculate tempo-relative time constants
+            const bpm = audioData.estimatedBPM || 0;
+            const attackTimeConstant = getTempoRelativeTimeConstant(
+                maskAttackNote,
+                bpm,
+                10.0 // milliseconds fallback
+            );
+            const releaseTimeConstant = getTempoRelativeTimeConstant(
+                maskReleaseNote,
+                bpm,
+                100.0 // milliseconds fallback
+            );
+            
+            // Use peakBass for more dramatic response to beats, fallback to bass
+            const bassIntensity = audioData.peakBass || audioData.bass || 0.0;
+            
+            // Calculate target mask radius: base + (bass * expansion range)
+            const expansionRange = maxMaskRadius - baseMaskRadius;
+            const targetMaskRadius = baseMaskRadius + bassIntensity * expansionRange;
+            
+            // Apply tempo-relative smoothing
+            this.smoothing.smoothedMaskRadius = applyTempoRelativeSmoothing(
+                this.smoothing.smoothedMaskRadius,
+                targetMaskRadius,
+                deltaTime,
+                attackTimeConstant,
+                releaseTimeConstant
+            );
+            
+            helper.updateFloat('uMaskRadius', this.smoothing.smoothedMaskRadius, baseMaskRadius);
+        } else {
+            // No audio or no expansion: use base mask radius
+            helper.updateFloat('uMaskRadius', baseMaskRadius, 0.0);
+            this.smoothing.smoothedMaskRadius = baseMaskRadius;
+        }
+        
+        // Update contrast uniforms
+        helper.updateFloat('uContrast', params.contrast as number | undefined, 1.0);
+        helper.updateFloat('uContrastAudioReactive', params.contrastAudioReactive as number | undefined, 0.0);
+        helper.updateFloat('uContrastMin', params.contrastMin as number | undefined, 1.0);
+        helper.updateFloat('uContrastMax', params.contrastMax as number | undefined, 1.35);
+        
+        // Smooth contrast audio level for contrast modulation
+        const contrastAudioReactive = (params.contrastAudioReactive as number | undefined) || 0.0;
+        if (contrastAudioReactive > 0.0 && audioData) {
+            // Get audio source from config
+            const contrastAudioSource = (params.contrastAudioSource !== undefined 
+                ? params.contrastAudioSource : 1) as number;
+            
+            let targetContrastAudioLevel = 0.0;
+            if (contrastAudioSource === 0) {
+                targetContrastAudioLevel = audioData.volume || 0;
+            } else if (contrastAudioSource === 1) {
+                targetContrastAudioLevel = audioData.bass || 0;
+            } else if (contrastAudioSource === 2) {
+                targetContrastAudioLevel = audioData.mid || 0;
+            } else if (contrastAudioSource === 3) {
+                targetContrastAudioLevel = audioData.treble || 0;
+            }
+            targetContrastAudioLevel = Math.max(0, Math.min(1, targetContrastAudioLevel));
+            
+            // Get attack/release note values from config
+            const contrastAttackNote = (params.contrastAudioAttackNote !== undefined
+                ? params.contrastAudioAttackNote
+                : TempoSmoothingConfig.contrast.attackNote) as number;
+            const contrastReleaseNote = (params.contrastAudioReleaseNote !== undefined
+                ? params.contrastAudioReleaseNote
+                : TempoSmoothingConfig.contrast.releaseNote) as number;
+            
+            // Calculate tempo-relative time constants
+            const bpm = audioData.estimatedBPM || 0;
+            const attackTimeConstant = getTempoRelativeTimeConstant(
+                contrastAttackNote,
+                bpm,
+                TempoSmoothingConfig.contrast.attackTimeFallback
+            );
+            const releaseTimeConstant = getTempoRelativeTimeConstant(
+                contrastReleaseNote,
+                bpm,
+                TempoSmoothingConfig.contrast.releaseTimeFallback
+            );
+            
+            // Apply tempo-relative smoothing
+            this.smoothing.smoothedContrastAudioLevel = applyTempoRelativeSmoothing(
+                this.smoothing.smoothedContrastAudioLevel,
+                targetContrastAudioLevel,
+                deltaTime,
+                attackTimeConstant,
+                releaseTimeConstant
+            );
+            
+            // Validate and clamp
+            if (!isFinite(this.smoothing.smoothedContrastAudioLevel)) {
+                this.smoothing.smoothedContrastAudioLevel = 0.0;
+            }
+            this.smoothing.smoothedContrastAudioLevel = Math.max(0, Math.min(1, this.smoothing.smoothedContrastAudioLevel));
+            
+            helper.updateFloat('uSmoothedContrastAudioLevel', this.smoothing.smoothedContrastAudioLevel, 0.0);
+        } else {
+            // No audio reactivity: use zero level
+            this.smoothing.smoothedContrastAudioLevel = 0.0;
+            helper.updateFloat('uSmoothedContrastAudioLevel', 0.0, 0.0);
+        }
     }
     
     /**
@@ -192,6 +321,8 @@ export class ArcShaderPlugin extends BaseShaderPlugin {
     onDestroy(): void {
         this.smoothing.smoothedLeftBands = null;
         this.smoothing.smoothedRightBands = null;
+        this.smoothing.smoothedMaskRadius = 0.0;
+        this.smoothing.smoothedContrastAudioLevel = 0.0;
         this.frequencyTextures.leftRight = null;
         this.uniformHelper = null;
     }

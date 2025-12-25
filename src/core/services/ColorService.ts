@@ -379,7 +379,7 @@ export class ColorService {
    */
   _setShaderThresholds(thresholds: number[]): void {
     const shader = this.shaderManager.activeShader;
-    if (!shader) return;
+    if (!shader || !shader.isInitialized) return;
     
     for (let i = 0; i < thresholds.length; i++) {
       shader.setUniform(`uThreshold${i + 1}`, thresholds[i]);
