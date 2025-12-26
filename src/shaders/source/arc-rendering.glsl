@@ -11,7 +11,47 @@
 
 // Performance constants (needed by arc rendering)
 #define MAX_COLOR_SMOOTHING_SAMPLES 10
+#ifdef GL_ES
+    // OPTIMIZATION Phase 1.3: Reduce max samples on mobile for better performance
+    #define MAX_COLOR_SMOOTHING_SAMPLES_MOBILE 5
+#else
+    #define MAX_COLOR_SMOOTHING_SAMPLES_MOBILE MAX_COLOR_SMOOTHING_SAMPLES
+#endif
 #define WEIGHT_EARLY_EXIT_THRESHOLD 0.01
+
+// OPTIMIZATION Phase 1.1: Calculate angle from vertical once and reuse
+// Helper function to calculate angle from vertical axis
+// Defined here with guard to prevent duplicate definition (also defined in arc-background.glsl)
+#ifndef CALCULATE_ANGLE_FROM_VERTICAL_DEFINED
+#define CALCULATE_ANGLE_FROM_VERTICAL_DEFINED
+float calculateAngleFromVertical(vec2 toPixelScaled) {
+    float distForAngle = length(toPixelScaled);
+    
+    if (distForAngle < 0.001) {
+        // Too close to center, return middle angle
+        return PI * 0.5;
+    }
+    
+    float absX = abs(toPixelScaled.x);
+    float absY = abs(toPixelScaled.y);
+    float angleFromVertical;
+    
+    if (absY > 0.001) {
+        // Use atan to get angle from vertical: atan(x/y) gives angle from y-axis
+        angleFromVertical = atan(absX / absY);
+        
+        // For bottom half (y<0), convert to angle from vertical
+        if (toPixelScaled.y < 0.0) {
+            angleFromVertical = PI - angleFromVertical;
+        }
+    } else {
+        // When y≈0 (horizontal center), angle should be π/2 (horizontal)
+        angleFromVertical = PI * 0.5;
+    }
+    
+    return angleFromVertical;
+}
+#endif
 
 // Calculate arc rendering data for a pixel position
 // Returns arc color and factors needed for border rendering
@@ -21,6 +61,7 @@ void calculateArcRendering(
     vec2 toPixel,
     vec2 toPixelScaled,
     float dist,
+    float angleFromVertical,  // OPTIMIZATION Phase 1.1: Pre-calculated angle
     float aspectRatio,
     float viewportScale,
     float dprScale,
@@ -29,6 +70,7 @@ void calculateArcRendering(
     out float bandIndex,
     out float volume,
     out float finalRadius,
+    out float arcRadiusAtPosition,  // OPTIMIZATION Phase 1.2: Cache for reuse in background fade and contrast mask
     out float arcBorderFactor,
     out float maskBorderFactor,
     out float finalFactor,
@@ -38,50 +80,23 @@ void calculateArcRendering(
     bandIndex = 0.0;
     volume = 0.0;
     finalRadius = 0.0;
+    arcRadiusAtPosition = 0.0;  // OPTIMIZATION Phase 1.2: Initialize cached radius
     arcBorderFactor = 0.0;
     maskBorderFactor = 0.0;
     finalFactor = 0.0;
     arcColor = vec3(0.0);
     
     // Map position along arc to band index
-    // Calculate angle from vertical axis directly from position
+    // OPTIMIZATION Phase 1.1: Use pre-calculated angle instead of recalculating
     // For a semicircle, the angle from vertical (0° = top) directly determines band position
     // Top (0° from vertical) = highest frequency, Bottom (π from vertical) = lowest frequency
     float normalizedPosition;
-    float distForAngle = length(toPixelScaled);  // Use scaled coordinates for consistency
     
-    if (distForAngle > 0.001) {
-        // Calculate angle from vertical axis
-        float absX = abs(toPixelScaled.x);
-        float absY = abs(toPixelScaled.y);
-        float angleFromVertical;
-        if (absY > 0.001) {
-            // Use atan to get angle from vertical: atan(x/y) gives angle from y-axis
-            // Linear mapping: angle increases proportionally with x/y ratio
-            // When x=0: atan(0/y) = 0 (straight up, top)
-            // When x>0, y>0: atan(x/y) > 0 (angle increases proportionally)
-            // This creates even spacing: equal changes in x/y ratio produce equal changes in angle
-            angleFromVertical = atan(absX / absY);
-            
-            // For bottom half (y<0), we need to map to [π/2, π] range
-            // When y<0, atan(x/abs(y)) gives angle from horizontal, so we convert to angle from vertical
-            if (toPixelScaled.y < 0.0) {
-                angleFromVertical = PI - angleFromVertical;
-            }
-        } else {
-            // When y≈0 (horizontal center), angle should be π/2 (horizontal), not π (bottom)
-            // This maps to middle frequency bands instead of lowest bands, preventing the horizontal line artifact
-            angleFromVertical = PI * 0.5;
-        }
-        
-        // Map from [0, π] to [0, 1] where 0 = top (highest bands), π = bottom (lowest bands)
-        // Invert so 0° (top) → 1.0, π (bottom) → 0.0
-        // Linear mapping ensures even spacing: equal angle changes produce equal position changes
-        normalizedPosition = 1.0 - (angleFromVertical / PI);
-        normalizedPosition = clamp(normalizedPosition, 0.0, 1.0);
-    } else {
-        normalizedPosition = 0.5; // Center if too close to origin
-    }
+    // Map from [0, π] to [0, 1] where 0 = top (highest bands), π = bottom (lowest bands)
+    // Invert so 0° (top) → 1.0, π (bottom) → 0.0
+    // Linear mapping ensures even spacing: equal angle changes produce equal position changes
+    normalizedPosition = 1.0 - (angleFromVertical / PI);
+    normalizedPosition = clamp(normalizedPosition, 0.0, 1.0);
     
     // Simple linear mapping: normalizedPosition directly maps to band index
     // No special rules, exclusions, or remapping - just even spacing
@@ -205,6 +220,9 @@ void calculateArcRendering(
     
     // Apply corner rounding to final radius
     finalRadius = targetRadius - cornerRadiusAdjust;
+    
+    // OPTIMIZATION Phase 1.2: Cache radius for reuse in background fade and contrast mask
+    arcRadiusAtPosition = finalRadius;
     
     // Calculate arc outline border (similar to mask border)
     if (uArcBorderWidth > 0.0) {
@@ -346,12 +364,20 @@ void calculateArcRendering(
     float totalWeight = 0.0;
     
     if (uColorSmoothing > 0.0 && uColorSmoothingRadius > 0.0) {
-        // OPTIMIZATION: Calculate actual sample count based on radius (Phase 1.3)
+        // OPTIMIZATION Phase 1.3: Calculate actual sample count based on radius
         float smoothingRadius = uColorSmoothingRadius;
         int actualSamples = int(ceil(smoothingRadius * 2.0));
+        
+        // OPTIMIZATION Phase 1.3: Use mobile-specific max samples
+        #ifdef GL_ES
+            int maxSamples = MAX_COLOR_SMOOTHING_SAMPLES_MOBILE;
+        #else
+            int maxSamples = MAX_COLOR_SMOOTHING_SAMPLES;
+        #endif
+        
         // Clamp to max samples using if statement (GLSL ES doesn't support const int min())
-        if (actualSamples > MAX_COLOR_SMOOTHING_SAMPLES) {
-            actualSamples = MAX_COLOR_SMOOTHING_SAMPLES;
+        if (actualSamples > maxSamples) {
+            actualSamples = maxSamples;
         }
         float sampleStep = 0.5;
         
@@ -363,9 +389,19 @@ void calculateArcRendering(
             float sampleOffset = (float(i) - float(actualSamples) * 0.5) * sampleStep;
             float dist = abs(sampleOffset);
             
-            // OPTIMIZATION: Early exit before expensive operations (Phase 1.3)
+            // OPTIMIZATION Phase 1.3: Early exit before expensive operations
             if (dist > smoothingRadius) break;
-            if (dist < 0.1) continue; // Skip redundant sample
+            if (dist < 0.1) continue; // Skip redundant center sample
+            
+            // OPTIMIZATION Phase 1.3: Calculate weight using polynomial approximation instead of exp()
+            // Polynomial approximation: 1.0 - (dist/smoothingRadius)^2 for quadratic falloff
+            // This is much faster than exp() on mobile GPUs
+            float distNorm = dist / smoothingRadius;
+            float weight = 1.0 - distNorm * distNorm;
+            weight = max(weight, 0.0);
+            
+            // OPTIMIZATION Phase 1.3: Early exit when weight becomes negligible (before expensive operations)
+            if (weight < WEIGHT_EARLY_EXIT_THRESHOLD) break;
             
             float sampleBand = bandIndex + sampleOffset;
             
@@ -376,12 +412,6 @@ void calculateArcRendering(
             float maxVisualBand = float(uNumBands - 1);
             float normalizedSampleBand = clampedBand / max(maxVisualBand, 1.0);
             float measuredSampleBandIndex = normalizedSampleBand * (uMeasuredBands - 1.0);
-            
-            // Weight decreases with distance (Gaussian-like falloff)
-            float weight = exp(-dist * dist / (smoothingRadius * smoothingRadius * 0.5));
-            
-            // OPTIMIZATION: Early exit when weight becomes negligible (Phase 1.3)
-            if (weight < WEIGHT_EARLY_EXIT_THRESHOLD) break;
             
             // Sample frequency data for this band using measured band coordinates
             float bandX = (measuredSampleBandIndex + 0.5) / uMeasuredBands;

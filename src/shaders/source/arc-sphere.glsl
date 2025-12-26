@@ -66,13 +66,16 @@ vec3 applyHueShift(vec3 rgb, float hueShift) {
 }
 
 // Render glowing center sphere
+// OPTIMIZATION Phase 2.2: Accept pre-calculated thresholds to avoid redundant calculation
 vec3 renderCenterSphere(
     vec2 uv,
     vec2 center,
     float aspectRatio,
     float viewportScale,
     float dprScale,
-    float time
+    float time,
+    float threshold1, float threshold2, float threshold3, float threshold4, float threshold5,
+    float threshold6, float threshold7, float threshold8, float threshold9, float threshold10
 ) {
     // Early exit if sphere is disabled
     if (uCenterSphereEnabled < 0.5) {
@@ -169,15 +172,8 @@ vec3 renderCenterSphere(
     float colorInput = combinedSize;
     colorInput = applySoftCompression(colorInput, 0.7, 0.3);
     
-    // Calculate color thresholds (reuse existing system)
-    float threshold1, threshold2, threshold3, threshold4, threshold5;
-    float threshold6, threshold7, threshold8, threshold9, threshold10;
-    calculateAllFrequencyThresholds(
-        0.0,  // No dithering for sphere
-        false,
-        threshold1, threshold2, threshold3, threshold4, threshold5,
-        threshold6, threshold7, threshold8, threshold9, threshold10
-    );
+    // OPTIMIZATION Phase 2.2: Use pre-calculated thresholds instead of recalculating
+    // Thresholds are passed as parameters (calculated once in main())
     
     // Map audio level to color
     vec3 sphereColor = mapNoiseToColorSmooth(

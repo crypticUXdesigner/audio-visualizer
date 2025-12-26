@@ -157,6 +157,7 @@ float blurBorderNoise(
 }
 
 // Calculate border color from noise and processing
+// OPTIMIZATION Phase 2.2: Accept pre-calculated thresholds to avoid redundant calculation
 vec3 calculateBorderColor(
     float noiseValue,
     vec2 toPixelScaled,
@@ -165,7 +166,9 @@ vec3 calculateBorderColor(
     float blurAmount,
     float dprScale,
     float animationSpeed,
-    float time
+    float time,
+    float threshold1, float threshold2, float threshold3, float threshold4, float threshold5,
+    float threshold6, float threshold7, float threshold8, float threshold9, float threshold10
 ) {
     // Apply blur if enabled
     if (blurAmount > 0.0) {
@@ -175,15 +178,8 @@ vec3 calculateBorderColor(
     // Process noise to feed
     float feed = processBorderNoiseToFeed(noiseValue, toPixelScaled, aspectRatio, noiseMultiplier);
     
-    // Calculate frequency thresholds for border color mapping
-    float threshold1, threshold2, threshold3, threshold4, threshold5;
-    float threshold6, threshold7, threshold8, threshold9, threshold10;
-    calculateAllFrequencyThresholds(
-        0.0,  // No dithering for borders
-        false, // useFrequencyModulation = false
-        threshold1, threshold2, threshold3, threshold4, threshold5,
-        threshold6, threshold7, threshold8, threshold9, threshold10
-    );
+    // OPTIMIZATION Phase 2.2: Use pre-calculated thresholds instead of recalculating
+    // Thresholds are passed as parameters (calculated once in main())
     
     // Map to color
     return mapNoiseToColorSmooth(

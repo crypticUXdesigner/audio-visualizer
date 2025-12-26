@@ -181,14 +181,38 @@ void main() {
     // This scales down the entire visualization in portrait mode
     vec2 toPixelScaled = toPixelAspectCorrected * viewportScale;
     
+    // OPTIMIZATION Phase 3.1: Calculate distance once and reuse
     // Distance in aspect-corrected, viewport-scaled space
     float dist = length(toPixelScaled);
+    float distSquared = dist * dist;  // OPTIMIZATION Phase 3.1: Cache squared distance for comparisons (avoid sqrt)
+    
+    // OPTIMIZATION Phase 2.3: Early exit for pixels far from arcs
+    // Calculate maximum possible arc radius (base + max offset) to determine if pixel is too far
+    float maxPossibleRadius = (uBaseRadius + uMaxRadiusOffset) * viewportScale * 1.5; // 1.5x safety margin
+    float maxRadiusSquared = maxPossibleRadius * maxPossibleRadius;
+    
+    // If pixel is far beyond any possible arc, only render background
+    bool isFarFromArcs = distSquared > maxRadiusSquared;
+    
+    // OPTIMIZATION Phase 1.1: Calculate angle once and reuse (avoids redundant atan() calls)
+    float angleFromVertical = calculateAngleFromVertical(toPixelScaled);
     
     // Determine which arc (left or right side of screen)
     // Split vertically: left side = left channel, right side = right channel
     // Each arc spans 180 degrees: from PI/2 (top) to -PI/2 (bottom)
     bool isLeftArc = (toPixel.x < 0.0);
     bool isRightArc = (toPixel.x >= 0.0);
+    
+    // OPTIMIZATION Phase 2.2: Calculate thresholds once and reuse
+    // Calculate base thresholds (no dithering) for functions that don't need dithering
+    float threshold1, threshold2, threshold3, threshold4, threshold5;
+    float threshold6, threshold7, threshold8, threshold9, threshold10;
+    calculateAllFrequencyThresholds(
+        0.0,  // No dithering for base thresholds
+        false, // useFrequencyModulation = false
+        threshold1, threshold2, threshold3, threshold4, threshold5,
+        threshold6, threshold7, threshold8, threshold9, threshold10
+    );
     
     // ========================================================================
     // Background Rendering
@@ -206,14 +230,20 @@ void main() {
     // ========================================================================
     // Center Sphere Rendering
     // ========================================================================
-    vec3 sphereColor = renderCenterSphere(
-        uv,
-        center,
-        aspectRatio,
-        viewportScale,
-        dprScale,
-        uTime
-    );
+    // OPTIMIZATION Phase 2.3: Skip sphere rendering if pixel is far from arcs
+    vec3 sphereColor = vec3(0.0);
+    if (!isFarFromArcs) {
+        sphereColor = renderCenterSphere(
+            uv,
+            center,
+            aspectRatio,
+            viewportScale,
+            dprScale,
+            uTime,
+            threshold1, threshold2, threshold3, threshold4, threshold5,
+            threshold6, threshold7, threshold8, threshold9, threshold10
+        );
+    }
     
     // Blend sphere with background using additive blending
     // This makes the sphere glow on top of the background
@@ -238,7 +268,11 @@ void main() {
     bool debugConstraintApplied = false;
     // #endregion
     
-    if (isLeftArc || isRightArc) {
+    // OPTIMIZATION Phase 1.2: Declare arcRadiusAtPosition outside block for use in contrast mask
+    float arcRadiusAtPosition = uBaseRadius * viewportScale; // Default to base radius
+    
+    // OPTIMIZATION Phase 2.3: Skip arc rendering if pixel is far from arcs
+    if ((isLeftArc || isRightArc) && !isFarFromArcs) {
         // OPTIMIZATION: Use arc rendering module (Phase 2.3)
         float bandIndex;
         float volume;
@@ -254,6 +288,7 @@ void main() {
             toPixel,
             toPixelScaled,
             dist,
+            angleFromVertical,  // OPTIMIZATION Phase 1.1: Pass pre-calculated angle
             aspectRatio,
             viewportScale,
             dprScale,
@@ -262,6 +297,7 @@ void main() {
             bandIndex,
             volume,
             finalRadius,
+            arcRadiusAtPosition,  // OPTIMIZATION Phase 1.2: Cache radius output
             arcBorderFactor,
             maskBorderFactor,
             finalFactor,
@@ -295,7 +331,9 @@ void main() {
                 uBorderNoiseBlur,
                 dprScale,
                 animationSpeed,
-                uTime
+                uTime,
+                threshold1, threshold2, threshold3, threshold4, threshold5,
+                threshold6, threshold7, threshold8, threshold9, threshold10
             );
             
             finalColor = mix(finalColor, borderColor, arcBorderFactor);
@@ -315,7 +353,9 @@ void main() {
                 uBorderNoiseBlur,
                 dprScale,
                 animationSpeed,
-                uTime
+                uTime,
+                threshold1, threshold2, threshold3, threshold4, threshold5,
+                threshold6, threshold7, threshold8, threshold9, threshold10
             );
             
             finalColor = mix(finalColor, borderColor, maskBorderFactor);
@@ -344,14 +384,12 @@ void main() {
     // Calculate contrast mask (same shape as fade mask, but with different feathering)
     float contrastMask = 1.0;
     if (uContrastMaskEnabled > 0.5 && abs(contrastValue - 1.0) > 0.001) {
-        // Calculate distance from center in aspect-corrected, viewport-scaled space
-        vec2 toPixel = uv - center;
-        vec2 toPixelAspectCorrected = vec2(toPixel.x * aspectRatio, toPixel.y);
-        vec2 toPixelScaled = toPixelAspectCorrected * viewportScale;
-        float distFromCenter = length(toPixelScaled);
+        // OPTIMIZATION Phase 3.1: Reuse cached dist instead of recalculating length()
+        float distFromCenter = dist;
         
         // Calculate actual arc radius at this position (matches arc shape)
-        float arcRadius = calculateArcRadiusAtPosition(uv, center, aspectRatio, viewportScale);
+        // OPTIMIZATION Phase 1.2: Reuse cached radius from calculateArcRendering() instead of recalculating
+        float arcRadius = arcRadiusAtPosition;
         
         // Calculate contrast mask distances
         // Mask is strongest near arcs, fades out further away

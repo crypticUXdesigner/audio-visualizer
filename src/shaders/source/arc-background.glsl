@@ -14,6 +14,40 @@
 // Note: PI and Bayer functions (Bayer2, Bayer4, Bayer8) are defined in the main fragment shader
 // This module is included after those definitions, so they are available here
 
+// OPTIMIZATION Phase 1.1: Calculate angle from vertical once and reuse
+// Helper function to calculate angle from vertical axis
+// Defined here with guard to prevent duplicate definition (also defined in arc-rendering.glsl)
+#ifndef CALCULATE_ANGLE_FROM_VERTICAL_DEFINED
+#define CALCULATE_ANGLE_FROM_VERTICAL_DEFINED
+float calculateAngleFromVertical(vec2 toPixelScaled) {
+    float distForAngle = length(toPixelScaled);
+    
+    if (distForAngle < 0.001) {
+        // Too close to center, return middle angle
+        return PI * 0.5;
+    }
+    
+    float absX = abs(toPixelScaled.x);
+    float absY = abs(toPixelScaled.y);
+    float angleFromVertical;
+    
+    if (absY > 0.001) {
+        // Use atan to get angle from vertical: atan(x/y) gives angle from y-axis
+        angleFromVertical = atan(absX / absY);
+        
+        // For bottom half (y<0), convert to angle from vertical
+        if (toPixelScaled.y < 0.0) {
+            angleFromVertical = PI - angleFromVertical;
+        }
+    } else {
+        // When y≈0 (horizontal center), angle should be π/2 (horizontal)
+        angleFromVertical = PI * 0.5;
+    }
+    
+    return angleFromVertical;
+}
+#endif
+
 // OPTIMIZATION: Extract noise calculation for background (Phase 1.1)
 // Calculate background noise value at a specific UV position (without color mapping)
 float calculateBackgroundNoise(
@@ -61,9 +95,17 @@ float calculateBackgroundNoise(
     }
     
     // Multi-layer noise generation
+    // OPTIMIZATION Phase 3.2: Reduce octaves on mobile for better performance
     float noiseTime = time * uBackgroundNoiseSpeed;
-    float noise1 = fbm2_standard(distortedUV * uBackgroundNoiseScale, noiseTime, 1.0, 4, 1.8, 0.5);
-    float noise2 = fbm2_standard(distortedUV * uBackgroundNoiseScale * 2.5, noiseTime * 1.3, 1.0, 3, 2.0, 0.4);
+    #ifdef GL_ES
+        int noise1Octaves = 3;  // Reduced from 4 on mobile
+        int noise2Octaves = 2;  // Reduced from 3 on mobile
+    #else
+        int noise1Octaves = 4;
+        int noise2Octaves = 3;
+    #endif
+    float noise1 = fbm2_standard(distortedUV * uBackgroundNoiseScale, noiseTime, 1.0, noise1Octaves, 1.8, 0.5);
+    float noise2 = fbm2_standard(distortedUV * uBackgroundNoiseScale * 2.5, noiseTime * 1.3, 1.0, noise2Octaves, 2.0, 0.4);
     float combinedNoise = noise1 * 0.625 + noise2 * 0.375;
     
     // Sample frequency texture for frequency-reactive elements
@@ -104,6 +146,7 @@ float calculateBackgroundNoise(
 
 // OPTIMIZATION: Blur noise values instead of colors (Phase 1.1)
 // Blur background noise field for more efficient background blur
+// OPTIMIZATION Phase 3.3: Reduce blur samples on mobile for better performance
 float blurBackgroundNoise(
     float centerNoise,
     vec2 uv,
@@ -114,7 +157,12 @@ float blurBackgroundNoise(
 ) {
     float blurredNoise = centerNoise;
     float sampleCount = 1.0;
-    const int maxSamplesPerSide = 2;
+    
+    #ifdef GL_ES
+        const int maxSamplesPerSide = 1;  // Reduced from 2 on mobile
+    #else
+        const int maxSamplesPerSide = 2;
+    #endif
     
     for (int i = -maxSamplesPerSide; i <= maxSamplesPerSide; i++) {
         for (int j = -maxSamplesPerSide; j <= maxSamplesPerSide; j++) {
@@ -200,9 +248,11 @@ vec3 calculateBackgroundColorAtUV(
 
 // Calculate arc radius at a specific position (for fade mask)
 // This function is used by background fade to match the arc shape
+// OPTIMIZATION Phase 1.1: Accept pre-calculated angle to avoid redundant atan() call
 float calculateArcRadiusAtPosition(
     vec2 uv,
     vec2 center,
+    float angleFromVertical,  // OPTIMIZATION Phase 1.1: Pre-calculated angle
     float aspectRatio,
     float viewportScale
 ) {
@@ -225,25 +275,7 @@ float calculateArcRadiusAtPosition(
         return uBaseRadius * viewportScale;
     }
     
-    // Calculate angle from vertical axis for semicircle
-    // Use atan to properly account for both x and y components
-    // IMPORTANT: Use the same amplification as the main fragment shader to prevent V-shape
-    float absX = abs(toPixelScaled.x);
-    float absY = abs(toPixelScaled.y);
-    float angleFromVertical;
-    if (absY > 0.001) {
-        // Linear angle calculation: use atan directly without amplification
-        // This ensures even spacing: equal changes in x/y ratio produce equal changes in angle
-        angleFromVertical = atan(absX / absY);
-        if (toPixelScaled.y < 0.0) {
-            // For bottom half, convert to angle from vertical
-            angleFromVertical = PI - angleFromVertical;
-        }
-    } else {
-        // When y≈0 (horizontal center), angle should be π/2 (horizontal), not π (bottom)
-        // This maps to middle frequency bands instead of lowest bands, preventing the horizontal line artifact
-        angleFromVertical = PI * 0.5;
-    }
+    // OPTIMIZATION Phase 1.1: Use pre-calculated angle instead of recalculating
     
     // Map from [0, π] to [0, 1] where 0 = top (highest bands), π = bottom (lowest bands)
     // Simple linear mapping: no exclusions or remapping
@@ -402,7 +434,15 @@ vec3 renderBackground(
         float distFromCenter = length(toPixelScaled);
         
         // Calculate actual arc radius at this position (matches arc shape)
-        float arcRadius = calculateArcRadiusAtPosition(uv, center, aspectRatio, viewportScale);
+        // OPTIMIZATION Phase 1.2: This function is now only used as a fallback when arcRadiusAtPosition
+        // is not available. The main usage should pass arcRadiusAtPosition from calculateArcRendering().
+        // For now, we still calculate it here, but this should be optimized further by passing
+        // the cached value from the calling code.
+        vec2 toPixelForAngle = uv - center;
+        vec2 toPixelAspectCorrectedForAngle = vec2(toPixelForAngle.x * aspectRatio, toPixelForAngle.y);
+        vec2 toPixelScaledForAngle = toPixelAspectCorrectedForAngle * viewportScale;
+        float angleFromVertical = calculateAngleFromVertical(toPixelScaledForAngle);
+        float arcRadius = calculateArcRadiusAtPosition(uv, center, angleFromVertical, aspectRatio, viewportScale);
         
         // Calculate fade distances: fade from inside (dark) to outside (visible)
         // fadeStartDistance is how far OUTSIDE the arc to start being fully visible
