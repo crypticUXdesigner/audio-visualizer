@@ -10,21 +10,50 @@ const copyShadersPlugin = (): Plugin => {
   return {
     name: 'copy-shaders',
     writeBundle() {
-      // Copy source shaders to dist/shaders/source/
-      const shadersDir = join('src', 'shaders', 'source');
+      // Main shader files that go directly in dist/shaders/
+      // These are referenced by configs as "shaders/vertex.glsl", "shaders/arc-fragment.glsl", etc.
+      const mainShaderFiles = [
+        'vertex.glsl',
+        'arc-fragment.glsl',
+        'heightmap-fragment.glsl',
+        'refraction-fragment.glsl',
+        'strings-fragment.glsl'
+      ];
+      
+      const shadersSourceDir = join('src', 'shaders', 'source');
+      const distShadersDir = join('dist', 'shaders');
+      
+      // Copy main shader files to dist/shaders/
+      if (existsSync(shadersSourceDir)) {
+        mkdirSync(distShadersDir, { recursive: true });
+        mainShaderFiles.forEach(file => {
+          const src = join(shadersSourceDir, file);
+          if (existsSync(src)) {
+            const dest = join(distShadersDir, file);
+            copyFileSync(src, dest);
+            console.log(`Copied main shader: ${src} to ${dest}`);
+          }
+        });
+      }
+      
+      // Copy included shader files to dist/shaders/source/
+      // These are included with "source/arc-sphere.glsl" etc.
       const distShadersSourceDir = join('dist', 'shaders', 'source');
       
-      if (existsSync(shadersDir)) {
+      if (existsSync(shadersSourceDir)) {
         mkdirSync(distShadersSourceDir, { recursive: true });
         // Copy all .glsl files from source directory
-        const files = readdirSync(shadersDir).filter(file => 
-          file.endsWith('.glsl') && statSync(join(shadersDir, file)).isFile()
+        const files = readdirSync(shadersSourceDir).filter(file => 
+          file.endsWith('.glsl') && statSync(join(shadersSourceDir, file)).isFile()
         );
         files.forEach(file => {
-          const src = join(shadersDir, file);
-          const dest = join(distShadersSourceDir, file);
-          copyFileSync(src, dest);
-          console.log(`Copied ${src} to ${dest}`);
+          // Skip main shader files (already copied above)
+          if (!mainShaderFiles.includes(file)) {
+            const src = join(shadersSourceDir, file);
+            const dest = join(distShadersSourceDir, file);
+            copyFileSync(src, dest);
+            console.log(`Copied included shader: ${src} to ${dest}`);
+          }
         });
       }
       
