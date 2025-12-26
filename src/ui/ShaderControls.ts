@@ -19,9 +19,9 @@ export class ShaderSwitcher {
         this.shaderManager = shaderManager;
         this.onShaderChange = onShaderChange; // Optional callback: (shaderName) => void
         this.audioControls = audioControls; // Reference to AudioControls for hideControls/showControls
-        const savedShader = safeGetItem('activeShader', 'heightmap');
+        const savedShader = safeGetItem('activeShader', 'arc');
         // Migrate old shader names to new names
-        this.currentShader = savedShader || 'heightmap';
+        this.currentShader = savedShader || 'arc';
         this.isMenuOpen = false;
         this.shaderSwitcherMenu = null;
         this.init();
@@ -79,7 +79,7 @@ export class ShaderSwitcher {
         const shaderNames = this.shaderManager.getShaderNames();
         
         // Define desired order: final shaders first, then draft shaders
-        const shaderOrder = ['heightmap', 'refraction', 'strings'];
+        const shaderOrder = ['arc', 'heightmap', 'refraction', 'strings'];
         
         // Sort shaders according to desired order
         const sortedShaderNames = shaderNames.sort((a, b) => {

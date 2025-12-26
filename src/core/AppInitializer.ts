@@ -83,7 +83,7 @@ export async function initializeApp(app: VisualPlayer): Promise<void> {
                 
                 // 6. Initialize and activate default shader (check localStorage for saved preference)
                 const { safeGetItem } = await import('../utils/storage.js');
-                const savedShader = safeGetItem('activeShader', 'heightmap');
+                const savedShader = safeGetItem('activeShader', 'arc');
                 if (savedShader) {
                     await app.shaderManager.setActiveShader(savedShader);
                 }

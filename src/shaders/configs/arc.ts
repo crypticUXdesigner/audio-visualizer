@@ -7,7 +7,7 @@ import type { ShaderConfig } from '../../types/index.js';
 
 const arcConfig: ShaderConfig = {
     name: 'arc',
-    displayName: 'draft: Arc',
+    displayName: 'Arc',
     canvasId: 'backgroundCanvas',
     vertexPath: 'shaders/vertex.glsl',
     fragmentPath: 'shaders/arc-fragment.glsl',
