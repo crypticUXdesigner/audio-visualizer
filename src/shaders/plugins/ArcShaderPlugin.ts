@@ -16,6 +16,11 @@ interface SmoothingState extends Record<string, unknown> {
     smoothedRightBands: Float32Array | null;
     smoothedMaskRadius: number;
     smoothedContrastAudioLevel: number;
+    smoothedSphereBrightness: number;
+    smoothedSphereSizeVolume: number;
+    smoothedSphereSizeBass: number;
+    smoothedSphereBrightnessMultiplier: number;
+    smoothedSphereHueShift: number;
 }
 
 interface FrequencyTextures {
@@ -36,7 +41,12 @@ export class ArcShaderPlugin extends BaseShaderPlugin {
             smoothedLeftBands: null,
             smoothedRightBands: null,
             smoothedMaskRadius: 0.0,
-            smoothedContrastAudioLevel: 0.0
+            smoothedContrastAudioLevel: 0.0,
+            smoothedSphereBrightness: 0.0,
+            smoothedSphereSizeVolume: 0.0,
+            smoothedSphereSizeBass: 0.0,
+            smoothedSphereBrightnessMultiplier: 1.0,
+            smoothedSphereHueShift: 0.0
         };
         
         // Frequency texture
@@ -328,6 +338,205 @@ export class ArcShaderPlugin extends BaseShaderPlugin {
         helper.updateFloat('uCenterSphere3DEnabled', params.centerSphere3DEnabled as number | undefined, 1.0);
         helper.updateFloat('uCenterSphere3DStrength', params.centerSphere3DStrength as number | undefined, 0.3);
         
+        // Smooth sphere brightness (voice-reactive: uses uMid)
+        if (audioData) {
+            const rawTargetBrightness = audioData.mid || 0.0;
+            
+            // Apply compression curve: compress large changes, expand small changes
+            const compression = (params.centerSphereBrightnessCompression !== undefined
+                ? params.centerSphereBrightnessCompression : 0.5) as number;
+            
+            let targetBrightness = rawTargetBrightness;
+            if (compression > 0.001) {
+                // Calculate delta (rate of change) from current smoothed value
+                const currentValue = this.smoothing.smoothedSphereBrightness;
+                const delta = rawTargetBrightness - currentValue;
+                const absDelta = Math.abs(delta);
+                
+                // Apply compression curve to delta:
+                // - Small deltas: expand (more nuanced response to gradual changes)
+                // - Large deltas: compress (less reactive to big jumps)
+                // Use inverse power curve: compressedDelta = sign(delta) * pow(absDelta, 1.0 / (1.0 + compression))
+                // When compression = 0: pow(absDelta, 1.0) = linear (no change)
+                // When compression = 1: pow(absDelta, 0.5) = square root (expands small, compresses large)
+                // Higher compression: more expansion of small values, more compression of large values
+                const power = 1.0 / (1.0 + compression);
+                const compressedAbsDelta = Math.pow(absDelta, power);
+                const compressedDelta = delta >= 0 ? compressedAbsDelta : -compressedAbsDelta;
+                
+                // Apply compressed delta to current value
+                targetBrightness = currentValue + compressedDelta;
+                targetBrightness = Math.max(0, Math.min(1, targetBrightness));
+            }
+            
+            const brightnessAttackNote = (params.centerSphereBrightnessAttackNote !== undefined
+                ? params.centerSphereBrightnessAttackNote
+                : 1.0 / 64.0) as number;
+            const brightnessReleaseNote = (params.centerSphereBrightnessReleaseNote !== undefined
+                ? params.centerSphereBrightnessReleaseNote
+                : 1.0 / 2.0) as number;
+            
+            const bpm = audioData.estimatedBPM || 0;
+            const brightnessAttackTime = getTempoRelativeTimeConstant(
+                brightnessAttackNote,
+                bpm,
+                10.0 // milliseconds fallback
+            );
+            const brightnessReleaseTime = getTempoRelativeTimeConstant(
+                brightnessReleaseNote,
+                bpm,
+                200.0 // milliseconds fallback (slow release)
+            );
+            
+            this.smoothing.smoothedSphereBrightness = applyTempoRelativeSmoothing(
+                this.smoothing.smoothedSphereBrightness,
+                targetBrightness,
+                deltaTime,
+                brightnessAttackTime,
+                brightnessReleaseTime
+            );
+            
+            helper.updateFloat('uSmoothedSphereBrightness', this.smoothing.smoothedSphereBrightness, 0.0);
+            
+            // Smooth brightness multiplier (same signal and attack/release as brightness)
+            const brightnessMultiplierBase = (params.centerSphereBrightnessMultiplier !== undefined
+                ? params.centerSphereBrightnessMultiplier : 1.0) as number;
+            const brightnessMultiplierRange = (params.centerSphereBrightnessMultiplierRange !== undefined
+                ? params.centerSphereBrightnessMultiplierRange : 1.0) as number;
+            
+            // Use same smoothed brightness value to drive multiplier
+            const targetBrightnessMultiplier = brightnessMultiplierBase + this.smoothing.smoothedSphereBrightness * brightnessMultiplierRange;
+            
+            // Apply same attack/release smoothing as brightness
+            this.smoothing.smoothedSphereBrightnessMultiplier = applyTempoRelativeSmoothing(
+                this.smoothing.smoothedSphereBrightnessMultiplier,
+                targetBrightnessMultiplier,
+                deltaTime,
+                brightnessAttackTime,
+                brightnessReleaseTime
+            );
+            
+            helper.updateFloat('uSmoothedSphereBrightnessMultiplier', this.smoothing.smoothedSphereBrightnessMultiplier, brightnessMultiplierBase);
+            
+            // Smooth hue shift (same signal and attack/release as brightness)
+            const hueShiftBase = (params.centerSphereHueShift !== undefined
+                ? params.centerSphereHueShift : 0.0) as number;
+            const hueShiftRange = (params.centerSphereHueShiftRange !== undefined
+                ? params.centerSphereHueShiftRange : 60.0) as number;
+            
+            // Use same smoothed brightness value to drive hue shift
+            // Map brightness (0-1) to hue shift range (-range/2 to +range/2)
+            const targetHueShift = hueShiftBase + (this.smoothing.smoothedSphereBrightness - 0.5) * hueShiftRange;
+            
+            // Apply same attack/release smoothing as brightness
+            this.smoothing.smoothedSphereHueShift = applyTempoRelativeSmoothing(
+                this.smoothing.smoothedSphereHueShift,
+                targetHueShift,
+                deltaTime,
+                brightnessAttackTime,
+                brightnessReleaseTime
+            );
+            
+            helper.updateFloat('uSmoothedSphereHueShift', this.smoothing.smoothedSphereHueShift, hueShiftBase);
+        } else {
+            this.smoothing.smoothedSphereBrightness = 0.0;
+            helper.updateFloat('uSmoothedSphereBrightness', 0.0, 0.0);
+            
+            const brightnessMultiplierBase = (params.centerSphereBrightnessMultiplier !== undefined
+                ? params.centerSphereBrightnessMultiplier : 1.0) as number;
+            this.smoothing.smoothedSphereBrightnessMultiplier = brightnessMultiplierBase;
+            helper.updateFloat('uSmoothedSphereBrightnessMultiplier', brightnessMultiplierBase, 1.0);
+            
+            const hueShiftBase = (params.centerSphereHueShift !== undefined
+                ? params.centerSphereHueShift : 0.0) as number;
+            this.smoothing.smoothedSphereHueShift = hueShiftBase;
+            helper.updateFloat('uSmoothedSphereHueShift', hueShiftBase, 0.0);
+        }
+        
+        // Smooth sphere size from volume
+        if (audioData) {
+            const targetSizeVolume = audioData.volume || 0.0;
+            
+            const sizeVolumeAttackNote = (params.centerSphereSizeVolumeAttackNote !== undefined
+                ? params.centerSphereSizeVolumeAttackNote
+                : 1.0 / 32.0) as number;
+            const sizeVolumeReleaseNote = (params.centerSphereSizeVolumeReleaseNote !== undefined
+                ? params.centerSphereSizeVolumeReleaseNote
+                : 1.0 / 4.0) as number;
+            
+            const bpm = audioData.estimatedBPM || 0;
+            const sizeVolumeAttackTime = getTempoRelativeTimeConstant(
+                sizeVolumeAttackNote,
+                bpm,
+                20.0 // milliseconds fallback
+            );
+            const sizeVolumeReleaseTime = getTempoRelativeTimeConstant(
+                sizeVolumeReleaseNote,
+                bpm,
+                150.0 // milliseconds fallback
+            );
+            
+            this.smoothing.smoothedSphereSizeVolume = applyTempoRelativeSmoothing(
+                this.smoothing.smoothedSphereSizeVolume,
+                targetSizeVolume,
+                deltaTime,
+                sizeVolumeAttackTime,
+                sizeVolumeReleaseTime
+            );
+            
+            helper.updateFloat('uSmoothedSphereSizeVolume', this.smoothing.smoothedSphereSizeVolume, 0.0);
+        } else {
+            this.smoothing.smoothedSphereSizeVolume = 0.0;
+            helper.updateFloat('uSmoothedSphereSizeVolume', 0.0, 0.0);
+        }
+        
+        // Smooth sphere size from bass (subtle boost)
+        if (audioData) {
+            const targetSizeBass = audioData.bass || 0.0;
+            
+            const sizeBassAttackNote = (params.centerSphereSizeBassAttackNote !== undefined
+                ? params.centerSphereSizeBassAttackNote
+                : 1.0 / 32.0) as number;
+            const sizeBassReleaseNote = (params.centerSphereSizeBassReleaseNote !== undefined
+                ? params.centerSphereSizeBassReleaseNote
+                : 1.0 / 4.0) as number;
+            
+            const bpm = audioData.estimatedBPM || 0;
+            const sizeBassAttackTime = getTempoRelativeTimeConstant(
+                sizeBassAttackNote,
+                bpm,
+                20.0 // milliseconds fallback
+            );
+            const sizeBassReleaseTime = getTempoRelativeTimeConstant(
+                sizeBassReleaseNote,
+                bpm,
+                150.0 // milliseconds fallback
+            );
+            
+            this.smoothing.smoothedSphereSizeBass = applyTempoRelativeSmoothing(
+                this.smoothing.smoothedSphereSizeBass,
+                targetSizeBass,
+                deltaTime,
+                sizeBassAttackTime,
+                sizeBassReleaseTime
+            );
+            
+            helper.updateFloat('uSmoothedSphereSizeBass', this.smoothing.smoothedSphereSizeBass, 0.0);
+        } else {
+            this.smoothing.smoothedSphereSizeBass = 0.0;
+            helper.updateFloat('uSmoothedSphereSizeBass', 0.0, 0.0);
+        }
+        
+        // Update bass size multiplier and brightness thresholds
+        helper.updateFloat('uCenterSphereBassSizeMultiplier', params.centerSphereBassSizeMultiplier as number | undefined, 0.2);
+        helper.updateFloat('uCenterSphereBrightnessMidThreshold', params.centerSphereBrightnessMidThreshold as number | undefined, 0.5);
+        helper.updateFloat('uCenterSphereBrightnessFullThreshold', params.centerSphereBrightnessFullThreshold as number | undefined, 0.8);
+        helper.updateFloat('uCenterSphereBrightnessCompression', params.centerSphereBrightnessCompression as number | undefined, 0.5);
+        helper.updateFloat('uCenterSphereBrightnessMultiplier', params.centerSphereBrightnessMultiplier as number | undefined, 1.0);
+        helper.updateFloat('uCenterSphereBrightnessMultiplierRange', params.centerSphereBrightnessMultiplierRange as number | undefined, 1.0);
+        helper.updateFloat('uCenterSphereHueShift', params.centerSphereHueShift as number | undefined, 0.0);
+        helper.updateFloat('uCenterSphereHueShiftRange', params.centerSphereHueShiftRange as number | undefined, 60.0);
+        
         // Smooth contrast audio level for contrast modulation
         const contrastAudioReactive = (params.contrastAudioReactive as number | undefined) || 0.0;
         if (contrastAudioReactive > 0.0 && audioData) {
@@ -399,6 +608,11 @@ export class ArcShaderPlugin extends BaseShaderPlugin {
         this.smoothing.smoothedRightBands = null;
         this.smoothing.smoothedMaskRadius = 0.0;
         this.smoothing.smoothedContrastAudioLevel = 0.0;
+        this.smoothing.smoothedSphereBrightness = 0.0;
+        this.smoothing.smoothedSphereSizeVolume = 0.0;
+        this.smoothing.smoothedSphereSizeBass = 0.0;
+        this.smoothing.smoothedSphereBrightnessMultiplier = 1.0;
+        this.smoothing.smoothedSphereHueShift = 0.0;
         this.frequencyTextures.leftRight = null;
         this.uniformHelper = null;
     }

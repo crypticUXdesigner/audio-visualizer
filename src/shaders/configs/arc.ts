@@ -531,7 +531,7 @@ const arcConfig: ShaderConfig = {
         },
         centerSphereBaseRadius: {
             type: 'float',
-            default: 0.015,
+            default: 0.035,
             min: 0.0,
             max: 0.1,
             step: 0.001,
@@ -539,7 +539,7 @@ const arcConfig: ShaderConfig = {
         },
         centerSphereMaxRadius: {
             type: 'float',
-            default: 0.15,
+            default: 0.13,
             min: 0.05,
             max: 0.3,
             step: 0.01,
@@ -555,7 +555,7 @@ const arcConfig: ShaderConfig = {
         },
         centerSphereBassWeight: {
             type: 'float',
-            default: 0.7,
+            default: 0.05,
             min: 0.0,
             max: 1.0,
             step: 0.05,
@@ -656,6 +656,100 @@ const arcConfig: ShaderConfig = {
             max: 1.0,
             step: 0.05,
             label: 'Center Sphere 3D Shading Strength'
+        },
+        centerSphereBrightnessAttackNote: createNoteParameter(
+            'centerSphereBrightnessAttackNote', 
+            1.0 / 4.0,
+            'Center Sphere Brightness Attack (1/256 = very fast, 1/4 = slow)'
+        ),
+        centerSphereBrightnessReleaseNote: createNoteParameter(
+            'centerSphereBrightnessReleaseNote', 
+            1.0 / 1.0,
+            'Center Sphere Brightness Release (1/128 = fast, 1/2 = slow)'
+        ),
+        centerSphereSizeVolumeAttackNote: createNoteParameter(
+            'centerSphereSizeVolumeAttackNote', 
+            1.0 / 4.0,
+            'Center Sphere Size Volume Attack (1/256 = very fast, 1/4 = slow)'
+        ),
+        centerSphereSizeVolumeReleaseNote: createNoteParameter(
+            'centerSphereSizeVolumeReleaseNote', 
+            1.0 / 2.0,
+            'Center Sphere Size Volume Release (1/128 = fast, 1/2 = slow)'
+        ),
+        centerSphereSizeBassAttackNote: createNoteParameter(
+            'centerSphereSizeBassAttackNote', 
+            1.0 / 32.0,
+            'Center Sphere Size Bass Attack (1/256 = very fast, 1/4 = slow)'
+        ),
+        centerSphereSizeBassReleaseNote: createNoteParameter(
+            'centerSphereSizeBassReleaseNote', 
+            1.0 / 16.0,
+            'Center Sphere Size Bass Release (1/128 = fast, 1/2 = slow)'
+        ),
+        centerSphereBassSizeMultiplier: {
+            type: 'float',
+            default: 0.1,
+            min: 0.0,
+            max: 1.0,
+            step: 0.05,
+            label: 'Center Sphere Bass Size Multiplier (how much bass adds to size, 0 = off)'
+        },
+        centerSphereBrightnessMidThreshold: {
+            type: 'float',
+            default: 0.15,
+            min: 0.0,
+            max: 1.0,
+            step: 0.05,
+            label: 'Center Sphere Brightness Mid Threshold (mid level for "fairly bright" stage)'
+        },
+        centerSphereBrightnessFullThreshold: {
+            type: 'float',
+            default: 0.9,
+            min: 0.0,
+            max: 1.0,
+            step: 0.05,
+            label: 'Center Sphere Brightness Full Threshold (mid level for full brightness)'
+        },
+        centerSphereBrightnessCompression: {
+            type: 'float',
+            default: 1.0,
+            min: 0.0,
+            max: 1.0,
+            step: 0.05,
+            label: 'Center Sphere Brightness Compression (0 = no compression, 1 = max compression - less reactive to big changes, more nuanced to small changes)'
+        },
+        centerSphereBrightnessMultiplier: {
+            type: 'float',
+            default: 1.5,
+            min: 0.5,
+            max: 3.0,
+            step: 0.1,
+            label: 'Center Sphere Brightness Multiplier (1.0 = normal, >1.0 = brighter than palette, max 3.0)'
+        },
+        centerSphereBrightnessMultiplierRange: {
+            type: 'float',
+            default: 2.0,
+            min: 0.0,
+            max: 2.0,
+            step: 0.1,
+            label: 'Center Sphere Brightness Multiplier Range (additional multiplier from audio, 0 = off)'
+        },
+        centerSphereHueShift: {
+            type: 'float',
+            default: 30.0,
+            min: -180.0,
+            max: 180.0,
+            step: 1.0,
+            label: 'Center Sphere Hue Shift Base (degrees, -180 to 180)'
+        },
+        centerSphereHueShiftRange: {
+            type: 'float',
+            default: 60.0,
+            min: 0.0,
+            max: 180.0,
+            step: 5.0,
+            label: 'Center Sphere Hue Shift Range (additional shift from audio in degrees, 0 = off)'
         }
     },
     

@@ -92,6 +92,19 @@ uniform float uCenterSphereNoiseSpeed;      // Noise animation speed (0.0-2.0)
 uniform float uCenterSphereNoiseAmount;     // Noise variation amount (0.0-0.5)
 uniform float uCenterSphere3DEnabled;       // 3D shading enabled (0.0 = off, 1.0 = on)
 uniform float uCenterSphere3DStrength;     // 3D shading strength (0.0-1.0)
+uniform float uSmoothedSphereBrightness;  // Smoothed brightness (from JS with attack/release)
+uniform float uSmoothedSphereSizeVolume; // Smoothed size from volume (from JS with attack/release)
+uniform float uSmoothedSphereSizeBass;   // Smoothed size from bass (from JS with attack/release)
+uniform float uCenterSphereBassSizeMultiplier; // How much bass adds to size
+uniform float uCenterSphereBrightnessMidThreshold; // Mid level for "fairly bright" stage
+uniform float uCenterSphereBrightnessFullThreshold; // Mid level for full brightness
+uniform float uCenterSphereBrightnessCompression; // Compression strength (0 = none, 1 = max)
+uniform float uCenterSphereBrightnessMultiplier; // Base brightness multiplier
+uniform float uCenterSphereBrightnessMultiplierRange; // Additional multiplier range from audio
+uniform float uSmoothedSphereBrightnessMultiplier; // Smoothed brightness multiplier (from JS with attack/release)
+uniform float uCenterSphereHueShift; // Base hue shift (degrees)
+uniform float uCenterSphereHueShiftRange; // Additional hue shift range from audio (degrees)
+uniform float uSmoothedSphereHueShift; // Smoothed hue shift (from JS with attack/release)
 
 #define PI 3.14159265359
 
@@ -105,7 +118,7 @@ float Bayer2(vec2 a) {
 #define Bayer8(a) (Bayer4(.5*(a))*0.25 + Bayer2(a))
 
 // FBM parameters for mask border noise
-#define FBM_OCTAVES     7
+#define FBM_OCTAVES     5
 #define FBM_LACUNARITY  1.3
 #define FBM_GAIN        0.3
 #define FBM_SCALE       0.9
@@ -133,6 +146,58 @@ float applyBassEasing(float bassValue, float easingType) {
         float power = 2.0 + (easingType - 1.5) * 4.0; // 2.0 to 4.0
         return pow(clampedBass, power);
     }
+}
+
+// Apply hue shift to RGB color
+// hueShift is in degrees (-180 to 180)
+vec3 applyHueShift(vec3 rgb, float hueShift) {
+    if (abs(hueShift) < 0.001) {
+        return rgb;
+    }
+    
+    // Convert RGB to HSV
+    float maxVal = max(max(rgb.r, rgb.g), rgb.b);
+    float minVal = min(min(rgb.r, rgb.g), rgb.b);
+    float delta = maxVal - minVal;
+    
+    float hue = 0.0;
+    if (delta > 0.001) {
+        if (maxVal == rgb.r) {
+            hue = mod(((rgb.g - rgb.b) / delta) * 60.0 + 360.0, 360.0);
+        } else if (maxVal == rgb.g) {
+            hue = ((rgb.b - rgb.r) / delta + 2.0) * 60.0;
+        } else {
+            hue = ((rgb.r - rgb.g) / delta + 4.0) * 60.0;
+        }
+    }
+    
+    float saturation = (maxVal > 0.001) ? (delta / maxVal) : 0.0;
+    float value = maxVal;
+    
+    // Apply hue shift
+    hue = mod(hue + hueShift + 360.0, 360.0);
+    
+    // Convert back to RGB
+    float c = value * saturation;
+    float x = c * (1.0 - abs(mod(hue / 60.0, 2.0) - 1.0));
+    float m = value - c;
+    
+    vec3 rgbOut;
+    if (hue < 60.0) {
+        rgbOut = vec3(c, x, 0.0);
+    } else if (hue < 120.0) {
+        rgbOut = vec3(x, c, 0.0);
+    } else if (hue < 180.0) {
+        rgbOut = vec3(0.0, c, x);
+    } else if (hue < 240.0) {
+        rgbOut = vec3(0.0, x, c);
+    } else if (hue < 300.0) {
+        rgbOut = vec3(x, 0.0, c);
+    } else {
+        rgbOut = vec3(c, 0.0, x);
+    }
+    
+    return rgbOut + vec3(m);
 }
 
 // Apply radial pincushion distortion (like looking into a sphere)
@@ -251,8 +316,7 @@ vec3 calculateBackgroundColorAtUV(
     float noiseTime = time * uBackgroundNoiseSpeed;
     float noise1 = fbm2_standard(distortedUV * uBackgroundNoiseScale, noiseTime, 1.0, 4, 1.8, 0.5);
     float noise2 = fbm2_standard(distortedUV * uBackgroundNoiseScale * 2.5, noiseTime * 1.3, 1.0, 3, 2.0, 0.4);
-    float noise3 = fbm2_standard(distortedUV * uBackgroundNoiseScale * 6.0, noiseTime * 2.0, 1.0, 2, 2.2, 0.3);
-    float combinedNoise = noise1 * 0.5 + noise2 * 0.3 + noise3 * 0.2;
+    float combinedNoise = noise1 * 0.625 + noise2 * 0.375;
     
     // Sample frequency texture for frequency-reactive elements
     float frequencyContribution = 0.0;
@@ -561,18 +625,8 @@ vec3 renderBackground(
         0.4  // gain
     );
     
-    // Layer 3: High-frequency detail (very fast, very small)
-    float noise3 = fbm2_standard(
-        distortedUV * uBackgroundNoiseScale * 6.0,
-        noiseTime * 2.0,
-        1.0,
-        2,  // octaves
-        2.2, // lacunarity
-        0.3  // gain
-    );
-    
-    // Combine noise layers
-    float combinedNoise = noise1 * 0.5 + noise2 * 0.3 + noise3 * 0.2;
+    // Combine noise layers (removed third layer for performance)
+    float combinedNoise = noise1 * 0.625 + noise2 * 0.375;
     
     // Sample frequency texture for frequency-reactive elements
     float frequencyContribution = 0.0;
@@ -644,7 +698,9 @@ vec3 renderBackground(
     
     // Apply blur by sampling nearby pixels and averaging colors
     if (uBackgroundBlur > 0.001) {
-        vec3 blurredColor = bgColor;
+        // Cache center pixel color (already calculated above) to avoid recalculating
+        vec3 centerColor = bgColor;
+        vec3 blurredColor = centerColor;
         float sampleCount = 1.0;
         
         // Calculate blur radius in UV space
@@ -653,21 +709,21 @@ vec3 renderBackground(
         
         // Sample neighboring positions in a fixed grid pattern
         // Use constant loop bounds (GLSL requirement) but conditionally weight samples
-        // For blur < 0.7, we use cross pattern (5 samples), for >= 0.7 we use full grid (9 samples)
+        // Always use cross pattern (5 samples) for better performance
         const int maxSamplesPerSide = 2; // Fixed constant for loop bounds
         
         for (int i = -maxSamplesPerSide; i <= maxSamplesPerSide; i++) {
             for (int j = -maxSamplesPerSide; j <= maxSamplesPerSide; j++) {
-                if (i == 0 && j == 0) continue; // Skip center (already have it)
+                // Use pre-calculated center color instead of recalculating
+                if (i == 0 && j == 0) {
+                    blurredColor = centerColor;
+                    continue;
+                }
                 
-                // For blur < 0.7, only use cross pattern (i == 0 || j == 0)
-                // For blur >= 0.7, use all samples
+                // Only use cross pattern (i == 0 || j == 0) for better performance
+                if (i != 0 && j != 0) continue; // Skip diagonal samples
+                
                 float dist = length(vec2(float(i), float(j)));
-                bool useCrossPattern = (uBackgroundBlur < 0.7);
-                bool isCrossSample = (i == 0 || j == 0);
-                
-                // Skip this sample if we're in cross pattern mode and it's not a cross sample
-                if (useCrossPattern && !isCrossSample) continue;
                 
                 // Calculate offset in UV space
                 vec2 offset = vec2(float(i), float(j)) * blurRadius;
@@ -718,15 +774,16 @@ vec3 renderBackground(
         // We want: inside arc = dark (0.0), outside = visible (1.0)
         // Make the mask larger by adding to the arc radius
         float expandedRadius = arcRadius + uBackgroundFadeStartDistance * viewportScale;
-        float fadeStart = expandedRadius; // Start of fade (inside, dark)
-        float fadeEnd = fadeStart + uBackgroundFadeFeathering * viewportScale; // End of fade (outside, visible)
         
         // Apply fade: 0.0 (dark) when dist < fadeStart, 1.0 (visible) when dist > fadeEnd
+        // Simplify when feathering is very small
         if (uBackgroundFadeFeathering < 0.001) {
             // Hard cut: 0.0 if inside expandedRadius, 1.0 if outside
             fadeFactor = (distFromCenter <= expandedRadius) ? 0.0 : 1.0;
         } else {
             // Smooth fade: 0.0 at fadeStart (inside), 1.0 at fadeEnd (outside)
+            float fadeStart = expandedRadius; // Start of fade (inside, dark)
+            float fadeEnd = fadeStart + uBackgroundFadeFeathering * viewportScale; // End of fade (outside, visible)
             fadeFactor = smoothstep(fadeStart, fadeEnd, distFromCenter);
         }
         fadeFactor = clamp(fadeFactor, 0.0, 1.0);
@@ -759,14 +816,16 @@ vec3 renderCenterSphere(
     vec2 toCenterScaled = toCenterAspectCorrected * viewportScale;
     float distFromCenter = length(toCenterScaled);
     
-    // Audio-reactive size: use volume and bass for sphere radius
+    // Audio-reactive size: use smoothed volume for base size + smoothed bass for subtle boost
     float baseSphereRadius = uCenterSphereBaseRadius * viewportScale;
-    float volumeReactivity = mix(uSmoothedBass, uSmoothedBass, uCenterSphereBassWeight);
-    float audioSize = baseSphereRadius + volumeReactivity * uCenterSphereMaxRadius * viewportScale;
+    float volumeSize = uSmoothedSphereSizeVolume;
+    float bassSize = uSmoothedSphereSizeBass * uCenterSphereBassSizeMultiplier;
+    float combinedSize = volumeSize + bassSize; // Combined additively
+    float audioSize = baseSphereRadius + combinedSize * uCenterSphereMaxRadius * viewportScale;
     
     // Apply size threshold: sphere only appears above minimum volume
     float sizeThreshold = uCenterSphereSizeThreshold;
-    float sizeFactor = smoothstep(sizeThreshold, sizeThreshold + 0.1, volumeReactivity);
+    float sizeFactor = smoothstep(sizeThreshold, sizeThreshold + 0.1, combinedSize);
     float sphereRadius = baseSphereRadius + (audioSize - baseSphereRadius) * sizeFactor;
     
     // Core sphere: bright center with smooth falloff
@@ -779,10 +838,35 @@ vec3 renderCenterSphere(
     float glowDist = distFromCenter / glowRadius;
     float glowFactor = exp(-glowDist * glowDist * uCenterSphereGlowFalloff);
     
-    // Audio-reactive brightness: pulse with volume/bass
+    // Audio-reactive brightness: two-stage curve (fast to fairly bright, slow to full)
+    // Uses voice frequencies (uMid) via smoothed brightness
     float baseBrightness = uCenterSphereBaseBrightness;
-    float audioBrightness = mix(uVolume, uSmoothedBass, uCenterSphereBassWeight);
-    float brightnessPulse = baseBrightness + audioBrightness * uCenterSphereBrightnessRange;
+    float smoothedMid = uSmoothedSphereBrightness;
+    float midThreshold = uCenterSphereBrightnessMidThreshold;
+    float fullThreshold = uCenterSphereBrightnessFullThreshold;
+    
+    float brightnessStage1 = 0.0;
+    float brightnessStage2 = 0.0;
+    
+    if (smoothedMid <= midThreshold) {
+        // Stage 1: Fast attack to "fairly bright" (0.0 to midThreshold maps to 0.0 to 0.7 brightness)
+        brightnessStage1 = (smoothedMid / midThreshold) * 0.7;
+        brightnessStage2 = 0.0;
+    } else {
+        // Stage 2: Slow release to full brightness (midThreshold to fullThreshold maps to 0.7 to 1.0)
+        float stage2Range = fullThreshold - midThreshold;
+        if (stage2Range > 0.001) {
+            float stage2Progress = (smoothedMid - midThreshold) / stage2Range;
+            brightnessStage1 = 0.7; // Already at "fairly bright"
+            brightnessStage2 = stage2Progress * 0.3; // Additional 0.3 to reach 1.0
+        } else {
+            brightnessStage1 = 0.7;
+            brightnessStage2 = 0.0;
+        }
+    }
+    
+    float totalBrightness = brightnessStage1 + brightnessStage2;
+    float brightnessPulse = baseBrightness + totalBrightness * uCenterSphereBrightnessRange;
     
     // Optional: subtle animation/noise for visual interest
     float animationFactor = 1.0;
@@ -812,8 +896,8 @@ vec3 renderCenterSphere(
     }
     
     // Map to color using existing color system
-    // Use volume/bass for color mapping
-    float colorInput = mix(uVolume, uSmoothedBass, uCenterSphereBassWeight);
+    // Use combined size (volume + bass) for color mapping to match sphere size
+    float colorInput = combinedSize;
     colorInput = applySoftCompression(colorInput, 0.7, 0.3);
     
     // Calculate color thresholds (reuse existing system)
@@ -833,6 +917,12 @@ vec3 renderCenterSphere(
         threshold6, threshold7, threshold8, threshold9, threshold10,
         uColorTransitionWidth
     );
+    
+    // Apply brightness multiplier (can exceed 1.0 for super-bright effect)
+    sphereColor *= uSmoothedSphereBrightnessMultiplier;
+    
+    // Apply hue shift
+    sphereColor = applyHueShift(sphereColor, uSmoothedSphereHueShift);
     
     // Apply sphere factor (fade from center)
     return sphereColor * sphereFactor;
@@ -1223,10 +1313,9 @@ void main() {
             
             if (uColorSmoothing > 0.0 && uColorSmoothingRadius > 0.0) {
                 // Sample bands within the smoothing radius
-                // Use fixed loop count (max 10 samples = 5 bands on each side)
-                // This allows GLSL to compile while still providing good smoothing
-                const int maxSamples = 10;
+                // Use constant loop bound (GLSL requirement) - early exits optimize performance
                 float smoothingRadius = uColorSmoothingRadius;
+                const int maxSamples = 10; // Constant for GLSL loop bounds
                 float sampleStep = 0.5;
                 
                 for (int i = 0; i < maxSamples; i++) {
@@ -1234,9 +1323,12 @@ void main() {
                     float sampleOffset = (float(i) - float(maxSamples) * 0.5) * sampleStep;
                     float sampleBand = bandIndex + sampleOffset;
                     
-                    // Skip if outside smoothing radius
+                    // Skip if outside smoothing radius (naturally limits iterations for small radius)
                     float dist = abs(sampleOffset);
                     if (dist > smoothingRadius) continue;
+                    
+                    // Skip if too close to current band (redundant sample)
+                    if (abs(sampleOffset) < 0.1) continue;
                     
                     // Clamp to valid range (excluding top bands)
                     float clampedBand = clamp(sampleBand, 0.0, float(uNumBands - excludedBands - 1));
@@ -1248,6 +1340,9 @@ void main() {
                     
                     // Weight decreases with distance (Gaussian-like falloff)
                     float weight = exp(-dist * dist / (smoothingRadius * smoothingRadius * 0.5));
+                    
+                    // Early exit when weight becomes negligible
+                    if (weight < 0.01) break;
                     
                     // Sample frequency data for this band using measured band coordinates
                     float bandX = (measuredSampleBandIndex + 0.5) / uMeasuredBands;
@@ -1369,9 +1464,13 @@ void main() {
                     float blurDistance = 0.1 * uBorderNoiseBlur * dprScale;
                     
                     // Sample neighboring positions in noise space
+                    // Use cross pattern (5 samples) for better performance
                     for (int i = -1; i <= 1; i++) {
                         for (int j = -1; j <= 1; j++) {
                             if (i == 0 && j == 0) continue;
+                            
+                            // Only use cross pattern (i == 0 || j == 0) for better performance
+                            if (i != 0 && j != 0) continue; // Skip diagonal samples
                             
                             // Calculate offset in noise UV space
                             vec2 offsetNoiseUV = noiseUV + vec2(float(i), float(j)) * blurDistance;
@@ -1502,9 +1601,13 @@ void main() {
                     float blurDistance = 0.1 * uBorderNoiseBlur * dprScale;
                     
                     // Sample neighboring positions in noise space
+                    // Use cross pattern (5 samples) for better performance
                     for (int i = -1; i <= 1; i++) {
                         for (int j = -1; j <= 1; j++) {
                             if (i == 0 && j == 0) continue;
+                            
+                            // Only use cross pattern (i == 0 || j == 0) for better performance
+                            if (i != 0 && j != 0) continue; // Skip diagonal samples
                             
                             // Calculate offset in noise UV space
                             vec2 offsetNoiseUV = noiseUV + vec2(float(i), float(j)) * blurDistance;
