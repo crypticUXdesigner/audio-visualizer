@@ -24,27 +24,11 @@ const arcConfig: ShaderConfig = {
         },
         numBands: {
             type: 'int',
-            default: 128,
+            default: 64,
             min: 32,
             max: 256,
             step: 1,
             label: 'Number of Visual Bands'
-        },
-        excludeTopBands: {
-            type: 'int',
-            default: 0,
-            min: 0,
-            max: 200,
-            step: 1,
-            label: 'Exclude Top Bands (removes highest 0-200 frequency bands from visualization)'
-        },
-        topArcMargin: {
-            type: 'float',
-            default: 0.000001,
-            min: 0.0,
-            max: 0.3,
-            step: 0.01,
-            label: 'Top Arc Margin (fraction of arc height to leave empty at top, 0 = no margin)'
         },
         baseRadius: {
             type: 'float',
@@ -96,15 +80,23 @@ const arcConfig: ShaderConfig = {
         },
         colorTransitionWidth: {
             type: 'float',
-            default: 0.003,
+            default: 0.1,
             min: 0.0,
             max: 0.1,
             step: 0.001,
             label: 'Color Transition Width (smoothstep blend between colors)'
         },
+        arcColorTransitionWidth: {
+            type: 'float',
+            default: 0.0,
+            min: 0.0,
+            max: 0.1,
+            step: 0.001,
+            label: 'Arc Color Transition Width (controls smoothness of color gradients in frequency bands)'
+        },
         colorSmoothing: {
             type: 'float',
-            default: 1.0,
+            default: 0.0,
             min: 0.0,
             max: 1.0,
             step: 0.01,
@@ -120,7 +112,7 @@ const arcConfig: ShaderConfig = {
         },
         cornerRoundSize: {
             type: 'float',
-            default: 0.25,
+            default: 0.15,
             min: 0.0,
             max: 0.5,
             step: 0.01,
@@ -152,7 +144,7 @@ const arcConfig: ShaderConfig = {
         },
         maskReleaseNote: {
             type: 'float',
-            default: 1.0 / 8.0,   // 8th note - moderate release
+            default: 1.0 / 2.0,   // 8th note - moderate release
             min: 1.0 / 128.0,      // 128th note (very fast) = 0.0078125
             max: 1.0 / 2.0,        // Half note (slow) = 0.5
             step: 1.0 / 256.0,     // 256th note steps
@@ -160,7 +152,7 @@ const arcConfig: ShaderConfig = {
         },
         maskBorderWidth: {
             type: 'float',
-            default: 0.001,
+            default: 0.006,
             min: 0.0,
             max: 0.02,
             step: 0.001,
@@ -176,7 +168,7 @@ const arcConfig: ShaderConfig = {
         },
         maskBorderInnerFeathering: {
             type: 'float',
-            default: 0.03,
+            default: 0.07,
             min: 0.0,
             max: 0.01,
             step: 0.0005,
@@ -192,7 +184,7 @@ const arcConfig: ShaderConfig = {
         },
         maskBorderNoiseMultiplier: {
             type: 'float',
-            default: 1.2,
+            default: 1.15,
             min: 0.0,
             max: 2.0,
             step: 0.1,
@@ -200,7 +192,7 @@ const arcConfig: ShaderConfig = {
         },
         arcBorderWidth: {
             type: 'float',
-            default: 0.001,
+            default: 0.0004,
             min: 0.0,
             max: 0.02,
             step: 0.001,
@@ -216,7 +208,7 @@ const arcConfig: ShaderConfig = {
         },
         arcBorderInnerFeathering: {
             type: 'float',
-            default: 0.03,
+            default: 0.05,
             min: 0.0,
             max: 0.01,
             step: 0.001,
@@ -224,7 +216,7 @@ const arcConfig: ShaderConfig = {
         },
         arcBorderOuterFeathering: {
             type: 'float',
-            default: 0.03,
+            default: 0.05,
             min: 0.0,
             max: 0.01,
             step: 0.001,
@@ -232,7 +224,7 @@ const arcConfig: ShaderConfig = {
         },
         arcBorderNoiseMultiplier: {
             type: 'float',
-            default: 1.2,
+            default: 0.85,
             min: 0.0,
             max: 2.0,
             step: 0.1,
@@ -240,7 +232,7 @@ const arcConfig: ShaderConfig = {
         },
         borderNoiseBlur: {
             type: 'float',
-            default: 1.0,
+            default: 0.0,
             min: 0.0,
             max: 1.0,
             step: 0.05,
@@ -272,7 +264,7 @@ const arcConfig: ShaderConfig = {
         },
         distortionPerspectiveStrength: {
             type: 'float',
-            default: 1.0,
+            default: 3.0,
             min: 0.0,
             max: 3.0,
             step: 0.1,
@@ -539,7 +531,7 @@ const arcConfig: ShaderConfig = {
         },
         centerSphereMaxRadius: {
             type: 'float',
-            default: 0.13,
+            default: 0.135,
             min: 0.05,
             max: 0.3,
             step: 0.01,
@@ -555,7 +547,7 @@ const arcConfig: ShaderConfig = {
         },
         centerSphereBassWeight: {
             type: 'float',
-            default: 0.05,
+            default: 0.01,
             min: 0.0,
             max: 1.0,
             step: 0.05,
@@ -563,7 +555,7 @@ const arcConfig: ShaderConfig = {
         },
         centerSphereCoreSize: {
             type: 'float',
-            default: 0.9,
+            default: 0.93,
             min: 0.3,
             max: 1.0,
             step: 0.05,
@@ -579,7 +571,7 @@ const arcConfig: ShaderConfig = {
         },
         centerSphereGlowIntensity: {
             type: 'float',
-            default: 0.35,
+            default: 0.65,
             min: 0.0,
             max: 1.0,
             step: 0.05,
@@ -587,7 +579,7 @@ const arcConfig: ShaderConfig = {
         },
         centerSphereGlowFalloff: {
             type: 'float',
-            default: 1.0,
+            default: 6.0,
             min: 1.0,
             max: 8.0,
             step: 0.5,
@@ -595,7 +587,7 @@ const arcConfig: ShaderConfig = {
         },
         centerSphereBaseBrightness: {
             type: 'float',
-            default: 0.15,
+            default: 0.25,
             min: 0.0,
             max: 1.0,
             step: 0.05,
@@ -689,7 +681,7 @@ const arcConfig: ShaderConfig = {
         ),
         centerSphereBassSizeMultiplier: {
             type: 'float',
-            default: 0.1,
+            default: 0.03,
             min: 0.0,
             max: 1.0,
             step: 0.05,
@@ -713,7 +705,7 @@ const arcConfig: ShaderConfig = {
         },
         centerSphereBrightnessCompression: {
             type: 'float',
-            default: 1.0,
+            default: 0.8,
             min: 0.0,
             max: 1.0,
             step: 0.05,
@@ -721,7 +713,7 @@ const arcConfig: ShaderConfig = {
         },
         centerSphereBrightnessMultiplier: {
             type: 'float',
-            default: 1.5,
+            default: 1.65,
             min: 0.5,
             max: 3.0,
             step: 0.1,
@@ -730,14 +722,14 @@ const arcConfig: ShaderConfig = {
         centerSphereBrightnessMultiplierRange: {
             type: 'float',
             default: 2.0,
-            min: 0.0,
+            min: 0.5,
             max: 2.0,
             step: 0.1,
             label: 'Center Sphere Brightness Multiplier Range (additional multiplier from audio, 0 = off)'
         },
         centerSphereHueShift: {
             type: 'float',
-            default: 30.0,
+            default: -180.0,
             min: -180.0,
             max: 180.0,
             step: 1.0,
@@ -745,12 +737,12 @@ const arcConfig: ShaderConfig = {
         },
         centerSphereHueShiftRange: {
             type: 'float',
-            default: 60.0,
+            default: 180.0,
             min: 0.0,
             max: 180.0,
             step: 5.0,
             label: 'Center Sphere Hue Shift Range (additional shift from audio in degrees, 0 = off)'
-        }
+        },
     },
     
     // Color configuration

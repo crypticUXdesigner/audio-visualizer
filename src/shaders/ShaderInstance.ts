@@ -71,7 +71,7 @@ export class ShaderInstance {
         this.quadBuffer = null;
         this.uniformLocations = {};
         // Initialize parameters from config defaults
-        this.parameters = ShaderParameterManager.initializeParameters(config);
+        this.parameters = ShaderParameterManager.initializeParameters(config as ShaderConfig);
         
         this.startTime = performance.now();
         this.isInitialized = false;

@@ -168,3 +168,110 @@ vec3 mapNoiseToColor(
     return color;
 }
 
+// Map noise value to color using smooth gradient interpolation (for arc shader)
+// Uses gradient interpolation between adjacent colors for smooth transitions without gaps
+vec3 mapNoiseToColorSmooth(
+    float noiseValue,
+    float threshold1, float threshold2, float threshold3, float threshold4, float threshold5,
+    float threshold6, float threshold7, float threshold8, float threshold9, float threshold10,
+    float transitionWidth
+) {
+    float t = clamp(noiseValue, 0.0, 1.0);
+    
+    // Use wider transition zones for smoother blending
+    float smoothTransitionWidth = transitionWidth * 20.0;
+    
+    // Thresholds are ordered from highest (brightest) to lowest (darkest)
+    // Find which two adjacent colors to blend between
+    
+    // Handle edge cases first
+    if (t >= threshold1) {
+        // Above brightest threshold, use brightest color
+        return uColor;
+    }
+    if (t < threshold10) {
+        // Below darkest threshold, use darkest color
+        return uColor10;
+    }
+    
+    // Find the two thresholds to interpolate between
+    // Check each threshold pair from brightest to darkest
+    vec3 lowerColor, upperColor;
+    float lowerThreshold, upperThreshold;
+    
+    if (t >= threshold2 && t < threshold1) {
+        upperColor = uColor;
+        lowerColor = uColor2;
+        upperThreshold = threshold1;
+        lowerThreshold = threshold2;
+    } else if (t >= threshold3 && t < threshold2) {
+        upperColor = uColor2;
+        lowerColor = uColor3;
+        upperThreshold = threshold2;
+        lowerThreshold = threshold3;
+    } else if (t >= threshold4 && t < threshold3) {
+        upperColor = uColor3;
+        lowerColor = uColor4;
+        upperThreshold = threshold3;
+        lowerThreshold = threshold4;
+    } else if (t >= threshold5 && t < threshold4) {
+        upperColor = uColor4;
+        lowerColor = uColor5;
+        upperThreshold = threshold4;
+        lowerThreshold = threshold5;
+    } else if (t >= threshold6 && t < threshold5) {
+        upperColor = uColor5;
+        lowerColor = uColor6;
+        upperThreshold = threshold5;
+        lowerThreshold = threshold6;
+    } else if (t >= threshold7 && t < threshold6) {
+        upperColor = uColor6;
+        lowerColor = uColor7;
+        upperThreshold = threshold6;
+        lowerThreshold = threshold7;
+    } else if (t >= threshold8 && t < threshold7) {
+        upperColor = uColor7;
+        lowerColor = uColor8;
+        upperThreshold = threshold7;
+        lowerThreshold = threshold8;
+    } else if (t >= threshold9 && t < threshold8) {
+        upperColor = uColor8;
+        lowerColor = uColor9;
+        upperThreshold = threshold8;
+        lowerThreshold = threshold9;
+    } else { // t >= threshold10 && t < threshold9
+        upperColor = uColor9;
+        lowerColor = uColor10;
+        upperThreshold = threshold9;
+        lowerThreshold = threshold10;
+    }
+    
+    // Calculate interpolation factor with smoothstep for smooth transition
+    float range = upperThreshold - lowerThreshold;
+    
+    // Avoid division by zero
+    if (range < 0.001) {
+        return lowerColor;
+    }
+    
+    // Calculate interpolation factor
+    float localT = (t - lowerThreshold) / range;
+    
+    // Apply smoothstep for smoother blending, with wider transition zone
+    // Extend the transition zone beyond the threshold range for smoother blending
+    float transitionZone = smoothTransitionWidth;
+    float extendedRange = range + transitionZone * 2.0;
+    float extendedLocalT = (t - lowerThreshold + transitionZone) / extendedRange;
+    float smoothT = smoothstep(0.0, 1.0, extendedLocalT);
+    
+    // Blend between the two adjacent colors
+    vec3 color = mix(lowerColor, upperColor, smoothT);
+    
+    // Always evaluate all uniforms to prevent WebGL optimization
+    float uniformPresence = (uColor.r + uColor2.r + uColor3.r + uColor4.r + uColor5.r + 
+                            uColor6.r + uColor7.r + uColor8.r + uColor9.r + uColor10.r) * 0.0000001;
+    color += vec3(uniformPresence);
+    
+    return color;
+}
+

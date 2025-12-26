@@ -152,7 +152,7 @@ export class UniformLocationCache {
             'uBackgroundNoiseBrightnessCurveX2', 'uBackgroundNoiseBrightnessCurveY2',
             'uBackgroundNoiseBrightnessMin', 'uBackgroundNoiseBrightnessMax',
             'uSmoothedNoiseAudioLevel', 'uSmoothedContrastAudioLevel',
-            'uColorTransitionWidth', 'uBarAlphaMin', 'uBarAlphaMax',
+            'uColorTransitionWidth', 'uArcColorTransitionWidth', 'uBarAlphaMin', 'uBarAlphaMax',
             'uBandWidthThreshold', 'uBandWidthMinMultiplier', 'uBandWidthMaxMultiplier',
             'uContrast', 'uContrastAudioReactive', 'uContrastAudioSource',
             'uContrastMin', 'uContrastMax', 'uDitherMinThreshold', 'uDitherMinStrength', 'uDitherMaxStrength', 'uDitherSize',
