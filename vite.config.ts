@@ -10,19 +10,19 @@ const copyShadersPlugin = (): Plugin => {
   return {
     name: 'copy-shaders',
     writeBundle() {
-      // Copy source shaders
+      // Copy source shaders to dist/shaders/source/
       const shadersDir = join('src', 'shaders', 'source');
-      const distShadersDir = join('dist', 'shaders');
+      const distShadersSourceDir = join('dist', 'shaders', 'source');
       
       if (existsSync(shadersDir)) {
-        mkdirSync(distShadersDir, { recursive: true });
+        mkdirSync(distShadersSourceDir, { recursive: true });
         // Copy all .glsl files from source directory
         const files = readdirSync(shadersDir).filter(file => 
           file.endsWith('.glsl') && statSync(join(shadersDir, file)).isFile()
         );
         files.forEach(file => {
           const src = join(shadersDir, file);
-          const dest = join(distShadersDir, file);
+          const dest = join(distShadersSourceDir, file);
           copyFileSync(src, dest);
           console.log(`Copied ${src} to ${dest}`);
         });
