@@ -285,17 +285,25 @@ export class FrequencyAnalyzer {
                 : minFreq * Math.pow(maxFreq / minFreq, (i + 1) / (numBands - 1));
             
             const binStart = hzToBin(freqStart);
-            const binEnd = Math.min(hzToBin(freqEnd), frequencyData.length - 1);
+            // Calculate binEnd to include the bin that contains freqEnd
+            // Use ceil to ensure we include the bin containing freqEnd, then subtract 1 to get the bin index
+            // (since bins are 0-indexed and bin N covers [N*binSize, (N+1)*binSize))
+            const binEnd = Math.min(Math.max(hzToBin(freqEnd), binStart), frequencyData.length - 1);
+            // Ensure we include the bin containing freqEnd if it falls beyond the calculated bin
+            const binEndFreq = (binEnd + 1) * binSize;
+            const finalBinEnd = (freqEnd > binEndFreq && binEnd < frequencyData.length - 1)
+                ? Math.min(binEnd + 1, frequencyData.length - 1)
+                : binEnd;
             
             // Calculate average for main channel
-            const avg = getAverage(frequencyData, binStart, binEnd);
+            const avg = getAverage(frequencyData, binStart, finalBinEnd);
             
             // Calculate left and right channel averages
             let leftAvg = 0;
             let rightAvg = 0;
             if (leftFrequencyData && rightFrequencyData) {
-                leftAvg = getAverage(leftFrequencyData, binStart, binEnd);
-                rightAvg = getAverage(rightFrequencyData, binStart, binEnd);
+                leftAvg = getAverage(leftFrequencyData, binStart, finalBinEnd);
+                rightAvg = getAverage(rightFrequencyData, binStart, finalBinEnd);
             } else {
                 // Fallback to mono if stereo data not available
                 leftAvg = avg;

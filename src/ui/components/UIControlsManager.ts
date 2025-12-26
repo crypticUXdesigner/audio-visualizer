@@ -59,23 +59,33 @@ export class UIControlsManager {
     }
     
     /**
-     * Setup auto-hide controls on mouse movement
+     * Setup click-to-toggle controls
      * @param elements - Object containing DOM element references for hover detection
      */
     setupAutoHideControls(elements: UIElements): void {
-        // Show controls on mouse movement
-        document.addEventListener('mousemove', () => {
-            this.showControls();
-            this.resetHideTimeout();
+        // Toggle controls on click anywhere (except inside the controls themselves)
+        document.addEventListener('click', (e: MouseEvent) => {
+            const target = e.target as HTMLElement;
+            
+            // Don't toggle if clicking inside the controls
+            const isClickInsideControls = 
+                this.audioControlsContainer?.contains(target) ||
+                this.topControls?.contains(target) ||
+                elements.trackDropdownMenu?.contains(target);
+            
+            if (isClickInsideControls) {
+                return;
+            }
+            
+            // Toggle UI visibility on click
+            if (this.isControlsVisible) {
+                this.hideControls();
+            } else {
+                this.showControls(true); // Force show even if menus are open
+            }
         });
         
-        // Show controls on touch (for mobile)
-        document.addEventListener('touchstart', () => {
-            this.showControls();
-            this.resetHideTimeout();
-        }, { passive: true });
-        
-        // Keep controls visible when hovering over them or interacting
+        // Keep controls visible when hovering over them
         const controlElements: (HTMLElement | null | undefined)[] = [
             elements.playControlBtn,
             elements.skipLeftBtn,
@@ -93,26 +103,11 @@ export class UIControlsManager {
                 element.addEventListener('mouseenter', () => {
                     this.isHoveringControls = true;
                     this.showControls();
-                    // Clear timeout but don't reset it while hovering
-                    if (this.mouseMoveTimeout) {
-                        clearTimeout(this.mouseMoveTimeout);
-                        this.mouseMoveTimeout = null;
-                    }
                 });
                 
                 element.addEventListener('mouseleave', () => {
                     this.isHoveringControls = false;
-                    // Start hide timeout when leaving the control
-                    this.resetHideTimeout();
-                });
-                
-                // Keep visible during interaction
-                element.addEventListener('mousedown', () => {
-                    this.showControls();
-                    if (this.mouseMoveTimeout) {
-                        clearTimeout(this.mouseMoveTimeout);
-                        this.mouseMoveTimeout = null;
-                    }
+                    // Don't auto-hide on mouse leave
                 });
             }
         });
@@ -154,21 +149,10 @@ export class UIControlsManager {
     }
     
     /**
-     * Reset hide timeout
+     * Reset hide timeout (no longer used, but keeping for compatibility)
      */
     resetHideTimeout(): void {
-        if (this.mouseMoveTimeout) {
-            clearTimeout(this.mouseMoveTimeout);
-        }
-        
-        // Don't start hide timer if hovering over controls
-        if (this.isHoveringControls) {
-            return;
-        }
-        
-        this.mouseMoveTimeout = setTimeout(() => {
-            this.hideControls();
-        }, this.hideDelay);
+        // No-op: we don't auto-hide anymore
     }
     
     /**

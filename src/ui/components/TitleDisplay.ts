@@ -1,6 +1,7 @@
 // Title Display Component
 // Handles track title display with audio reactivity, noise animation, and color transitions
 
+import { ShaderLogger } from '../../shaders/utils/ShaderLogger.js';
 import type { AudioAnalyzer } from '../../core/audio/AudioAnalyzer.js';
 import type { ExtendedAudioData, ColorMap } from '../../types/index.js';
 
@@ -222,7 +223,8 @@ export class TitleDisplay {
         if (!this.titleTextElement || !this.currentTitleColor) return;
         
         const [r, g, b] = this.currentTitleColor;
-        const colorString = `rgba(${Math.round(r * 255)}, ${Math.round(g * 255)}, ${Math.round(b * 255)}, 0.9)`;
+        // Use rgb() with 100% alpha - opacity is controlled via --audio-opacity CSS variable
+        const colorString = `rgb(${Math.round(r * 255)}, ${Math.round(g * 255)}, ${Math.round(b * 255)})`;
         this.titleTextElement.style.color = colorString;
     }
     

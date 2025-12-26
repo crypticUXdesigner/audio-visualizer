@@ -14,7 +14,7 @@
   align-items: center;
   justify-content: flex-start;
   transition: opacity 1.6s var(--effects-slow);
-  mix-blend-mode: color-dodge;
+  mix-blend-mode: exclusion;
   opacity: 0;
 
   &.visible {
@@ -26,7 +26,7 @@
     font-weight: 900;
     font-size: clamp(2rem, 14vh, 14rem);
     line-height: 0.8;
-    color: rgba(255, 255, 255, 0.9);
+    color: var(--base-print-light);
     text-transform: uppercase;
     letter-spacing: -0.075em;
     word-break: break-word;

@@ -65,8 +65,9 @@ export class TrackDropdown {
     
     /**
      * Close the track menu
+     * @param showControlsAfterClose - Whether to show controls after closing (default: true)
      */
-    close(): void {
+    close(showControlsAfterClose: boolean = true): void {
         // Step 1: Hide menu (fade out with downward movement)
         if (this.trackDropdownMenu) {
             this.trackDropdownMenu.classList.remove('open');
@@ -74,14 +75,16 @@ export class TrackDropdown {
         this.trackDropdown?.classList.remove('open');
         this.isDropdownOpen = false;
         
-        // Step 2: After menu animation completes, show controls
+        // Step 2: After menu animation completes, optionally show controls
         setTimeout(() => {
             if (this.trackDropdownMenu) {
                 this.trackDropdownMenu.style.display = 'none';
             }
             if (this.uiControlsManager) {
                 this.uiControlsManager.setDropdownOpen(false);
-                this.uiControlsManager.showControls();
+                if (showControlsAfterClose) {
+                    this.uiControlsManager.showControls();
+                }
             }
         }, 350); // Match the animation duration
     }

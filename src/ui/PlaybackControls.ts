@@ -290,6 +290,9 @@ export class AudioControls {
         
         // Set up track selection callback
         this.trackSelector.onTrackSelected = async (filenameOrUrl, trackOption) => {
+            // Hide UI when track is selected
+            this.uiControlsManager.hideControls();
+            
             // Get BPM from track option if available
             const trackBPM = trackOption?.dataset.trackBpm ? parseFloat(trackOption.dataset.trackBpm) : undefined;
             await this.loadTrack(filenameOrUrl, { bpm: trackBPM });

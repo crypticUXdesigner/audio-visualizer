@@ -171,6 +171,18 @@ export class ArcShaderPlugin extends BaseShaderPlugin {
         if (this.shaderInstance.uniformLocations.uNumBands) {
             gl.uniform1i(this.shaderInstance.uniformLocations.uNumBands, visualBands);
         }
+        
+        // Set exclude top bands uniform
+        const excludeTopBands = (this.shaderInstance.parameters.excludeTopBands || 0) as number;
+        if (this.shaderInstance.uniformLocations.uExcludeTopBands) {
+            gl.uniform1i(this.shaderInstance.uniformLocations.uExcludeTopBands, excludeTopBands);
+        }
+        
+        // Set top arc margin uniform
+        const topArcMargin = (this.shaderInstance.parameters.topArcMargin || 0.0) as number;
+        if (this.shaderInstance.uniformLocations.uTopArcMargin) {
+            gl.uniform1f(this.shaderInstance.uniformLocations.uTopArcMargin, topArcMargin);
+        }
     }
     
     /**
@@ -257,11 +269,64 @@ export class ArcShaderPlugin extends BaseShaderPlugin {
             this.smoothing.smoothedMaskRadius = baseMaskRadius;
         }
         
+        // Update exclude top bands and top arc margin uniforms
+        helper.updateInt('uExcludeTopBands', params.excludeTopBands as number | undefined, 0);
+        helper.updateFloat('uTopArcMargin', params.topArcMargin as number | undefined, 0.0);
+        
         // Update contrast uniforms
         helper.updateFloat('uContrast', params.contrast as number | undefined, 1.0);
         helper.updateFloat('uContrastAudioReactive', params.contrastAudioReactive as number | undefined, 0.0);
         helper.updateFloat('uContrastMin', params.contrastMin as number | undefined, 1.0);
         helper.updateFloat('uContrastMax', params.contrastMax as number | undefined, 1.35);
+        helper.updateFloat('uContrastMaskEnabled', params.contrastMaskEnabled as number | undefined, 1.0);
+        helper.updateFloat('uContrastMaskStartDistance', params.contrastMaskStartDistance as number | undefined, 0.0);
+        helper.updateFloat('uContrastMaskFeathering', params.contrastMaskFeathering as number | undefined, 0.2);
+        
+        // Update dither uniforms
+        helper.updateFloat('uDitherMinThreshold', params.ditherMinThreshold as number | undefined, 0.5);
+        helper.updateFloat('uDitherMinStrength', params.ditherMinStrength as number | undefined, 0.5);
+        helper.updateFloat('uDitherMaxStrength', params.ditherMaxStrength as number | undefined, 1.0);
+        helper.updateFloat('uDitherSize', params.ditherSize as number | undefined, 50.0);
+        
+        // Update background uniforms
+        helper.updateFloat('uBackgroundEnabled', params.backgroundEnabled as number | undefined, 1.0);
+        helper.updateFloat('uBackgroundIntensity', params.backgroundIntensity as number | undefined, 0.3);
+        helper.updateFloat('uBackgroundBassThreshold', params.backgroundBassThreshold as number | undefined, 0.3);
+        helper.updateFloat('uBackgroundBassSensitivity', params.backgroundBassSensitivity as number | undefined, 2.0);
+        helper.updateFloat('uBackgroundNoiseScale', params.backgroundNoiseScale as number | undefined, 0.8);
+        helper.updateFloat('uBackgroundNoiseSpeed', params.backgroundNoiseSpeed as number | undefined, 0.3);
+        helper.updateFloat('uBackgroundDistortionStrength', params.backgroundDistortionStrength as number | undefined, 0.15);
+        helper.updateFloat('uBackgroundFrequencyReactivity', params.backgroundFrequencyReactivity as number | undefined, 0.5);
+        helper.updateFloat('uBackgroundStereoPan', params.backgroundStereoPan as number | undefined, 0.3);
+        helper.updateFloat('uBackgroundBlur', params.backgroundBlur as number | undefined, 0.5);
+        helper.updateFloat('uBackgroundDitherEnabled', params.backgroundDitherEnabled as number | undefined, 1.0);
+        helper.updateFloat('uBackgroundDitherMinThreshold', params.backgroundDitherMinThreshold as number | undefined, 0.3);
+        helper.updateFloat('uBackgroundDitherMinStrength', params.backgroundDitherMinStrength as number | undefined, 0.0);
+        helper.updateFloat('uBackgroundDitherMaxStrength', params.backgroundDitherMaxStrength as number | undefined, 1.0);
+        helper.updateFloat('uBackgroundDitherSize', params.backgroundDitherSize as number | undefined, 24.0);
+        helper.updateFloat('uBackgroundDitherBassReactivity', params.backgroundDitherBassReactivity as number | undefined, 1.0);
+        helper.updateFloat('uBackgroundFadeEnabled', params.backgroundFadeEnabled as number | undefined, 1.0);
+        helper.updateFloat('uBackgroundFadeStartDistance', params.backgroundFadeStartDistance as number | undefined, 0.0);
+        helper.updateFloat('uBackgroundFadeFeathering', params.backgroundFadeFeathering as number | undefined, 0.15);
+        
+        // Update center sphere uniforms
+        helper.updateFloat('uCenterSphereEnabled', params.centerSphereEnabled as number | undefined, 1.0);
+        helper.updateFloat('uCenterSphereBaseRadius', params.centerSphereBaseRadius as number | undefined, 0.01);
+        helper.updateFloat('uCenterSphereMaxRadius', params.centerSphereMaxRadius as number | undefined, 0.15);
+        helper.updateFloat('uCenterSphereSizeThreshold', params.centerSphereSizeThreshold as number | undefined, 0.2);
+        helper.updateFloat('uCenterSphereBassWeight', params.centerSphereBassWeight as number | undefined, 0.7);
+        helper.updateFloat('uCenterSphereCoreSize', params.centerSphereCoreSize as number | undefined, 0.6);
+        helper.updateFloat('uCenterSphereGlowSize', params.centerSphereGlowSize as number | undefined, 1.5);
+        helper.updateFloat('uCenterSphereGlowIntensity', params.centerSphereGlowIntensity as number | undefined, 0.5);
+        helper.updateFloat('uCenterSphereGlowFalloff', params.centerSphereGlowFalloff as number | undefined, 3.0);
+        helper.updateFloat('uCenterSphereBaseBrightness', params.centerSphereBaseBrightness as number | undefined, 0.3);
+        helper.updateFloat('uCenterSphereBrightnessRange', params.centerSphereBrightnessRange as number | undefined, 0.7);
+        helper.updateFloat('uCenterSphereNoiseEnabled', params.centerSphereNoiseEnabled as number | undefined, 0.0);
+        helper.updateFloat('uCenterSphereNoiseScale', params.centerSphereNoiseScale as number | undefined, 5.0);
+        helper.updateFloat('uCenterSphereNoiseSpeed', params.centerSphereNoiseSpeed as number | undefined, 0.5);
+        helper.updateFloat('uCenterSphereNoiseAmount', params.centerSphereNoiseAmount as number | undefined, 0.1);
+        helper.updateFloat('uCenterSphere3DEnabled', params.centerSphere3DEnabled as number | undefined, 1.0);
+        helper.updateFloat('uCenterSphere3DStrength', params.centerSphere3DStrength as number | undefined, 0.3);
         
         // Smooth contrast audio level for contrast modulation
         const contrastAudioReactive = (params.contrastAudioReactive as number | undefined) || 0.0;

@@ -73,8 +73,8 @@ export class TrackSelector {
                 
                 if (!filename) return;
                 
-                // Close dropdown immediately for instant feedback
-                this.closeDropdown();
+                // Close dropdown immediately for instant feedback (don't show controls)
+                this.closeDropdown(false);
                 
                 // Return filename for parent to handle loading
                 if (this.onTrackSelected) {
@@ -110,7 +110,7 @@ export class TrackSelector {
                     this.onTrackSelected(trackUrl, trackOption);
                 }
             },
-            () => this.closeDropdown()
+            (showControlsAfterClose?: boolean) => this.closeDropdown(showControlsAfterClose)
         );
         
         // Update trackOptions reference when tracks are added
@@ -133,17 +133,19 @@ export class TrackSelector {
     
     /**
      * Close the track menu
+     * @param showControlsAfterClose - Whether to show controls after closing (default: true)
      */
-    closeMenu(): void {
-        this.dropdown.close();
+    closeMenu(showControlsAfterClose: boolean = true): void {
+        this.dropdown.close(showControlsAfterClose);
     }
     
     /**
      * Close dropdown (alias for closeMenu)
+     * @param showControlsAfterClose - Whether to show controls after closing (default: true)
      */
-    closeDropdown(): void {
+    closeDropdown(showControlsAfterClose: boolean = true): void {
         if (!this.dropdown.isOpen()) return;
-        this.dropdown.close();
+        this.dropdown.close(showControlsAfterClose);
     }
     
     /**

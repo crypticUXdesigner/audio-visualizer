@@ -8,7 +8,7 @@ import type { TrackListManager } from './TrackListManager.js';
 export class TrackAPIIntegration {
     trackListManager: TrackListManager;
     onTrackSelected: ((trackUrl: string, trackOption: HTMLElement) => void) | null;
-    onCloseDropdown: (() => void) | null;
+    onCloseDropdown: ((showControlsAfterClose?: boolean) => void) | null;
     trackOptions: NodeListOf<HTMLElement>;
     
     constructor(trackListManager: TrackListManager) {
@@ -21,11 +21,11 @@ export class TrackAPIIntegration {
     /**
      * Initialize API integration
      * @param onTrackSelected - Callback when track is selected
-     * @param onCloseDropdown - Callback to close dropdown
+     * @param onCloseDropdown - Callback to close dropdown (optional parameter: showControlsAfterClose)
      */
     init(
         onTrackSelected: (trackUrl: string, trackOption: HTMLElement) => void,
-        onCloseDropdown: () => void
+        onCloseDropdown: (showControlsAfterClose?: boolean) => void
     ): void {
         this.onTrackSelected = onTrackSelected;
         this.onCloseDropdown = onCloseDropdown;
@@ -151,9 +151,9 @@ export class TrackAPIIntegration {
                 
                 if (!trackUrl) return;
                 
-                // Close dropdown immediately for instant feedback
+                // Close dropdown immediately for instant feedback (don't show controls)
                 if (this.onCloseDropdown) {
-                    this.onCloseDropdown();
+                    this.onCloseDropdown(false);
                 }
                 
                 // Notify parent to load track

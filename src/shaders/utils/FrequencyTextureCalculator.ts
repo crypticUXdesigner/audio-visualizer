@@ -55,9 +55,15 @@ export class FrequencyTextureCalculator {
                     ? maxFreq 
                     : minFreq * Math.pow(maxFreq / minFreq, (i + 1) / (numBands - 1));
                 const binStart = hzToBin(freqStart);
-                const binEnd = Math.min(hzToBin(freqEnd), audioData.leftFrequencyData!.length - 1);
-                leftBands[i] = getAverage(audioData.leftFrequencyData, binStart, binEnd);
-                rightBands[i] = getAverage(audioData.rightFrequencyData, binStart, binEnd);
+                // Calculate binEnd to include the bin that contains freqEnd
+                // Ensure we include the bin containing freqEnd if it falls beyond the calculated bin
+                let binEnd = Math.min(Math.max(hzToBin(freqEnd), binStart), audioData.leftFrequencyData!.length - 1);
+                const binEndFreq = (binEnd + 1) * binSize;
+                const finalBinEnd = (freqEnd > binEndFreq && binEnd < audioData.leftFrequencyData!.length - 1)
+                    ? Math.min(binEnd + 1, audioData.leftFrequencyData!.length - 1)
+                    : binEnd;
+                leftBands[i] = getAverage(audioData.leftFrequencyData, binStart, finalBinEnd);
+                rightBands[i] = getAverage(audioData.rightFrequencyData, binStart, finalBinEnd);
             }
             
             return { leftBands, rightBands, numBands };
