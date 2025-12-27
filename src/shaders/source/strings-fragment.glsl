@@ -91,6 +91,13 @@ uniform float uGlitchIntensity;         // Overall glitch intensity (0.0-1.0)
 uniform float uGlitchBlurAmount;       // Blur amount (0.0-1.0)
 uniform float uGlitchPixelSize;        // Pixelization size (0.0 = off, >0.0 = pixel size)
 
+// Performance optimization uniforms (adaptive quality)
+uniform int uBackgroundFbmOctaves;     // Adaptive background fBm octaves (default 7, reduced on mobile)
+uniform int uBackgroundBlurSamples;   // Number of background blur samples (0=none, 4=2x2, 8=3x3)
+uniform int uMaxStringsMobile;         // Max strings per band on mobile (reduced from uMaxStrings)
+uniform float uMaskNoiseStrengthMobile; // Scaled mask noise strength (reduced on mobile)
+uniform float uQualityLevel;           // Quality level (0.0-1.0) for adaptive effects
+
 // Include utility modules
 #include "strings/math-utils.glsl"
 #include "strings/band-utils.glsl"

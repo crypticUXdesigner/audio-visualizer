@@ -9,10 +9,11 @@
 #include "common/color-mapping.glsl"
 #include "common/noise.glsl"
 #include "common/audio.glsl"
+#include "common/dither.glsl"
 
 // Constants needed by background module
-// Note: PI and Bayer functions (Bayer2, Bayer4, Bayer8) are defined in the main fragment shader
-// This module is included after those definitions, so they are available here
+// Note: PI is defined in the main fragment shader
+// This module is included after that definition, so it is available here
 
 // OPTIMIZATION Phase 1.1: Calculate angle from vertical once and reuse
 // Helper function to calculate angle from vertical axis

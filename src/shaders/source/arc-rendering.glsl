@@ -8,6 +8,7 @@
 #include "common/uniforms.glsl"
 #include "common/color-mapping.glsl"
 #include "common/audio.glsl"
+#include "common/dither.glsl"
 
 // Performance constants (needed by arc rendering)
 #define MAX_COLOR_SMOOTHING_SAMPLES 10

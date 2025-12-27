@@ -1,5 +1,32 @@
 // Band Utility Functions
 // Helper functions for band calculations and sampling
+//
+// This module provides utilities for:
+// - Sampling frequency and height data from textures
+// - Calculating band positions on screen (split-screen mapping)
+// - Determining which band a UV coordinate belongs to
+// - Shared calculations for bar width and string area center
+//
+// Dependencies: common/constants.glsl
+// Used by: bars.glsl, strings.glsl, background.glsl
+
+#include "common/constants.glsl"
+
+// Bar width as percentage of band width (shared constant)
+#define BAR_WIDTH_FACTOR 0.8
+
+// Calculate normalized bar width based on number of bands
+// Returns bar width in normalized UV space (0.0-1.0)
+float calculateBarWidthNormalized(int numBands) {
+    float halfScreenBands = float(numBands) * 0.5;
+    return (0.5 / halfScreenBands) * BAR_WIDTH_FACTOR;
+}
+
+// Calculate the center Y coordinate of the string area
+// Returns center Y in normalized UV space (0.0-1.0)
+float calculateStringAreaCenterY() {
+    return (uStringTop + uStringBottom) * 0.5;
+}
 
 // Sample frequency level for a specific band
 float sampleBandFrequencyLevel(int band, bool isLeftSide, sampler2D frequencyTexture) {

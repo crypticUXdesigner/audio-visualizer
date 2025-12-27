@@ -1,5 +1,17 @@
 // Frequency Bar Rendering
 // Renders frequency level bars behind strings
+//
+// This module handles rendering of frequency level bars that appear behind the strings.
+// Bars provide visual feedback for audio levels in each frequency band.
+//
+// Features:
+// - Volume-based width scaling (bars get wider with higher volume)
+// - Cubic bezier easing for smooth height transitions
+// - Alpha modulation based on volume
+// - Color selection based on volume level (darker colors for higher volume)
+//
+// Dependencies: common/constants.glsl, strings/math-utils.glsl, strings/band-utils.glsl
+// Used by: strings-fragment.glsl
 
 #include "common/constants.glsl"
 #include "strings/math-utils.glsl"
@@ -14,9 +26,8 @@ vec3 renderBars(vec2 uv, int band, bool isLeftSide, float leftLevel, float right
     // Calculate bar position based on split-screen mapping
     float barX = calculateBandPosition(band, isLeftSide);
     
-    // Calculate bar width (half the screen width divided by number of bands)
-    float halfScreenBands = float(uNumBands) * 0.5;
-    float baseBarWidthNorm = (0.5 / halfScreenBands) * 0.8; // Bar width is 80% of band width
+    // Calculate bar width using helper function
+    float baseBarWidthNorm = calculateBarWidthNormalized(uNumBands);
     
     // Calculate bar height based on frequency level (use appropriate channel)
     float barLevel = isLeftSide ? leftLevel : rightLevel;
@@ -48,7 +59,7 @@ vec3 renderBars(vec2 uv, int band, bool isLeftSide, float leftLevel, float right
     float barHeight = uBandMinHeight * maxBarHeight + easedLevel * heightRange;
     
     // Center the bar vertically, so it grows in both directions
-    float centerY = (uStringTop + uStringBottom) * 0.5;
+    float centerY = calculateStringAreaCenterY();
     float barTop = centerY + barHeight * 0.5;
     float barBottom = centerY - barHeight * 0.5;
     

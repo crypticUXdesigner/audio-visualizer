@@ -12,28 +12,20 @@ precision highp float;
 #include "common/color-mapping.glsl"
 #include "common/ripples.glsl"
 #include "common/screen-adaptation.glsl"
+#include "common/dither.glsl"
 
 // Shader-specific uniforms
 uniform int   uShapeType;         // 0=square 1=circle 2=tri 3=diamond
+uniform int   uFbmOctaves;        // Adaptive fBm octaves (default 6, reduced on mobile)
 const int SHAPE_SQUARE   = 0;
 const int SHAPE_CIRCLE   = 1;
 const int SHAPE_TRIANGLE = 2;
 const int SHAPE_DIAMOND  = 3;
 
 // Shader-specific constants
-#define FBM_OCTAVES     6
 #define FBM_LACUNARITY  1.35
 #define FBM_GAIN        0.65
 #define FBM_SCALE       1.25          // master scale for uv (smaller = larger spots)
-
-// Bayer matrix helpers (ordered dithering thresholds) - shader-specific
-float Bayer2(vec2 a) {
-    a = floor(a);
-    return fract(a.x / 2. + a.y * a.y * .75);
-}
-
-#define Bayer4(a) (Bayer2(.5*(a))*0.25 + Bayer2(a))
-#define Bayer8(a) (Bayer4(.5*(a))*0.25 + Bayer2(a))
 
 // Shape masks (shader-specific)
 float maskCircle(vec2 p, float cov) {
@@ -96,7 +88,9 @@ void main() {
     );
     
     // Base fBm noise pattern - provides organic spatial variation
-    float feed = fbm2_standard(uv, modulatedTime, FBM_SCALE, FBM_OCTAVES, FBM_LACUNARITY, FBM_GAIN);
+    // Use adaptive octaves (default 6, reduced on mobile for performance)
+    int fbmOctaves = uFbmOctaves > 0 ? uFbmOctaves : 6;
+    float feed = fbm2_standard(uv, modulatedTime, FBM_SCALE, fbmOctaves, FBM_LACUNARITY, FBM_GAIN);
     
     // Scale feed based on volume - quieter songs stay darker
     float volumeScale = calculateVolumeScale(uVolume);
@@ -112,9 +106,12 @@ void main() {
     float beatRipple = renderAllRipples(uv, aspectRatio, uRippleCount);
     feed = feed + beatRipple;
 
-    // Multi-step dithering with Bayer matrix
+    // Multi-step dithering with Bayer matrix (skip if disabled for performance)
     float ditherStrength = uDitherStrength > 0.0 ? uDitherStrength : 3.0;
-    float bayer = (Bayer8(fragCoordCentered / uPixelSize) - 0.5) * ditherStrength;
+    float bayer = 0.0;
+    if (ditherStrength > 0.001) {
+        bayer = (Bayer8(fragCoordCentered / uPixelSize) - 0.5) * ditherStrength;
+    }
     
     // Ensure feed stays in valid range
     feed = clamp(feed, 0.0, 1.0);

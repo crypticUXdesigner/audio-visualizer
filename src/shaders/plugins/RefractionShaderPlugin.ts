@@ -128,7 +128,7 @@ export class RefractionShaderPlugin extends BaseShaderPlugin {
      */
     onUpdateUniforms(_audioData: ExtendedAudioData | null, _colors: ColorMap | null, _deltaTime: number): void {
         const gl = this.shaderInstance.gl;
-        if (!gl) return;
+        if (!gl || !this.shaderInstance.uniformLocations) return;
         
         // Set smoothed uniforms
         if (this.shaderInstance.uniformLocations.uSmoothedVolumeScale) {
@@ -142,6 +142,32 @@ export class RefractionShaderPlugin extends BaseShaderPlugin {
                 this.shaderInstance.uniformLocations.uSmoothedFbmZoom,
                 this.smoothing.smoothedFbmZoom
             );
+        }
+        
+        // Performance-based adaptive quality adjustments
+        const qualityLevel = this.shaderInstance.performanceMonitor?.qualityLevel ?? 1.0;
+        
+        // Adjust fBm octaves based on quality (6 = full quality, 3 = minimum)
+        const octaves = Math.max(3, Math.floor(6 * qualityLevel));
+        if (this.shaderInstance.uniformLocations.uFbmOctaves) {
+            gl.uniform1i(this.shaderInstance.uniformLocations.uFbmOctaves, octaves);
+        }
+        
+        // Adjust blur sample count based on quality
+        let blurSamples = 5; // Full blur (4 samples + center)
+        if (qualityLevel < 0.6) {
+            blurSamples = 1; // No blur
+        } else if (qualityLevel < 0.8) {
+            blurSamples = 2; // Horizontal only (2 samples + center)
+        }
+        if (this.shaderInstance.uniformLocations.uBlurSampleCount) {
+            gl.uniform1i(this.shaderInstance.uniformLocations.uBlurSampleCount, blurSamples);
+        }
+        
+        // Adjust cell animation layers based on quality
+        const animationLayers = qualityLevel < 0.6 ? 1 : (qualityLevel < 0.8 ? 2 : 3);
+        if (this.shaderInstance.uniformLocations.uCellAnimationLayers) {
+            gl.uniform1i(this.shaderInstance.uniformLocations.uCellAnimationLayers, animationLayers);
         }
     }
     

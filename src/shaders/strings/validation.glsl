@@ -1,5 +1,14 @@
 // Validation Macros and Functions
 // Consolidated validation logic for preventing NaN/infinity issues
+//
+// This module provides validation functions to prevent NaN and infinity values
+// from causing visual artifacts or crashes. All validation functions:
+// - Check for NaN using the property that NaN != NaN
+// - Clamp values to valid ranges
+// - Provide sensible fallback values
+//
+// Dependencies: none
+// Used by: background.glsl, post-processing.glsl
 
 #define VALIDATE_FLOAT(x, fallback) \
     ((x != x) ? fallback : clamp(x, 0.0, 1.0))

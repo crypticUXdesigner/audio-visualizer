@@ -4,6 +4,7 @@ precision highp float;
 #include "common/color-mapping.glsl"
 #include "common/noise.glsl"
 #include "common/audio.glsl"
+#include "common/dither.glsl"
 
 // Frequency data texture
 // uFrequencyTexture: LUMINANCE = left channel, ALPHA = right channel
@@ -118,15 +119,6 @@ uniform float uSmoothedSphereHueShift; // Smoothed hue shift (from JS with attac
 
 // Visual constants
 #define BLUR_SAMPLE_DISTANCE 0.01  // Distance for blur samples as fraction of screen
-
-// Bayer matrix helpers for dithering
-float Bayer2(vec2 a) {
-    a = floor(a);
-    return fract(a.x / 2. + a.y * a.y * .75);
-}
-
-#define Bayer4(a) (Bayer2(.5*(a))*0.25 + Bayer2(a))
-#define Bayer8(a) (Bayer4(.5*(a))*0.25 + Bayer2(a))
 
 // ============================================================================
 // Module Includes

@@ -53,6 +53,7 @@ float createRipple(
 
 // Render all active ripples and return combined intensity
 // Handles default parameter fallbacks and stereo scaling
+// Optimized with early exit and distance culling for performance
 float renderAllRipples(vec2 uv, float aspectRatio, int rippleCountParam) {
     float beatRipple = 0.0;
     float rippleSpeed = uRippleSpeed > 0.0 ? uRippleSpeed : 0.5;
@@ -70,6 +71,16 @@ float renderAllRipples(vec2 uv, float aspectRatio, int rippleCountParam) {
         clampedRippleCount = maxRipplesInt;
     }
     
+    // Early exit: check if any ripples are active and have significant intensity
+    float totalIntensity = 0.0;
+    for (int j = 0; j < 16; j++) {
+        if (j >= clampedRippleCount) break;
+        if (uRippleActive[j] > 0.5 && uRippleIntensities[j] > 0.0) {
+            totalIntensity += uRippleIntensities[j];
+        }
+    }
+    if (totalIntensity < 0.01) return 0.0; // Early exit if no significant ripples
+    
     for (int i = 0; i < 16; i++) {
         if (i >= clampedRippleCount) break;
         if (uRippleActive[i] > 0.5 && uRippleIntensities[i] > 0.0) {
@@ -79,6 +90,11 @@ float renderAllRipples(vec2 uv, float aspectRatio, int rippleCountParam) {
             float rippleWidth = uRippleWidths[i] > 0.0 ? uRippleWidths[i] : defaultRippleWidth;
             float rippleMinRadius = uRippleMinRadii[i] >= 0.0 ? uRippleMinRadii[i] : defaultRippleMinRadius;
             float rippleMaxRadius = uRippleMaxRadii[i] > 0.0 ? uRippleMaxRadii[i] : defaultRippleMaxRadius;
+            
+            // Distance-based culling: skip ripples too far from current pixel
+            float distToRipple = length(uv - rippleCenter);
+            if (distToRipple > rippleMaxRadius * 1.5) continue; // Skip distant ripples
+            
             float rippleIntensityMultiplier = uRippleIntensityMultipliers[i] > 0.0 ? uRippleIntensityMultipliers[i] : defaultRippleIntensityMultiplier;
             float ripple = createRipple(uv, rippleCenter, rippleAge, rippleIntensity, rippleSpeed, rippleWidth, rippleMinRadius, rippleMaxRadius);
             beatRipple += ripple * rippleIntensityMultiplier;

@@ -480,6 +480,66 @@ export class StringsShaderPlugin extends BaseShaderPlugin {
         const params = this.shaderInstance.parameters;
         const helper = this.uniformHelper;
         
+        // Performance-based adaptive quality adjustments
+        const qualityLevel = this.shaderInstance.performanceMonitor?.qualityLevel ?? 1.0;
+        const gl = this.shaderInstance.gl;
+        const locations = this.shaderInstance.uniformLocations;
+        
+        // Set quality level uniform for shader-side optimizations
+        if (gl && locations?.uQualityLevel) {
+            gl.uniform1f(locations.uQualityLevel, qualityLevel);
+        }
+        
+        // Adjust background fBm octaves based on quality (7 = full quality, 3 = minimum)
+        const backgroundOctaves = Math.max(3, Math.floor(7 * qualityLevel));
+        if (gl && locations?.uBackgroundFbmOctaves) {
+            gl.uniform1i(locations.uBackgroundFbmOctaves, backgroundOctaves);
+        }
+        
+        // Adjust blur samples based on quality
+        let blurSamples = 8; // Full 3×3 blur
+        if (qualityLevel < 0.5) {
+            blurSamples = 0; // No blur
+        } else if (qualityLevel < 0.7) {
+            blurSamples = 4; // 2×2 blur
+        }
+        if (gl && locations?.uBackgroundBlurSamples) {
+            gl.uniform1i(locations.uBackgroundBlurSamples, blurSamples);
+        }
+        
+        // Disable blur entirely on very low-end
+        if (qualityLevel < 0.5 && gl && locations?.uGlitchBlurAmount) {
+            gl.uniform1f(locations.uGlitchBlurAmount, 0.0);
+        }
+        
+        // Reduce mask noise strength on mobile
+        const maskNoiseScale = qualityLevel < 0.6 ? 0.3 : 1.0;
+        const currentMaskNoise = (params.maskNoiseStrength as number | undefined) ?? 0.0;
+        if (gl && locations?.uMaskNoiseStrengthMobile) {
+            gl.uniform1f(locations.uMaskNoiseStrengthMobile, currentMaskNoise * maskNoiseScale);
+        }
+        
+        // Reduce max strings on mobile
+        const maxStrings = qualityLevel < 0.7 ? 2 : 3;
+        if (gl && locations?.uMaxStringsMobile) {
+            gl.uniform1i(locations.uMaxStringsMobile, maxStrings);
+        }
+        
+        // Disable glow on mobile
+        if (qualityLevel < 0.7 && gl && locations?.uGlowIntensity) {
+            const currentGlow = (params.glowIntensity as number | undefined) ?? 0.0;
+            if (currentGlow > 0.0) {
+                gl.uniform1f(locations.uGlowIntensity, 0.0);
+            }
+        }
+        
+        // Reduce glitch columns on mobile
+        const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+        if (isMobile && qualityLevel < 0.7 && gl && locations?.uGlitchColumnCount) {
+            const currentColumns = (params.glitchColumnCount as number | undefined) ?? 2.0;
+            gl.uniform1f(locations.uGlitchColumnCount, Math.max(4, currentColumns * 0.5));
+        }
+        
         // Set smoothed noise and contrast audio levels (always update - they change every frame)
         helper.updateFloat('uSmoothedNoiseAudioLevel', this.smoothing.smoothedNoiseAudioLevel);
         helper.updateFloat('uSmoothedContrastAudioLevel', this.smoothing.smoothedContrastAudioLevel);

@@ -1,9 +1,35 @@
 // String Rendering
 // Renders animated guitar strings with standing wave patterns
+//
+// This module handles rendering of animated guitar strings that respond to audio.
+// Strings use standing wave patterns with oscillation tied to audio levels.
+//
+// Features:
+// - Standing wave envelope (fades at ends, peaks at center)
+// - Multiple wave cycles along string length
+// - Audio-reactive oscillation speed (faster with higher volume)
+// - Multiple strings per band based on volume thresholds
+// - Phase offsets for animation variety
+// - Dynamic width scaling based on volume
+//
+// Algorithm:
+// Strings use a standing wave pattern: sin(y * PI) creates the envelope (0 at ends, 1 at center).
+// Multiple cycles are added with sin(y * PI * uWaveCycles) for waviness.
+// Oscillation speed varies with audio level, creating responsive animation.
+// Phase offsets between multiple strings create visual variety.
+//
+// Dependencies: common/constants.glsl, strings/math-utils.glsl, strings/band-utils.glsl
+// Used by: strings-fragment.glsl
 
 #include "common/constants.glsl"
 #include "strings/math-utils.glsl"
 #include "strings/band-utils.glsl"
+
+// Oscillation speed constants for string animation
+#define MIN_OSCILLATION_SPEED 0.3   // Minimum 30% of base speed
+#define MAX_OSCILLATION_SPEED 3.0   // Maximum 3x base speed
+#define RIGHT_CHANNEL_PHASE_OFFSET 0.1  // Phase offset for right channel to create stereo separation
+#define MIN_STRING_VISIBILITY 0.1   // Minimum 10% visibility even when audio is quiet
 
 // Render strings
 vec3 renderStrings(vec2 uv, int band, bool isLeftSide, float leftLevel, float rightLevel, 
@@ -40,7 +66,7 @@ vec3 renderStrings(vec2 uv, int band, bool isLeftSide, float leftLevel, float ri
     stringHeight = min(stringHeight, maxAvailableHeight);
     
     // Center the string vertically, so it grows in both directions (same as bars)
-    float centerY = (uStringTop + uStringBottom) * 0.5;
+    float centerY = calculateStringAreaCenterY();
     float effectiveStringTop = centerY + stringHeight * 0.5;
     float effectiveStringBottom = centerY - stringHeight * 0.5;
     
@@ -79,16 +105,13 @@ vec3 renderStrings(vec2 uv, int band, bool isLeftSide, float leftLevel, float ri
     float baseWaveFrequency = 1.0 / max(uWaveNote, EPSILON);
     
     // Oscillation frequency tied to audio level
-    float minOscillationSpeed = 0.3;  // Minimum 30% of base speed
-    float maxOscillationSpeed = 3.0;   // Maximum 3x base speed
-    
     // Left channel: oscillation speed based on leftLevel
-    float leftOscillationSpeed = baseWaveFrequency * mix(minOscillationSpeed, maxOscillationSpeed, leftLevel);
+    float leftOscillationSpeed = baseWaveFrequency * mix(MIN_OSCILLATION_SPEED, MAX_OSCILLATION_SPEED, leftLevel);
     float leftOscillationPhase = musicalTime * leftOscillationSpeed;
     
     // Right channel: oscillation speed based on rightLevel
-    float rightOscillationSpeed = baseWaveFrequency * mix(minOscillationSpeed, maxOscillationSpeed, rightLevel);
-    float rightOscillationPhase = musicalTime * rightOscillationSpeed + 0.1;  // Slight phase offset
+    float rightOscillationSpeed = baseWaveFrequency * mix(MIN_OSCILLATION_SPEED, MAX_OSCILLATION_SPEED, rightLevel);
+    float rightOscillationPhase = musicalTime * rightOscillationSpeed + RIGHT_CHANNEL_PHASE_OFFSET;
     
     // Calculate band width for available space calculation
     float bandWidth = 0.5 / float(uNumBands);
@@ -97,9 +120,8 @@ vec3 renderStrings(vec2 uv, int band, bool isLeftSide, float leftLevel, float ri
     float stringXScreen = calculateBandPosition(band, isLeftSide);
     
     // Ensure minimum visibility: use max to ensure strings are always at least slightly visible
-    float minLevel = 0.1;  // Minimum 10% visibility even when audio is quiet
-    float effectiveLeftLevel = max(leftLevel, minLevel);
-    float effectiveRightLevel = max(rightLevel, minLevel);
+    float effectiveLeftLevel = max(leftLevel, MIN_STRING_VISIBILITY);
+    float effectiveRightLevel = max(rightLevel, MIN_STRING_VISIBILITY);
     
     // Calculate dynamic string width based on audio level
     float currentLevel = isLeftSide ? effectiveLeftLevel : effectiveRightLevel;
@@ -132,11 +154,19 @@ vec3 renderStrings(vec2 uv, int band, bool isLeftSide, float leftLevel, float ri
     float currentEffectiveLevel = isLeftSide ? effectiveLeftLevel : effectiveRightLevel;
     
     // Determine number of strings based on audio level and thresholds
+    // Use mobile-optimized max strings if available
+    int effectiveMaxStrings = uMaxStringsMobile > 0 ? int(uMaxStringsMobile) : uMaxStrings;
     int numStrings = 1;
-    if (currentLevel >= uThreshold3Strings && uMaxStrings >= 3) {
+    if (currentLevel >= uThreshold3Strings && effectiveMaxStrings >= 3) {
         numStrings = 3;
-    } else if (currentLevel >= uThreshold2Strings && uMaxStrings >= 2) {
+    } else if (currentLevel >= uThreshold2Strings && effectiveMaxStrings >= 2) {
         numStrings = 2;
+    }
+    
+    // Early exit: skip string rendering if estimated mask would be negligible
+    float estimatedMask = standingWaveEnvelope * stringAlpha;
+    if (estimatedMask < 0.01 && numStrings == 1 && currentLevel < 0.1) {
+        return finalColor; // Skip rendering if string would be nearly invisible
     }
     
     // Render multiple strings with phase offsets (same position, different animation phases)

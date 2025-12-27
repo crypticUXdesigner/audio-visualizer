@@ -1,5 +1,12 @@
 // Mathematical Utility Functions
 // Common mathematical operations used in strings shader
+//
+// This module provides:
+// - Volume-based width factor calculation with threshold curves
+// - Cubic bezier easing function for smooth animations
+//
+// Dependencies: common/constants.glsl
+// Used by: bars.glsl, strings.glsl, background.glsl, post-processing.glsl
 
 #include "common/constants.glsl"
 
@@ -37,6 +44,21 @@ float getVolumeWidthFactor(float volume, float threshold, float minMult, float m
 
 // Cubic bezier easing function for GLSL
 // Maps input t (0-1) to eased output (0-1) using cubic bezier control points
+//
+// Algorithm:
+// Uses binary search to find the t parameter that produces the desired x-coordinate,
+// then evaluates the y-coordinate at that t value. This implements a cubic bezier curve
+// with control points P0=(0,0), P1=(x1,y1), P2=(x2,y2), P3=(1,1).
+//
+// The cubic bezier formula is: B(t) = (1-t)³P₀ + 3(1-t)²tP₁ + 3(1-t)t²P₂ + t³P₃
+// For x-coordinate: P₀=0, P₁=x1, P₂=x2, P₃=1
+// For y-coordinate: P₀=0, P₁=y1, P₂=y2, P₃=1
+//
+// Parameters:
+//   t: Input value (0-1) to map through the curve
+//   x1, y1: First control point (typically 0-1 range)
+//   x2, y2: Second control point (typically 0-1 range)
+// Returns: Eased output value (0-1)
 float cubicBezierEase(float t, float x1, float y1, float x2, float y2) {
     // Binary search to find the t parameter that gives us x = input t
     float low = 0.0;
