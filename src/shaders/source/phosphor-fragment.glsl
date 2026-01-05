@@ -7,25 +7,18 @@ precision highp float;
 
 // Parameter uniforms
 uniform float uEnableColorSystem;      // Enable color system (0.0 = use original colors)
-uniform float uEnableColorFrequency;    // Enable frequency-based color modulation
 
 // Static configuration
 uniform float uSphereRadius;          // Base sphere radius
 
 // Audio reactive enable flags
-uniform float uEnableAnimationSpeed;   // Enable animation speed reactivity
-uniform float uEnableVectorFieldSpeed; // Enable vector field speed reactivity
 uniform float uEnableSphereRadius;    // Enable sphere radius reactivity
-uniform float uEnableVectorFieldComplexity; // Enable vector field complexity reactivity
 uniform float uEnableGlowIntensity;   // Enable glow intensity reactivity
 uniform float uEnableBrightness;      // Enable brightness reactivity
 uniform float uEnableRaymarchSteps;   // Enable raymarch steps reactivity
 
 // Audio reactive strength parameters (already modulated by audio system)
-uniform float uAnimationSpeedStrength;      // Animation speed strength (audio-reactive to volume)
-uniform float uVectorFieldSpeedStrength;    // Vector field speed strength (audio-reactive to mid)
 uniform float uSphereRadiusStrength;        // Sphere radius strength (audio-reactive to bass)
-uniform float uVectorFieldComplexityStrength; // Vector field complexity (audio-reactive to beats, inverted)
 uniform float uGlowIntensityStrength;       // Glow intensity (audio-reactive to treble)
 uniform float uBrightnessStrength;          // Brightness (audio-reactive to treble)
 uniform float uRaymarchStepsStrength;       // Raymarch steps (audio-reactive to volume, inverted)
@@ -62,9 +55,8 @@ void main() {
     vec3 FC = gl_FragCoord.xyz;
     vec2 r = uResolution;
     
-    // Calculate animation speed with audio reactivity
-    // uAnimationSpeedStrength is already audio-reactive (modulated by bass)
-    float baseSpeed = uEnableAnimationSpeed > 0.5 ? uAnimationSpeedStrength : 0.3;
+    // Base animation speed (no audio reactivity)
+    float baseSpeed = 0.3;
     
     // Calculate BPM-adjusted speed for main animation
     float tempoSpeed = calculateTempoSpeed(uBPM);
@@ -73,9 +65,8 @@ void main() {
     // Calculate time with BPM adjustment (for main animation)
     float t = uTime * adjustedBaseSpeed;
     
-    // Calculate vector field speed independently with audio reactivity
-    // uVectorFieldSpeedStrength is already audio-reactive (modulated by treble)
-    float vectorFieldSpeed = uEnableVectorFieldSpeed > 0.5 ? uVectorFieldSpeedStrength : 0.3;
+    // Vector field speed (no audio reactivity)
+    float vectorFieldSpeed = 0.3;
     
     // Calculate BPM-adjusted speed for vector field (independent from main animation)
     float vectorFieldTempoSpeed = calculateTempoSpeed(uBPM);
@@ -113,10 +104,8 @@ void main() {
     // Distortion amplitude with audio reactivity
     float amplitude = uEnableVectorFieldAmplitude > 0.5 ? uVectorFieldAmplitude : 1.0;
     
-    // Vector field complexity with audio reactivity (inverted - quieter = more complex)
-    // uVectorFieldComplexityStrength is always used (static when disabled, audio-reactive when enabled)
-    // When audio-reactive: high beats = low complexity, low beats = high complexity
-    float complexity = uVectorFieldComplexityStrength;
+    // Vector field complexity (static, no audio reactivity)
+    float complexity = 6.0;  // Default complexity value
     complexity = clamp(complexity, 1.0, 15.0);  // Reduced max from 20.0 to 15.0 for mobile performance
     
     // Harmonic amplitude with audio reactivity
@@ -176,7 +165,7 @@ void main() {
         float threshold6, threshold7, threshold8, threshold9, threshold10;
         calculateAllFrequencyThresholds(
             0.0,  // No bayer dithering
-            uEnableColorFrequency > 0.5,  // Frequency modulation if enabled
+            false,  // Frequency modulation disabled
             threshold1, threshold2, threshold3, threshold4, threshold5,
             threshold6, threshold7, threshold8, threshold9, threshold10
         );
