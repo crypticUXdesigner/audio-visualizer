@@ -29,7 +29,12 @@ interface PerformanceMetrics {
 }
 
 export class PerformanceMonitor {
-    frameTimes: number[];
+    // Circular buffer for frame times (replaces Array to avoid O(n) shift operations)
+    private frameTimesBuffer: Float32Array;
+    private frameTimesIndex: number = 0;
+    private frameTimesCount: number = 0; // Number of valid entries in buffer
+    private frameTimesSum: number = 0; // Running sum for O(1) average calculation
+    
     enabled: boolean;
     qualityLevel: number;
     targetFPS: number;
@@ -51,9 +56,18 @@ export class PerformanceMonitor {
     private readonly fpsDowngradeThreshold: number = 0.85;
     
     constructor(config: PerformanceMonitorConfig = {}) {
-        this.frameTimes = [];
+        this.frameHistorySize = 30; // Track last 30 frames (reduced from 60 for faster adjustments)
+        this.frameTimesBuffer = new Float32Array(this.frameHistorySize);
+        this.frameTimesIndex = 0;
+        this.frameTimesCount = 0;
+        this.frameTimesSum = 0;
+        
         this.enabled = config.enabled ?? true;
-        this.qualityLevel = config.initialQuality ?? 1.0;
+        
+        // Detect mobile and set lower initial quality for better stability
+        const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+        const defaultInitialQuality = isMobile ? 0.6 : 1.0; // Start at 60% on mobile, 100% on desktop
+        this.qualityLevel = config.initialQuality ?? defaultInitialQuality;
         this.minTargetFPS = config.minTargetFPS ?? 30;
         this.maxTargetFPS = config.maxTargetFPS ?? 60;
         this.enableAdaptiveFPS = config.enableAdaptiveFPS ?? true;
@@ -64,7 +78,6 @@ export class PerformanceMonitor {
         this.maxDPR = config.maxDPR ?? 2.0;
         
         this.lastFrameTime = 0;
-        this.frameHistorySize = 30; // Track last 30 frames (reduced from 60 for faster adjustments)
         this.earlyCheckFrameCount = 10; // Early quality check after 10 frames for faster ramp-up
     }
     
@@ -85,29 +98,38 @@ export class PerformanceMonitor {
     recordFrame(frameTime: number, onQualityChange: ((newQuality: number) => void) | null = null): PerformanceMetrics | null {
         if (!this.enabled) return null;
         
-        this.frameTimes.push(frameTime);
-        
-        // Keep only last N frames
-        if (this.frameTimes.length > this.frameHistorySize) {
-            this.frameTimes.shift();
+        // Circular buffer: remove old value from sum if buffer is full
+        if (this.frameTimesCount >= this.frameHistorySize) {
+            const oldValue = this.frameTimesBuffer[this.frameTimesIndex];
+            this.frameTimesSum -= oldValue;
+        } else {
+            this.frameTimesCount++;
         }
+        
+        // Add new value to circular buffer
+        this.frameTimesBuffer[this.frameTimesIndex] = frameTime;
+        this.frameTimesSum += frameTime;
+        
+        // Advance index (circular)
+        this.frameTimesIndex = (this.frameTimesIndex + 1) % this.frameHistorySize;
+        
+        // Calculate average using pre-calculated sum (O(1) instead of O(n))
+        const avgFrameTime = this.frameTimesSum / this.frameTimesCount;
+        const currentFPS = 1000 / avgFrameTime;
         
         // Early quality check for faster initial ramp-up (after 10 frames, then every 5 frames)
         // Check more frequently during early frames for faster ramp-up
-        if (this.frameTimes.length >= this.earlyCheckFrameCount && 
-            this.frameTimes.length < this.frameHistorySize && 
+        if (this.frameTimesCount >= this.earlyCheckFrameCount && 
+            this.frameTimesCount < this.frameHistorySize && 
             this.qualityLevel < 1.0 &&
-            this.frameTimes.length % 5 === 0) { // Check every 5 frames after initial check
-            const avgFrameTime = this.frameTimes.reduce((a, b) => a + b, 0) / this.frameTimes.length;
-            const currentFPS = 1000 / avgFrameTime;
-            
+            this.frameTimesCount % 5 === 0) { // Check every 5 frames after initial check
             // More aggressive threshold: if performance is at or above target, boost quality
             // For beefy machines, this should trigger immediately
             if (currentFPS >= this.targetFPS) {
                 const previousQuality = this.qualityLevel;
                 // Jump directly to full quality if performance is good
                 this.qualityLevel = 1.0;
-                ShaderLogger.info(`Performance: Early quality boost to 100% (FPS: ${currentFPS.toFixed(1)}, frames: ${this.frameTimes.length})`);
+                ShaderLogger.info(`Performance: Early quality boost to 100% (FPS: ${currentFPS.toFixed(1)}, frames: ${this.frameTimesCount})`);
                 
                 // Notify if quality changed
                 if (onQualityChange && previousQuality !== this.qualityLevel) {
@@ -117,10 +139,7 @@ export class PerformanceMonitor {
         }
         
         // Full performance check every N frames (after collecting enough data)
-        if (this.frameTimes.length === this.frameHistorySize) {
-            const avgFrameTime = this.frameTimes.reduce((a, b) => a + b, 0) / this.frameHistorySize;
-            const currentFPS = 1000 / avgFrameTime;
-            
+        if (this.frameTimesCount === this.frameHistorySize) {
             // Send metrics to Sentry
             this.sendMetrics(currentFPS, avgFrameTime);
             
@@ -141,9 +160,7 @@ export class PerformanceMonitor {
         }
         
         return {
-            avgFPS: this.frameTimes.length > 0 
-                ? 1000 / (this.frameTimes.reduce((a, b) => a + b, 0) / this.frameTimes.length)
-                : 0,
+            avgFPS: this.frameTimesCount > 0 ? currentFPS : 0,
             qualityLevel: this.qualityLevel
         };
     }
@@ -311,7 +328,10 @@ export class PerformanceMonitor {
      * Reset performance tracking
      */
     reset(): void {
-        this.frameTimes = [];
+        this.frameTimesBuffer.fill(0);
+        this.frameTimesIndex = 0;
+        this.frameTimesCount = 0;
+        this.frameTimesSum = 0;
         this.lastFrameTime = 0;
         this.consecutiveGoodFrames = 0;
         this.consecutiveBadFrames = 0;
