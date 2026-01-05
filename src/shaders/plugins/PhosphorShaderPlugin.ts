@@ -19,6 +19,9 @@ export class PhosphorShaderPlugin extends BaseShaderPlugin {
     private lastScaledRaymarchSteps: number | null = null;
     private lastScaledComplexity: number | null = null;
     
+    // Track last boosted brightness to prevent flickering on mobile
+    private lastBoostedBrightness: number | null = null;
+    
     /**
      * Check if running on mobile device (cached)
      * @returns true if mobile device detected
@@ -166,13 +169,21 @@ export class PhosphorShaderPlugin extends BaseShaderPlugin {
         }
         
         // Apply mobile brightness boost (1.65x multiplier)
+        // Only update when value changes significantly to prevent flickering
         if (isMobile && locations.uBrightnessStrength && uniformManager) {
             const currentBrightness = uniformManager.lastValues['uBrightnessStrength'] as number | undefined;
             
             if (currentBrightness !== undefined) {
                 // Apply 1.65x brightness multiplier on mobile
                 const boostedBrightness = currentBrightness * 1.65;
-                gl.uniform1f(locations.uBrightnessStrength, boostedBrightness);
+                
+                // Only update uniform if value changed significantly (threshold: 0.01)
+                // This prevents flickering from tiny treble frequency changes
+                if (this.lastBoostedBrightness === null || 
+                    Math.abs(boostedBrightness - this.lastBoostedBrightness) > 0.01) {
+                    gl.uniform1f(locations.uBrightnessStrength, boostedBrightness);
+                    this.lastBoostedBrightness = boostedBrightness;
+                }
                 // Don't update lastValues to avoid interfering with audio-reactive system
                 // The audio-reactive system will set it again next frame, and we'll boost it again
             }
