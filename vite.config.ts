@@ -19,7 +19,30 @@ const copyShadersPlugin = (): Plugin => {
         'heightmap-fragment.glsl',
         'refraction-fragment.glsl',
         'strings-fragment.glsl',
-        'test-pattern-fragment.glsl'
+        'test-pattern-fragment.glsl',
+        'phosphor-fragment.glsl',
+        'raymarch-fragment.glsl',
+        'voxels-fragment.glsl',
+        'heavenly-fragment.glsl',
+        'unnamed2-fragment.glsl',
+        'sauron-fragment.glsl',
+        'gltch-fragment.glsl',
+        'blackhole-fragment.glsl',
+        'neutron-fragment.glsl',
+        'turbine-fragment.glsl',
+        'hyperspace2-fragment.glsl',
+        'tensor-fragment.glsl',
+        'fragments-fragment.glsl',
+        'unnamed3-fragment.glsl',
+        'unnamed4-fragment.glsl',
+        'firewall-fragment.glsl',
+        'heavenly2-fragment.glsl',
+        'bits-fragment.glsl',
+        'protostar2-fragment.glsl',
+        'contours-fragment.glsl',
+        'triangle-fractal-fragment.glsl',
+        'digital-vortex-fragment.glsl',
+        'mosaic-fragment.glsl'
       ];
       
       const shadersSourceDir = join('src', 'shaders', 'source');
