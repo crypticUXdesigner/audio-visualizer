@@ -62,7 +62,6 @@ export interface ShaderConfig {
   vertexPath: string;
   canvasId?: string;
   parameters?: Record<string, ParameterConfig>;
-  colorConfig: ColorConfig;
   uniformMapping?: Record<string, (data: ExtendedAudioData | null) => number>;
   // These use unknown to avoid circular dependency with ShaderInstance
   // ShaderInstance.ts defines ShaderConfigWithHooks with proper types
@@ -81,6 +80,7 @@ export interface ParameterConfig extends Record<string, unknown> {
   max?: number;
   step?: number;
   label?: string;
+  audioReactive?: import('./audio-reactivity.js').AudioReactivityConfig;
 }
 
 // Re-export API types
@@ -88,4 +88,6 @@ export type { Track, ListTracksResponse, GetTrackResponse } from './api.js';
 export type { ExtendedAudioData, FrequencyBandData, StereoData, BeatData, RippleData as AudioRippleData } from './audio.js';
 export type { WebGLExtension, UniformType, UniformLocation, TextureInfo, ShaderSource, WebGLRippleData } from './webgl.js';
 export type { ShaderEntry, LoudnessControls, RippleArrays, LastUniformValues, UniformLocations, ParameterValue, ParameterDef, PluginFactoryOptions } from './shader.js';
+export type { AudioSourceType, AudioReactivityConfig, CubicBezierCurve } from './audio-reactivity.js';
+export { BezierPresets } from './audio-reactivity-presets.js';
 

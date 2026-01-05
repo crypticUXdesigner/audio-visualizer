@@ -70,6 +70,48 @@ uniform float uBeatStereoBass;  // Fixed stereo position when bass beat was dete
 uniform float uBeatStereoMid;   // Fixed stereo position when mid beat was detected
 uniform float uBeatStereoTreble; // Fixed stereo position when treble beat was detected
 
+// Missing peaks (already calculated)
+uniform float uPeakVolume;        // Peak volume
+uniform float uPeakMid;           // Peak mid
+uniform float uPeakTreble;        // Peak treble
+
+// Raw frequency bands (unsmoothed)
+uniform float uFreq1Raw;
+uniform float uFreq2Raw;
+uniform float uFreq3Raw;
+uniform float uFreq4Raw;
+uniform float uFreq5Raw;
+uniform float uFreq6Raw;
+uniform float uFreq7Raw;
+uniform float uFreq8Raw;
+uniform float uFreq9Raw;
+uniform float uFreq10Raw;
+
+// Advanced audio metrics
+uniform float uFrequencySpread;  // Texture indicator
+uniform float uBassOnset;         // Sudden change in bass
+uniform float uMidOnset;          // Sudden change in mid
+uniform float uTrebleOnset;       // Sudden change in treble
+
+// Frequency band groupings
+uniform float uLowBass;           // Grouped: freq9 + freq10
+uniform float uMidBass;           // Grouped: freq7 + freq8
+uniform float uLowMid;            // Grouped: freq5 + freq6
+uniform float uHighMid;           // Grouped: freq3 + freq4
+uniform float uPresence;          // Grouped: freq1 + freq2
+
+// Beat timing helpers
+uniform float uBeatPhase;         // Beat phase (0-1, cycles through beat period)
+uniform float uBeatAnticipation; // Beat anticipation (1.0 = approaching beat)
+
+// Energy metrics
+uniform float uEnergy;            // Overall energy
+uniform float uHighEnergy;         // High frequency energy
+uniform float uLowEnergy;         // Low frequency energy
+
+// Playback progress
+uniform float uPlaybackProgress;  // Playback position (0.0-1.0)
+
 // Multiple ripple tracking uniforms
 // WebGL doesn't support array uniforms directly, so we use separate arrays
 #define MAX_RIPPLES 16
@@ -103,4 +145,47 @@ uniform float uThreshold7;  // Threshold for color7
 uniform float uThreshold8;  // Threshold for color8
 uniform float uThreshold9;  // Threshold for color9
 uniform float uThreshold10; // Threshold for color10 (darkest)
+
+// Recording tone curve and color adjustments (cubic bezier control points)
+// Maps luminance (dark to bright) through bezier curves for fine-tuned color adjustments
+uniform float uRecordingToneCurveX1;      // Tone curve (gamma replacement) control point 1 X (0.0-1.0)
+uniform float uRecordingToneCurveY1;      // Tone curve (gamma replacement) control point 1 Y (0.0-1.0)
+uniform float uRecordingToneCurveX2;       // Tone curve (gamma replacement) control point 2 X (0.0-1.0)
+uniform float uRecordingToneCurveY2;       // Tone curve (gamma replacement) control point 2 Y (0.0-1.0)
+uniform float uRecordingBrightnessCurveX1; // Brightness curve control point 1 X (0.0-1.0)
+uniform float uRecordingBrightnessCurveY1; // Brightness curve control point 1 Y (0.0-1.0)
+uniform float uRecordingBrightnessCurveX2; // Brightness curve control point 2 X (0.0-1.0)
+uniform float uRecordingBrightnessCurveY2; // Brightness curve control point 2 Y (0.0-1.0)
+uniform float uRecordingContrastCurveX1;   // Contrast curve control point 1 X (0.0-1.0)
+uniform float uRecordingContrastCurveY1;   // Contrast curve control point 1 Y (0.0-1.0)
+uniform float uRecordingContrastCurveX2;   // Contrast curve control point 2 X (0.0-1.0)
+uniform float uRecordingContrastCurveY2;   // Contrast curve control point 2 Y (0.0-1.0)
+uniform float uRecordingSaturationCurveX1; // Saturation curve control point 1 X (0.0-1.0)
+uniform float uRecordingSaturationCurveY1; // Saturation curve control point 1 Y (0.0-1.0)
+uniform float uRecordingSaturationCurveX2;  // Saturation curve control point 2 X (0.0-1.0)
+uniform float uRecordingSaturationCurveY2; // Saturation curve control point 2 Y (0.0-1.0)
+uniform float uApplyRecordingToneCurve;    // 0.0 = disabled, 1.0 = enabled (replaces gamma correction)
+uniform float uApplyRecordingColorAdjustments; // 0.0 = disabled, 1.0 = enabled
+uniform float uApplyRecordingBrightness;   // 0.0 = disabled, 1.0 = enabled
+uniform float uApplyRecordingContrast;     // 0.0 = disabled, 1.0 = enabled
+uniform float uApplyRecordingSaturation;  // 0.0 = disabled, 1.0 = enabled
+
+// OKLCH-based color adjustments (perceptually uniform)
+// Maps input values (0-1) to output values (0-1) through bezier curves
+uniform float uRecordingOklchLightnessCurveX1; // Lightness curve control point 1 X (0.0-1.0)
+uniform float uRecordingOklchLightnessCurveY1; // Lightness curve control point 1 Y (0.0-1.0)
+uniform float uRecordingOklchLightnessCurveX2; // Lightness curve control point 2 X (0.0-1.0)
+uniform float uRecordingOklchLightnessCurveY2; // Lightness curve control point 2 Y (0.0-1.0)
+uniform float uRecordingOklchChromaCurveX1;    // Chroma curve control point 1 X (0.0-1.0)
+uniform float uRecordingOklchChromaCurveY1;    // Chroma curve control point 1 Y (0.0-1.0)
+uniform float uRecordingOklchChromaCurveX2;    // Chroma curve control point 2 X (0.0-1.0)
+uniform float uRecordingOklchChromaCurveY2;    // Chroma curve control point 2 Y (0.0-1.0)
+uniform float uRecordingOklchHueCurveX1;      // Hue curve control point 1 X (0.0-1.0)
+uniform float uRecordingOklchHueCurveY1;      // Hue curve control point 1 Y (0.0-1.0)
+uniform float uRecordingOklchHueCurveX2;      // Hue curve control point 2 X (0.0-1.0)
+uniform float uRecordingOklchHueCurveY2;      // Hue curve control point 2 Y (0.0-1.0)
+uniform float uApplyRecordingOklchAdjustments; // 0.0 = disabled, 1.0 = enabled
+uniform float uApplyRecordingOklchLightness;   // 0.0 = disabled, 1.0 = enabled
+uniform float uApplyRecordingOklchChroma;      // 0.0 = disabled, 1.0 = enabled
+uniform float uApplyRecordingOklchHue;         // 0.0 = disabled, 1.0 = enabled
 

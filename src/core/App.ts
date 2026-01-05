@@ -9,6 +9,7 @@ import { colorPresets } from '../config/color-presets.js';
 import { AudioControls } from '../ui/PlaybackControls.js';
 import { ColorPresetSwitcher } from '../ui/ColorControls.js';
 import { ShaderSwitcher } from '../ui/ShaderControls.js';
+import { RecordingControls } from '../ui/RecordingControls.js';
 import { initializeApp } from './AppInitializer.js';
 import { UI_CONFIG } from '../config/constants.js';
 import { TrackLoadingService } from './services/TrackLoadingService.js';
@@ -24,6 +25,7 @@ export class VisualPlayer {
     audioControls: AudioControls | null = null;
     colorPresetSwitcher: ColorPresetSwitcher | null = null;
     shaderSwitcher: ShaderSwitcher | null = null;
+    recordingControls: RecordingControls | null = null;
     
     constructor() {
         this.audioAnalyzer = null;
@@ -34,6 +36,7 @@ export class VisualPlayer {
         this.audioControls = null;
         this.colorPresetSwitcher = null;
         this.shaderSwitcher = null;
+        this.recordingControls = null;
     }
     
     /**
@@ -245,7 +248,7 @@ export class VisualPlayer {
         // This happens asynchronously so it doesn't block initialization
         const trackLoadingService = new TrackLoadingService(this.audioControls);
         setTimeout(async () => {
-            await trackLoadingService.loadAllTracks(() => this.hideLoader());
+            await trackLoadingService.loadAllTracks(() => this.hideLoader(), this.audioControls);
         }, UI_CONFIG.TRACK_LOAD_DELAY);
         
         // Initialize color preset switcher
@@ -270,6 +273,10 @@ export class VisualPlayer {
             },
             this.audioControls // Pass audioControls for menu open/close behavior
         );
+        
+        // Initialize recording controls
+        this.recordingControls = new RecordingControls(this.audioControls);
+        this.recordingControls.setApp(this);
         
         // Shader parameter panel removed - controls are now hardcoded
     }

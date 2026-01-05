@@ -96,7 +96,22 @@ export class AudioDataAggregator {
             audioContext: analyzer.audioContext,
             // AudioData required properties
             frequencyBands: frequencyBands,
-            stereoBalance: stereoBalance
+            stereoBalance: stereoBalance,
+            // Advanced metrics
+            frequencySpread: analyzer.frequencySpread,
+            bassOnset: analyzer.bassOnset,
+            midOnset: analyzer.midOnset,
+            trebleOnset: analyzer.trebleOnset,
+            lowBass: analyzer.lowBass,
+            midBass: analyzer.midBass,
+            lowMid: analyzer.lowMid,
+            highMid: analyzer.highMid,
+            presence: analyzer.presence,
+            beatPhase: analyzer.beatPhase,
+            beatAnticipation: analyzer.beatAnticipation,
+            energy: analyzer.energy,
+            highEnergy: analyzer.highEnergy,
+            lowEnergy: analyzer.lowEnergy
         };
     }
 }

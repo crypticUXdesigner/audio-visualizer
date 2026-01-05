@@ -112,6 +112,27 @@ export class AudioAnalyzer {
     lastBeatTimeMid: number = 0;
     lastBeatTimeTreble: number = 0;
     
+    // Advanced audio metrics
+    frequencySpread: number = 0;
+    bassOnset: number = 0;
+    midOnset: number = 0;
+    trebleOnset: number = 0;
+    lowBass: number = 0;
+    midBass: number = 0;
+    lowMid: number = 0;
+    highMid: number = 0;
+    presence: number = 0;
+    beatPhase: number = 0;
+    beatAnticipation: number = 0;
+    energy: number = 0;
+    highEnergy: number = 0;
+    lowEnergy: number = 0;
+    
+    // Previous values for onset detection
+    previousBass: number = 0;
+    previousMid: number = 0;
+    previousTreble: number = 0;
+    
     // Event listener references for cleanup
     _onLoadedMetadata: ((this: HTMLAudioElement, ev: Event) => void) | null = null;
     _onError: ((this: HTMLAudioElement, ev: Event | ErrorEvent) => void) | null = null;
@@ -207,6 +228,25 @@ export class AudioAnalyzer {
         this.lastBeatTimeBass = 0;
         this.lastBeatTimeMid = 0;
         this.lastBeatTimeTreble = 0;
+        
+        // Advanced audio metrics
+        this.frequencySpread = 0;
+        this.bassOnset = 0;
+        this.midOnset = 0;
+        this.trebleOnset = 0;
+        this.lowBass = 0;
+        this.midBass = 0;
+        this.lowMid = 0;
+        this.highMid = 0;
+        this.presence = 0;
+        this.beatPhase = 0;
+        this.beatAnticipation = 0;
+        this.energy = 0;
+        this.highEnergy = 0;
+        this.lowEnergy = 0;
+        this.previousBass = 0;
+        this.previousMid = 0;
+        this.previousTreble = 0;
     }
     
     init(): void {
@@ -420,17 +460,35 @@ export class AudioAnalyzer {
         }
     }
     
-    update(): void {
+    /**
+     * Update audio analysis data
+     * @param deltaTime - Optional deltaTime in seconds. If provided, uses this instead of calculating from real-world time.
+     *                    This is critical for recording when seeking through audio, where audio time jumps but real-world time doesn't.
+     *                    If not provided, calculates deltaTime from performance.now() (normal playback mode).
+     */
+    update(deltaTime?: number): void {
         if (!this.analyser || !this.audioContext || this.audioContext.state === 'closed') {
             return;
         }
         
         // Calculate frame time (deltaTime) for time-based smoothing
-        const currentTime = performance.now();
-        const deltaTime = this.lastUpdateTime !== null 
-            ? (currentTime - this.lastUpdateTime) / 1000.0  // Convert ms to seconds
-            : 0.016;  // Default to ~60fps on first frame
-        this.lastUpdateTime = currentTime;
+        // If deltaTime is provided (e.g., during recording with seeking), use it directly
+        // Otherwise, calculate from real-world time (normal playback mode)
+        let frameDeltaTime: number;
+        if (deltaTime !== undefined) {
+            // Use provided deltaTime (audio-time-based during recording)
+            frameDeltaTime = deltaTime;
+            // Still update lastUpdateTime for consistency, but it won't affect smoothing
+            const currentTime = performance.now();
+            this.lastUpdateTime = currentTime;
+        } else {
+            // Normal mode: calculate from real-world time
+            const currentTime = performance.now();
+            frameDeltaTime = this.lastUpdateTime !== null 
+                ? (currentTime - this.lastUpdateTime) / 1000.0  // Convert ms to seconds
+                : 0.016;  // Default to ~60fps on first frame
+            this.lastUpdateTime = currentTime;
+        }
         
         // Get fresh data
         if (this.analyser && this.frequencyData) {
@@ -478,7 +536,7 @@ export class AudioAnalyzer {
         if (this.timeData) {
             this.volumeAnalyzer.calculateVolume(this.timeData);
         }
-        this.volumeAnalyzer.smoothVolume(deltaTime, this.estimatedBPM);
+        this.volumeAnalyzer.smoothVolume(frameDeltaTime, this.estimatedBPM);
         
         // Expose volume properties for getData() API
         this.volume = this.volumeAnalyzer.volume;
@@ -488,7 +546,7 @@ export class AudioAnalyzer {
         this.smoothingProcessor.setBPM(this.estimatedBPM);
         
         // Smooth main frequency bands
-        const smoothedMain = this.smoothingProcessor.smoothMainBands(this.bass, this.mid, this.treble, deltaTime);
+        const smoothedMain = this.smoothingProcessor.smoothMainBands(this.bass, this.mid, this.treble, frameDeltaTime);
         this.smoothedBass = smoothedMain.smoothedBass;
         this.smoothedMid = smoothedMain.smoothedMid;
         this.smoothedTreble = smoothedMain.smoothedTreble;
@@ -497,7 +555,7 @@ export class AudioAnalyzer {
         const smoothedFreq = this.smoothingProcessor.smoothFrequencyBands({
             freq1: this.freq1, freq2: this.freq2, freq3: this.freq3, freq4: this.freq4, freq5: this.freq5,
             freq6: this.freq6, freq7: this.freq7, freq8: this.freq8, freq9: this.freq9, freq10: this.freq10
-        }, deltaTime);
+        }, frameDeltaTime);
         this.smoothedFreq1 = smoothedFreq.smoothedFreq1;
         this.smoothedFreq2 = smoothedFreq.smoothedFreq2;
         this.smoothedFreq3 = smoothedFreq.smoothedFreq3;
@@ -539,6 +597,61 @@ export class AudioAnalyzer {
         this.lastBeatTimeBass = beatState.lastBeatTimeBass;
         this.lastBeatTimeMid = beatState.lastBeatTimeMid;
         this.lastBeatTimeTreble = beatState.lastBeatTimeTreble;
+        
+        // Calculate advanced metrics
+        this.calculateAdvancedMetrics();
+    }
+    
+    /**
+     * Calculate advanced audio metrics (frequency spread, onsets, groupings, beat timing)
+     */
+    private calculateAdvancedMetrics(): void {
+        // Frequency spread (texture indicator)
+        const freqs = [
+            this.freq1, this.freq2, this.freq3, this.freq4, this.freq5,
+            this.freq6, this.freq7, this.freq8, this.freq9, this.freq10
+        ];
+        const mean = freqs.reduce((a, b) => a + b, 0) / 10;
+        const variance = freqs.reduce((sum, f) => sum + Math.pow(f - mean, 2), 0) / 10;
+        this.frequencySpread = Math.sqrt(variance);
+        
+        // Onset detection (sudden changes)
+        const bassChange = Math.max(0, this.bass - this.previousBass);
+        const midChange = Math.max(0, this.mid - this.previousMid);
+        const trebleChange = Math.max(0, this.treble - this.previousTreble);
+        
+        // Normalize onset values (0-1 range)
+        this.bassOnset = Math.min(1.0, bassChange * 2.0);  // Scale for sensitivity
+        this.midOnset = Math.min(1.0, midChange * 2.0);
+        this.trebleOnset = Math.min(1.0, trebleChange * 2.0);
+        
+        // Store current values for next frame
+        this.previousBass = this.bass;
+        this.previousMid = this.mid;
+        this.previousTreble = this.treble;
+        
+        // Frequency band groupings
+        this.lowBass = (this.freq9 + this.freq10) / 2.0;
+        this.midBass = (this.freq7 + this.freq8) / 2.0;
+        this.lowMid = (this.freq5 + this.freq6) / 2.0;
+        this.highMid = (this.freq3 + this.freq4) / 2.0;
+        this.presence = (this.freq1 + this.freq2) / 2.0;
+        
+        // Energy metrics
+        this.energy = (this.bass + this.mid + this.treble) / 3.0;
+        this.highEnergy = (this.treble + (this.freq1 + this.freq2 + this.freq3) / 3.0) / 2.0;
+        this.lowEnergy = (this.bass + (this.freq8 + this.freq9 + this.freq10) / 3.0) / 2.0;
+        
+        // Beat timing helpers
+        if (this.estimatedBPM > 0) {
+            const beatPeriod = 60.0 / this.estimatedBPM;
+            const phase = (this.beatTime % beatPeriod) / beatPeriod;
+            this.beatPhase = phase;
+            this.beatAnticipation = 1.0 - phase;  // Invert so 1.0 = approaching beat
+        } else {
+            this.beatPhase = 0;
+            this.beatAnticipation = 0;
+        }
     }
     
     /**

@@ -5,6 +5,7 @@ precision highp float;
 #include "common/noise.glsl"
 #include "common/audio.glsl"
 #include "common/dither.glsl"
+#include "common/oklch.glsl"
 
 // Frequency data texture
 // uFrequencyTexture: LUMINANCE = left channel, ALPHA = right channel
@@ -130,6 +131,197 @@ uniform float uSmoothedSphereHueShift; // Smoothed hue shift (from JS with attac
 #include "source/arc-rendering.glsl"
 #include "source/arc-distortion.glsl"
 #include "source/arc-borders.glsl"
+#include "strings/math-utils.glsl"  // For cubicBezierEase function
+
+// Recording tone curve (replaces gamma correction)
+// Maps input luminance through bezier curve to output luminance
+// This provides full control over the tone curve (gamma-like adjustment)
+vec3 applyRecordingToneCurve(vec3 color) {
+    // Calculate luminance (brightness) using standard weights
+    float inputLuminance = dot(color, vec3(0.299, 0.587, 0.114));
+    
+    // Map input luminance through bezier tone curve
+    float outputLuminance = cubicBezierEase(
+        inputLuminance,
+        uRecordingToneCurveX1,
+        uRecordingToneCurveY1,
+        uRecordingToneCurveX2,
+        uRecordingToneCurveY2
+    );
+    
+    // Scale each color channel proportionally to maintain hue and saturation
+    // Formula: output = input * (outputLuminance / inputLuminance)
+    // Handle division by zero
+    if (inputLuminance > 0.001) {
+        float scale = outputLuminance / inputLuminance;
+        return color * scale;
+    } else {
+        // For very dark colors, just scale by output luminance
+        return color * outputLuminance;
+    }
+}
+
+// Recording color adjustments using cubic bezier curves
+// Works like Photoshop curves: maps input values (0-1) to output values (0-1) through bezier curves
+// Each adjustment can be individually enabled/disabled via uniforms
+vec3 applyRecordingColorAdjustments(vec3 color) {
+    // Calculate luminance (brightness) using standard weights
+    float luminance = dot(color, vec3(0.299, 0.587, 0.114));
+    
+    // Apply brightness only if enabled
+    // Photoshop-style curve: input brightness (0-1) → output brightness (0-1)
+    if (uApplyRecordingBrightness > 0.5) {
+        // Map input luminance through bezier curve to get output luminance
+        float inputBrightness = luminance;
+        float outputBrightness = cubicBezierEase(
+            inputBrightness,
+            uRecordingBrightnessCurveX1,
+            uRecordingBrightnessCurveY1,
+            uRecordingBrightnessCurveX2,
+            uRecordingBrightnessCurveY2
+        );
+        
+        // Remap color to new brightness while preserving hue and saturation
+        // Scale each channel proportionally: output = input * (outputBrightness / inputBrightness)
+        if (inputBrightness > 0.001) {
+            float scale = outputBrightness / inputBrightness;
+            color *= scale;
+        } else {
+            // For very dark colors, scale by output brightness directly
+            color *= outputBrightness;
+        }
+        
+        // Recalculate luminance after brightness adjustment
+        luminance = dot(color, vec3(0.299, 0.587, 0.114));
+    }
+    
+    // Apply contrast only if enabled
+    // Photoshop-style curve: input luminance (0-1) → output luminance (0-1)
+    // Contrast affects the relationship between light and dark areas
+    if (uApplyRecordingContrast > 0.5) {
+        // Map input luminance through bezier curve to get output luminance
+        float inputLuminance = luminance;
+        float outputLuminance = cubicBezierEase(
+            inputLuminance,
+            uRecordingContrastCurveX1,
+            uRecordingContrastCurveY1,
+            uRecordingContrastCurveX2,
+            uRecordingContrastCurveY2
+        );
+        
+        // Remap color to new luminance while preserving hue and saturation
+        if (inputLuminance > 0.001) {
+            float scale = outputLuminance / inputLuminance;
+            color *= scale;
+        } else {
+            color *= outputLuminance;
+        }
+        
+        // Recalculate luminance after contrast adjustment
+        luminance = dot(color, vec3(0.299, 0.587, 0.114));
+    }
+    
+    // Apply saturation only if enabled
+    // Photoshop-style curve: input luminance (0-1) → output saturation factor (0-1)
+    // The curve allows adjusting saturation differently for dark vs bright areas
+    if (uApplyRecordingSaturation > 0.5) {
+        // Calculate current saturation (distance from gray)
+        float gray = dot(color, vec3(0.299, 0.587, 0.114));
+        vec3 colorDiff = color - vec3(gray);
+        float currentSaturation = length(colorDiff);
+        
+        // Map input luminance through bezier curve to get saturation factor
+        // Curve input: luminance (0-1), Curve output: saturation factor (0-1)
+        // 0.0 = grayscale, 1.0 = full saturation, >1.0 = oversaturated
+        float saturationFactor = cubicBezierEase(
+            luminance, // Use luminance as curve input (adjust saturation based on brightness)
+            uRecordingSaturationCurveX1,
+            uRecordingSaturationCurveY1,
+            uRecordingSaturationCurveX2,
+            uRecordingSaturationCurveY2
+        );
+        
+        // Apply saturation adjustment
+        // saturationFactor: 0 = grayscale, 1 = original saturation, >1 = increased saturation
+        if (currentSaturation > 0.001) {
+            // Scale saturation by the factor
+            color = vec3(gray) + colorDiff * saturationFactor;
+        } else {
+            // If no saturation, blend toward gray based on saturationFactor
+            // saturationFactor = 1.0 means keep as-is, 0.0 means full gray
+            color = mix(vec3(gray), color, saturationFactor);
+        }
+        color = clamp(color, 0.0, 1.0);
+    }
+    
+    return color;
+}
+
+// OKLCH-based color adjustments using cubic bezier curves
+// Perceptually uniform adjustments: L, C, H are adjusted independently
+// Works like Photoshop curves: maps input values (0-1) to output values (0-1)
+vec3 applyRecordingOklchAdjustments(vec3 color) {
+    // Convert RGB to OKLCH
+    vec3 oklch = rgbToOklch(color);
+    float L = oklch.x;  // Lightness [0, 1]
+    float C = oklch.y;  // Chroma [0, ~0.4]
+    float H = oklch.z;  // Hue [0, 360)
+    
+    // Apply lightness curve if enabled
+    if (uApplyRecordingOklchLightness > 0.5) {
+        // Map input lightness (0-1) through bezier curve to output lightness (0-1)
+        float inputL = L;
+        float outputL = cubicBezierEase(
+            inputL,
+            uRecordingOklchLightnessCurveX1,
+            uRecordingOklchLightnessCurveY1,
+            uRecordingOklchLightnessCurveX2,
+            uRecordingOklchLightnessCurveY2
+        );
+        L = outputL;
+    }
+    
+    // Apply chroma curve if enabled
+    if (uApplyRecordingOklchChroma > 0.5) {
+        // Normalize chroma to 0-1 for curve (max chroma is ~0.4)
+        float maxChroma = 0.4;
+        float normalizedC = C / maxChroma;
+        
+        // Map input chroma (0-1 normalized) through bezier curve
+        float outputNormalizedC = cubicBezierEase(
+            normalizedC,
+            uRecordingOklchChromaCurveX1,
+            uRecordingOklchChromaCurveY1,
+            uRecordingOklchChromaCurveX2,
+            uRecordingOklchChromaCurveY2
+        );
+        
+        // Denormalize back to actual chroma range
+        C = outputNormalizedC * maxChroma;
+    }
+    
+    // Apply hue curve if enabled
+    if (uApplyRecordingOklchHue > 0.5) {
+        // Normalize hue to 0-1 for curve (hue is 0-360)
+        float normalizedH = H / 360.0;
+        
+        // Map input hue (0-1 normalized) through bezier curve
+        float outputNormalizedH = cubicBezierEase(
+            normalizedH,
+            uRecordingOklchHueCurveX1,
+            uRecordingOklchHueCurveY1,
+            uRecordingOklchHueCurveX2,
+            uRecordingOklchHueCurveY2
+        );
+        
+        // Denormalize back to hue range (0-360) and ensure wrapping
+        H = mod(outputNormalizedH * 360.0, 360.0);
+    }
+    
+    // Convert OKLCH back to RGB
+    vec3 adjustedOklch = vec3(L, C, H);
+    return oklchToRgb(adjustedOklch);
+}
 
 void main() {
     // ========================================================================
@@ -218,6 +410,20 @@ void main() {
         viewportScale
     );
     float finalAlpha = 1.0;
+    
+    // CRITICAL: Reference recording adjustment uniforms to prevent optimization
+    // This ensures uniforms are always "active" even when disabled
+    // We add a zero-offset to finalColor (no visual effect) but keeps uniforms loaded
+    finalColor += vec3(
+        (uApplyRecordingOklchAdjustments + 
+         uApplyRecordingOklchLightness + 
+         uRecordingOklchLightnessCurveX1 + 
+         uRecordingOklchLightnessCurveY1 +
+         uRecordingOklchLightnessCurveX2 + 
+         uRecordingOklchLightnessCurveY2 +
+         uApplyRecordingToneCurve +
+         uApplyRecordingColorAdjustments) * 0.0
+    );
     
     // ========================================================================
     // Center Sphere Rendering
@@ -411,6 +617,33 @@ void main() {
         
         // Mix between original and contrast-adjusted based on mask
         finalColor = mix(finalColor, contrastColor, contrastMask);
+    }
+    
+    // ========================================================================
+    // Recording Tone Curve (for recording only)
+    // ========================================================================
+    // Apply bezier curve-based tone mapping (replaces gamma correction)
+    // This provides full control over the tone curve for matching browser display
+    if (uApplyRecordingToneCurve > 0.5) {
+        finalColor = applyRecordingToneCurve(finalColor);
+    }
+    
+    // ========================================================================
+    // Recording Color Adjustments (for recording only)
+    // ========================================================================
+    // Apply bezier curve-based brightness, contrast, and saturation adjustments
+    // This allows fine-tuned color correction for recordings
+    if (uApplyRecordingColorAdjustments > 0.5) {
+        finalColor = applyRecordingColorAdjustments(finalColor);
+    }
+    
+    // ========================================================================
+    // Recording OKLCH Adjustments (for recording only)
+    // ========================================================================
+    // Apply perceptually uniform color adjustments using OKLCH color space
+    // Lightness, chroma, and hue are adjusted independently through bezier curves
+    if (uApplyRecordingOklchAdjustments > 0.5) {
+        finalColor = applyRecordingOklchAdjustments(finalColor);
     }
     
     // ========================================================================

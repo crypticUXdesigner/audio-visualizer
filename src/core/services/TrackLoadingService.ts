@@ -28,9 +28,10 @@ export class TrackLoadingService {
    * and registry tracks, then sorts them alphabetically.
    * 
    * @param {Function} hideLoader - Callback to hide loading spinner
+   * @param {AudioControls} audioControls - Optional audio controls (if not provided, uses this.audioControls)
    * @returns {Promise<void>}
    */
-  async loadAllTracks(hideLoader?: () => void): Promise<void> {
+  async loadAllTracks(hideLoader?: () => void, audioControls?: AudioControls | null): Promise<void> {
     try {
       // Load track registry data from JSON files first
       const { ensureTrackRegistryLoaded } = await import('../../config/trackRegistry.js');
@@ -53,9 +54,13 @@ export class TrackLoadingService {
       
       // Sort all tracks alphabetically after loading
       // This will also auto-select and play a random track
-      if (this.audioControls) {
-        this.audioControls.sortTrackListAlphabetically();
+      const controls = audioControls || this.audioControls;
+      if (controls) {
+        controls.sortTrackListAlphabetically();
       }
+      
+      // Handle URL parameters after tracks are loaded
+      await this.handleURLTrackParams(controls);
       
       // Hide loader after API calls complete
       if (hideLoader) {
@@ -67,6 +72,97 @@ export class TrackLoadingService {
       if (hideLoader) {
         hideLoader();
       }
+    }
+  }
+  
+  /**
+   * Handle URL parameters for track and time after tracks are loaded
+   * @param {AudioControls} audioControls - Audio controls instance
+   * @returns {Promise<void>}
+   */
+  async handleURLTrackParams(audioControls: AudioControls | null): Promise<void> {
+    if (!audioControls) return;
+    
+    try {
+      const { parseTrackURLParams } = await import('../../utils/urlParams.js');
+      const { track, time } = parseTrackURLParams();
+      
+      if (!track) return;
+      
+      // Wait a bit for DOM to update with track options
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // Find matching track by apiTrackId (preferred) or dataset.track (fallback for local files)
+      const trackOptions = document.querySelectorAll('.track-option');
+      
+      const matchingOption = Array.from(trackOptions).find(
+        option => {
+          const optionElement = option as HTMLElement;
+          const apiTrackId = optionElement.dataset.apiTrackId;
+          const trackUrl = optionElement.dataset.track;
+          
+          // Match by apiTrackId first (for API tracks)
+          if (apiTrackId && apiTrackId === track) {
+            return true;
+          }
+          
+          // Fallback: match by track URL (for local files or legacy support)
+          if (trackUrl) {
+            // Support both exact match and .mp3 extension matching
+            const trackToLoad = track.endsWith('.mp3') ? track : `${track}.mp3`;
+            return trackUrl === trackToLoad || 
+                   trackUrl === track ||
+                   trackUrl.toLowerCase() === trackToLoad.toLowerCase();
+          }
+          
+          return false;
+        }
+      ) as HTMLElement | undefined;
+      
+      if (matchingOption) {
+        // Use the track URL for loading (apiTrackId is just for identification)
+        const filename = matchingOption.dataset.track;
+        if (!filename) return;
+        
+        // Update UI
+        trackOptions.forEach(opt => opt.classList.remove('active'));
+        matchingOption.classList.add('active');
+        
+        const trackDropdownText = document.getElementById('trackDropdownText');
+        if (trackDropdownText) {
+          trackDropdownText.textContent = matchingOption.textContent || '';
+        }
+        audioControls.updateTrackTitle(matchingOption.textContent || '');
+        audioControls.updateTrackCover(matchingOption);
+        
+        // Load track
+        const trackBPM = matchingOption.dataset.trackBpm 
+          ? parseFloat(matchingOption.dataset.trackBpm) 
+          : undefined;
+        
+        await audioControls.loadTrack(filename, { bpm: trackBPM });
+        
+        // Seek to specified time if provided
+        if (time !== undefined && time > 0) {
+          const audioElement = audioControls.audioAnalyzer.audioElement;
+          if (audioElement) {
+            // Wait for metadata to be loaded before seeking
+            if (audioElement.readyState >= 1) {
+              // Metadata already loaded
+              audioElement.currentTime = Math.min(time, audioElement.duration || 0);
+            } else {
+              // Wait for metadata
+              audioElement.addEventListener('loadedmetadata', () => {
+                audioElement.currentTime = Math.min(time, audioElement.duration || 0);
+              }, { once: true });
+            }
+          }
+        }
+      } else {
+        ShaderLogger.warn(`Track "${track}" from URL parameter not found`);
+      }
+    } catch (error) {
+      ShaderLogger.warn('Error handling URL track parameters:', error);
     }
   }
   

@@ -20,22 +20,22 @@ for (let i = 0; i < 10; i++) {
     colorPresets[presetNames[i]] = {
         baseHue: hex,
         darkest: {
-            lightness: 0.09,
+            lightness: 0.15,
             chroma: 0.08,
-            hueOffset: -60
+            hueOffset: -70
         },
         brightest: {
-            lightness: 0.97,
+            lightness: 0.99,
             chroma: 0.20,
-            hueOffset: 60
+            hueOffset: 70
         },
         interpolationCurve: {
-            lightness: [0.7, 0.1, 1.0, 1.0],
+            lightness: [0.4, 0.1, 1.0, 1.0],
             chroma: [0.0, 0.25, 1.0, 0.75],
             hue: [0.0, 0.25, 1.0, 0.75]
         },
         // Threshold distribution curve - controls how feed space is allocated to colors
-        thresholdCurve: [0.4, 0.0, 0.8, 1.0]
+        thresholdCurve: [0.2, 0.0, 0.8, 1.0]
     };
 }
 

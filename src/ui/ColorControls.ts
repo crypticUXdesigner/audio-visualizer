@@ -5,6 +5,7 @@ import { generateColorsFromOklch } from '../core/color/ColorGenerator.js';
 import { rgbToHex, rgbToOklch, hexToRgb, interpolateHue, oklchToRgb } from '../core/color/ColorConverter.js';
 import { safeGetItem, safeSetItem } from '../utils/storage.js';
 import { UI_CONFIG } from '../config/constants.js';
+import { ShaderLogger } from '../shaders/utils/ShaderLogger.js';
 import type { ColorConfig } from '../types/index.js';
 import type { AudioControls } from './PlaybackControls.js';
 import type { ColorService } from '../core/services/ColorService.js';
@@ -107,7 +108,7 @@ export class ColorPresetSwitcher {
                 const preset = this.colorPresets[presetName];
                 if (this.colorService) {
                     this.colorService.applyPreset(preset).catch(err => {
-                        console.error('Error applying preset:', err);
+                        ShaderLogger.error('Error applying preset:', err);
                     });
                 }
                 this.currentPresetName = presetName;
@@ -134,7 +135,7 @@ export class ColorPresetSwitcher {
                             this.updateSlidersFromPreset(savedPreset);
                         }, 100);
                     }).catch(err => {
-                        console.error('Error applying saved preset:', err);
+                        ShaderLogger.error('Error applying saved preset:', err);
                     });
                 } else {
                     // Retry if colorService not ready yet
@@ -345,7 +346,7 @@ export class ColorPresetSwitcher {
         // Apply the preset
         if (this.colorService) {
             this.colorService.applyPreset(randomPreset).catch(err => {
-                console.error('Error applying random preset:', err);
+                ShaderLogger.error('Error applying random preset:', err);
             });
         }
         

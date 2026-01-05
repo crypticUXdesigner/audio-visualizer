@@ -4,6 +4,7 @@
 import { COLOR_KEYS } from './ColorTransitionManager.js';
 import { ShaderConstants } from '../config/ShaderConstants.js';
 import { ShaderLogger } from '../utils/ShaderLogger.js';
+import { AudioReactivityManager } from './AudioReactivityManager.js';
 import type { ExtendedAudioData, ShaderConfig, ParameterValue } from '../../types/index.js';
 import type { ColorMap } from '../../types/index.js';
 
@@ -51,6 +52,7 @@ export class UniformManager {
     gl: WebGLRenderingContext;
     locations: UniformLocations;
     lastValues: LastValues;
+    private audioReactivityManager: AudioReactivityManager;
     
     /**
      * @param gl - WebGL context
@@ -60,6 +62,7 @@ export class UniformManager {
         this.gl = gl;
         this.locations = uniformLocations;
         this.lastValues = {};
+        this.audioReactivityManager = new AudioReactivityManager();
     }
     
     /**
@@ -384,6 +387,170 @@ export class UniformManager {
                     if (valueChanged) {
                         gl.uniform4f(location, value[0], value[1], value[2], value[3]);
                         lastValues[uniformName] = [value[0], value[1], value[2], value[3]];
+                    }
+                }
+            }
+        });
+    }
+    
+    /**
+     * Get the enable parameter name for a strength parameter
+     * @param paramName - Parameter name (e.g., "vectorFieldComplexityStrength")
+     * @returns Enable parameter name (e.g., "enableVectorFieldComplexity") or null if not found
+     */
+    private getEnableParamName(paramName: string): string | null {
+        // Pattern: [effectName]Strength -> enable[EffectName]
+        if (paramName.endsWith('Strength')) {
+            const baseName = paramName.slice(0, -8); // Remove "Strength" suffix
+            // Capitalize first letter and prepend "enable"
+            return `enable${baseName.charAt(0).toUpperCase()}${baseName.slice(1)}`;
+        }
+        return null;
+    }
+    
+    /**
+     * Update parameter uniforms with audio reactivity
+     * @param parameters - Current parameter values
+     * @param config - Shader configuration
+     * @param audioData - Extended audio data
+     * @param deltaTime - Time since last frame (seconds)
+     */
+    updateAudioReactiveParameters(
+        parameters: Record<string, ParameterValue>,
+        config: ShaderConfig,
+        audioData: ExtendedAudioData | null,
+        deltaTime: number
+    ): void {
+        if (!this.gl || !this.locations || !config.parameters) return;
+        
+        const gl = this.gl;
+        const locations = this.locations;
+        const lastValues = this.lastValues;
+        
+        Object.entries(config.parameters).forEach(([paramName, paramConfig]) => {
+            if (!paramConfig.audioReactive) return;
+            
+            // Check if this parameter has an enable flag
+            // Pattern: [effectName]Strength -> enable[EffectName]
+            // Examples: vectorFieldComplexityStrength -> enableVectorFieldComplexity
+            //           animationSpeedStrength -> enableAnimationSpeed
+            const enableParamName = this.getEnableParamName(paramName);
+            if (enableParamName) {
+                const enableValue = parameters[enableParamName] as number | undefined;
+                const enableConfig = config.parameters?.[enableParamName];
+                const enableDefault = enableConfig?.default ?? 1.0;
+                const isEnabled = (enableValue ?? enableDefault) > 0.5;
+                
+                // Skip audio reactivity if disabled
+                if (!isEnabled) return;
+            }
+            
+            const audioConfig = paramConfig.audioReactive;
+            const mode = audioConfig.mode || 'additive';
+            
+            if (mode === 'interpolation') {
+                // Interpolation mode: Output smoothed audio level (0-1) for shader to interpolate between min/max
+                // For contrast system: paramName is typically "contrastMin" or "contrastMax"
+                // We only process once per min/max pair (when we encounter the Min parameter)
+                
+                // Extract base name (remove "Min" or "Max" suffix)
+                const baseName = paramName.replace(/Min$|Max$/, '');
+                
+                // Only process when we encounter the Min parameter (to avoid duplicate processing)
+                if (paramName.endsWith('Min')) {
+                    // Set the smoothed audio level uniform (used by shader for interpolation)
+                    // Format: uSmoothed{BaseName}AudioLevel (e.g., uSmoothedContrastAudioLevel)
+                    const baseNameCapitalized = baseName.charAt(0).toUpperCase() + baseName.slice(1);
+                    const smoothedUniformName = `uSmoothed${baseNameCapitalized}AudioLevel`;
+                    const smoothedLocation = locations[smoothedUniformName];
+                    
+                    if (smoothedLocation !== null && smoothedLocation !== undefined) {
+                        const smoothedValue = this.audioReactivityManager.getSmoothedValue(
+                            paramName,
+                            audioData,
+                            audioConfig,
+                            deltaTime
+                        );
+                        const lastValue = lastValues[smoothedUniformName];
+                        if (lastValue !== smoothedValue) {
+                            gl.uniform1f(smoothedLocation, smoothedValue);
+                            lastValues[smoothedUniformName] = smoothedValue;
+                        }
+                    }
+                }
+            } else {
+                // Additive mode: Interpolate between startValue and targetValue (new system)
+                // or use legacy baseValue + invert logic (backward compatibility)
+                
+                const smoothedValue = this.audioReactivityManager.getSmoothedValue(
+                    paramName,
+                    audioData,
+                    audioConfig,
+                    deltaTime
+                );
+                
+                let finalValue: number;
+                
+                // NEW SYSTEM: Use startValue/targetValue if provided
+                if (audioConfig.startValue !== undefined || audioConfig.targetValue !== undefined) {
+                    const startValue = audioConfig.startValue ?? paramConfig.default ?? 0;
+                    const targetValue = audioConfig.targetValue ?? paramConfig.default ?? 1;
+                    
+                    // Speed mode: Continuous forward progression with audio acceleration
+                    // Uses accumulation to ensure speed never decreases, only increases or stays constant
+                    if (audioConfig.mode === 'speed') {
+                        // Use accumulated speed that never decreases
+                        finalValue = this.audioReactivityManager.getAccumulatedSpeed(
+                            paramName,
+                            audioData,
+                            audioConfig,
+                            deltaTime,
+                            startValue,
+                            targetValue
+                        );
+                    } else {
+                        // Standard additive mode: Interpolate between startValue and targetValue
+                        // smoothedValue is already 0-1 and has bezier curve applied
+                        finalValue = startValue + (smoothedValue * (targetValue - startValue));
+                    }
+                } else {
+                    // LEGACY SYSTEM: Use baseValue + invert logic for backward compatibility
+                    const baseValue = (parameters[paramName] as number) ?? paramConfig.default;
+                    const min = paramConfig.min ?? 0;
+                    const max = paramConfig.max ?? 1;
+                    const range = max - min;
+                    
+                    if (audioConfig.invert) {
+                        // Inverted: high audio = low value, low audio = high value
+                        // Use baseValue as the maximum (silent = max detail)
+                        // Map smoothedValue (0-1) to range from min to baseValue
+                        // smoothedValue=0 (silent) → baseValue (max detail)
+                        // smoothedValue=1 (loud) → min (min detail, controllable via min parameter)
+                        const detailRange = baseValue - min;
+                        finalValue = baseValue - (smoothedValue * detailRange);
+                    } else {
+                        // Normal: high audio = high value, low audio = low value
+                        // Add modulation to base value
+                        const modulationAmount = smoothedValue * range;
+                        finalValue = baseValue + modulationAmount;
+                    }
+                }
+                
+                // Clamp to parameter bounds
+                const min = paramConfig.min ?? 0;
+                const max = paramConfig.max ?? 1;
+                const clampedValue = Math.max(min, Math.min(max, finalValue));
+                
+                // Update uniform if location exists
+                // Convert parameter name to uniform name (camelCase to uCamelCase)
+                const uniformName = `u${paramName.charAt(0).toUpperCase()}${paramName.slice(1)}`;
+                const location = locations[uniformName];
+                
+                if (location !== null && location !== undefined) {
+                    const lastValue = lastValues[uniformName];
+                    if (lastValue !== clampedValue) {
+                        gl.uniform1f(location, clampedValue);
+                        lastValues[uniformName] = clampedValue;
                     }
                 }
             }

@@ -1,6 +1,15 @@
 // Main Application Entry Point
 // Wires together all modules and initializes the application
 
+// Polyfill Buffer for browser (needed by ts-ebml)
+import { Buffer } from 'buffer';
+if (typeof window !== 'undefined' && !(window as any).Buffer) {
+    (window as any).Buffer = Buffer;
+}
+if (typeof globalThis !== 'undefined' && !(globalThis as any).Buffer) {
+    (globalThis as any).Buffer = Buffer;
+}
+
 // Import styles (Vite will process and bundle these)
 import './styles/app.css';
 

@@ -127,27 +127,6 @@ const refractionConfig: ShaderConfig = {
         }
     },
     
-    // Color configuration (reuse from heightmap)
-    colorConfig: {
-        baseHue: '#18191f',
-        darkest: {
-            lightness: 0.09,
-            chroma: 0.08,
-            hueOffset: -60
-        },
-        brightest: {
-            lightness: 0.97,
-            chroma: 0.2,
-            hueOffset: 60
-        },
-        interpolationCurve: {
-            lightness: [0.3, 0.0, 1.0, 0.7],
-            chroma: [0.0, 0.25, 1.0, 0.75],
-            hue: [0.0, 0.25, 1.0, 0.75]
-        },
-        thresholdCurve: [0.2, 0.2, 1.0, 0.7]
-    },
-    
     // Uniform mapping (same as heightmap - reuse audio data)
     uniformMapping: sharedUniformMapping
 };

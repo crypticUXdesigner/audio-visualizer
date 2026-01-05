@@ -17,7 +17,7 @@ interface SmoothingState extends Record<string, unknown> {
     smoothedHeightLeftBands: Float32Array | null;
     smoothedHeightRightBands: Float32Array | null;
     smoothedNoiseAudioLevel: number;
-    smoothedContrastAudioLevel: number;
+    // Note: smoothedContrastAudioLevel is now handled by UniformManager via audioReactive config
 }
 
 interface FrequencyTextures {
@@ -41,7 +41,7 @@ export class StringsShaderPlugin extends BaseShaderPlugin {
             smoothedHeightLeftBands: null,
             smoothedHeightRightBands: null,
             smoothedNoiseAudioLevel: 0.0,
-            smoothedContrastAudioLevel: 0.0
+            // Note: smoothedContrastAudioLevel is now handled by UniformManager
         };
         
         // Frequency textures
@@ -421,54 +421,8 @@ export class StringsShaderPlugin extends BaseShaderPlugin {
         }
         this.smoothing.smoothedNoiseAudioLevel = Math.max(0, Math.min(1, this.smoothing.smoothedNoiseAudioLevel));
         
-        // Smooth contrast audio level for contrast modulation
-        let targetContrastAudioLevel = 0.0;
-        const contrastAudioSource = (this.shaderInstance.parameters.contrastAudioSource !== undefined 
-            ? this.shaderInstance.parameters.contrastAudioSource : 0) as number;
-        
-        if (contrastAudioSource === 0) {
-            targetContrastAudioLevel = audioData.volume || 0;
-        } else if (contrastAudioSource === 1) {
-            targetContrastAudioLevel = audioData.bass || 0;
-        } else if (contrastAudioSource === 2) {
-            targetContrastAudioLevel = audioData.mid || 0;
-        } else if (contrastAudioSource === 3) {
-            targetContrastAudioLevel = audioData.treble || 0;
-        }
-        targetContrastAudioLevel = Math.max(0, Math.min(1, targetContrastAudioLevel));
-        
-        // Get attack/release from config parameters
-        const contrastAttackNote = (this.shaderInstance.parameters.contrastAudioAttackNote !== undefined
-            ? this.shaderInstance.parameters.contrastAudioAttackNote
-            : TempoSmoothingConfig.contrast.attackNote) as number;
-        const contrastReleaseNote = (this.shaderInstance.parameters.contrastAudioReleaseNote !== undefined
-            ? this.shaderInstance.parameters.contrastAudioReleaseNote
-            : TempoSmoothingConfig.contrast.releaseNote) as number;
-        
-        const contrastAttackTime = getTempoRelativeTimeConstant(
-            contrastAttackNote,
-            bpm,
-            TempoSmoothingConfig.contrast.attackTimeFallback
-        );
-        const contrastReleaseTime = getTempoRelativeTimeConstant(
-            contrastReleaseNote,
-            bpm,
-            TempoSmoothingConfig.contrast.releaseTimeFallback
-        );
-        
-        this.smoothing.smoothedContrastAudioLevel = applyTempoRelativeSmoothing(
-            this.smoothing.smoothedContrastAudioLevel,
-            targetContrastAudioLevel,
-            deltaTime,
-            contrastAttackTime,
-            contrastReleaseTime
-        );
-        
-        // Validate and clamp
-        if (!isFinite(this.smoothing.smoothedContrastAudioLevel)) {
-            this.smoothing.smoothedContrastAudioLevel = 0.0;
-        }
-        this.smoothing.smoothedContrastAudioLevel = Math.max(0, Math.min(1, this.smoothing.smoothedContrastAudioLevel));
+        // Note: Contrast audio smoothing is now handled by UniformManager via audioReactive config
+        // The uSmoothedContrastAudioLevel uniform is set automatically by updateAudioReactiveParameters
     }
     
     /**
@@ -540,9 +494,9 @@ export class StringsShaderPlugin extends BaseShaderPlugin {
             gl.uniform1f(locations.uGlitchColumnCount, Math.max(4, currentColumns * 0.5));
         }
         
-        // Set smoothed noise and contrast audio levels (always update - they change every frame)
+        // Set smoothed noise audio level (always update - it changes every frame)
         helper.updateFloat('uSmoothedNoiseAudioLevel', this.smoothing.smoothedNoiseAudioLevel);
-        helper.updateFloat('uSmoothedContrastAudioLevel', this.smoothing.smoothedContrastAudioLevel);
+        // Note: uSmoothedContrastAudioLevel is now set by UniformManager via audioReactive config
         
         // String parameters
         helper.updateFloat('uMinStringWidth', params.minStringWidth as number | undefined, 1.0);
@@ -593,7 +547,7 @@ export class StringsShaderPlugin extends BaseShaderPlugin {
         helper.updateFloat('uBandWidthMaxMultiplier', params.bandWidthMaxMultiplier as number | undefined, 1.35);
         helper.updateFloat('uContrast', params.contrast as number | undefined, 1.0);
         helper.updateFloat('uContrastAudioReactive', params.contrastAudioReactive as number | undefined, 1.0);
-        helper.updateInt('uContrastAudioSource', params.contrastAudioSource as number | undefined, 1);
+        // Note: uContrastAudioSource is no longer used - contrast audio source is configured via audioReactive config
         helper.updateFloat('uContrastMin', params.contrastMin as number | undefined, 1.0);
         helper.updateFloat('uContrastMax', params.contrastMax as number | undefined, 1.35);
         helper.updateFloat('uGlowIntensity', params.glowIntensity as number | undefined, 5.0);

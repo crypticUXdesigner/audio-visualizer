@@ -5,11 +5,12 @@ import { StringsShaderPlugin } from './StringsShaderPlugin.js';
 import { ArcShaderPlugin } from './ArcShaderPlugin.js';
 import { RefractionShaderPlugin } from './RefractionShaderPlugin.js';
 import { HeightmapShaderPlugin } from './HeightmapShaderPlugin.js';
+import { RaymarchShaderPlugin } from './RaymarchShaderPlugin.js';
+import { PhosphorShaderPlugin } from './PhosphorShaderPlugin.js';
 import { ShaderError, ErrorCodes } from '../utils/ShaderErrors.js';
 import { ShaderLogger } from '../utils/ShaderLogger.js';
-import type { ShaderConfig } from '../../types/index.js';
+import type { ShaderConfig, PluginFactoryOptions } from '../../types/index.js';
 import type { ShaderInstance } from '../ShaderInstance.js';
-import type { PluginFactoryOptions } from '../../types/shader.js';
 
 /**
  * Create a shader plugin for the given shader instance
@@ -57,6 +58,13 @@ export function createShaderPlugin(
             return new RefractionShaderPlugin(shaderInstance, config);
         case 'heightmap':
             return new HeightmapShaderPlugin(shaderInstance, config);
+        case 'raymarch':
+            return new RaymarchShaderPlugin(shaderInstance, config);
+        case 'phosphor':
+            return new PhosphorShaderPlugin(shaderInstance, config);
+        // grayscott shader removed
+            // No plugin needed - uses BaseShaderPlugin (blank shader)
+            return new BaseShaderPlugin(shaderInstance, config);
         default:
             if (throwOnUnknown) {
                 throw new ShaderError(

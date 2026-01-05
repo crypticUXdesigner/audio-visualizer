@@ -19,9 +19,13 @@ export class ShaderSwitcher {
         this.shaderManager = shaderManager;
         this.onShaderChange = onShaderChange; // Optional callback: (shaderName) => void
         this.audioControls = audioControls; // Reference to AudioControls for hideControls/showControls
-        const savedShader = safeGetItem('activeShader', 'arc');
+        let savedShader = safeGetItem('activeShader', 'phosphor');
         // Migrate old shader names to new names
-        this.currentShader = savedShader || 'arc';
+        if (savedShader === 'vivarium-grayscale') {
+            savedShader = 'phosphor';
+            safeSetItem('activeShader', 'phosphor');
+        }
+        this.currentShader = savedShader || 'phosphor';
         this.isMenuOpen = false;
         this.shaderSwitcherMenu = null;
         this.init();
@@ -73,13 +77,24 @@ export class ShaderSwitcher {
     }
     
     /**
+     * Check if debug mode is enabled via URL parameter
+     * @returns {boolean} True if `?debug` is in the URL
+     */
+    private isDebugMode(): boolean {
+        const urlParams = new URLSearchParams(window.location.search);
+        return urlParams.has('debug');
+    }
+    
+    /**
      * Populate the shader buttons container with available shaders
      */
     populateShaderButtons(container: HTMLElement): void {
         const shaderNames = this.shaderManager.getShaderNames();
+        const isDebug = this.isDebugMode();
         
         // Define desired order: final shaders first, then draft shaders
-        const shaderOrder = ['arc', 'heightmap', 'refraction', 'strings'];
+        // raymarch comes before test-pattern
+        const shaderOrder = ['phosphor', 'arc', 'heightmap', 'refraction', 'strings', 'raymarch', 'test-pattern'];
         
         // Sort shaders according to desired order
         const sortedShaderNames = shaderNames.sort((a, b) => {
@@ -92,7 +107,16 @@ export class ShaderSwitcher {
             return indexA - indexB;
         });
         
-        sortedShaderNames.forEach(shaderName => {
+        // Find the index of test-pattern to hide it and everything after it in non-debug mode
+        const testPatternIndex = sortedShaderNames.indexOf('test-pattern');
+        const debugOnlyStartIndex = testPatternIndex >= 0 ? testPatternIndex : sortedShaderNames.length;
+        
+        sortedShaderNames.forEach((shaderName, index) => {
+            // Hide test-pattern and all shaders after it if not in debug mode
+            if (!isDebug && index >= debugOnlyStartIndex) {
+                return; // Skip this shader
+            }
+            
             const shaderEntry = this.shaderManager.shaders.get(shaderName);
             if (!shaderEntry) return;
             

@@ -9,7 +9,7 @@ export const COLOR_CONFIG = {
   UPDATE_THRESHOLD: 0.015,
   
   // Color transition duration in milliseconds
-  TRANSITION_DURATION: 1000,
+  TRANSITION_DURATION: 1600,
   
   // Minimum normalized value for visual continuity in waveform
   MIN_WAVEFORM_VALUE: 0.05,

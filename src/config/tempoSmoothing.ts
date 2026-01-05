@@ -107,6 +107,44 @@ export const TempoSmoothingConfig: Record<string, SmoothingConfig> = {
         releaseNote: 1.0 / 16.0,   // 16th note - moderate release
         attackTimeFallback: 10.0,  // milliseconds fallback
         releaseTimeFallback: 100.0 // milliseconds fallback
+    },
+    
+    // Raymarch shader smoothing configurations
+    raymarchTimeModulation: {
+        attackNote: 1.0 / 64.0,    // 64th note - fast attack
+        releaseNote: 1.0 / 8.0,    // 8th note - moderate release
+        attackTimeFallback: 10.0,  // milliseconds fallback
+        releaseTimeFallback: 100.0 // milliseconds fallback
+    },
+    raymarchFractalIntensity: {
+        attackNote: 1.0 / 128.0,   // 128th note - very fast attack
+        releaseNote: 1.0 / 16.0,   // 16th note - moderate release
+        attackTimeFallback: 5.0,   // milliseconds fallback
+        releaseTimeFallback: 100.0 // milliseconds fallback
+    },
+    raymarchSteps: {
+        attackNote: 1.0 / 32.0,    // 32nd note - fast attack
+        releaseNote: 1.0 / 4.0,     // Quarter note - slow release (smooth detail transitions)
+        attackTimeFallback: 20.0,   // milliseconds fallback
+        releaseTimeFallback: 150.0  // milliseconds fallback
+    },
+    raymarchFractalLayers: {
+        attackNote: 1.0 / 64.0,     // 64th note - fast attack
+        releaseNote: 1.0 / 8.0,     // 8th note - moderate release
+        attackTimeFallback: 10.0,   // milliseconds fallback
+        releaseTimeFallback: 100.0  // milliseconds fallback
+    },
+    raymarchDepthResponse: {
+        attackNote: 1.0 / 128.0,    // 128th note - very fast attack
+        releaseNote: 1.0 / 16.0,    // 16th note - moderate release
+        attackTimeFallback: 5.0,    // milliseconds fallback
+        releaseTimeFallback: 100.0  // milliseconds fallback
+    },
+    raymarchMultiFrequency: {
+        attackNote: 1.0 / 64.0,     // 64th note - fast attack
+        releaseNote: 1.0 / 8.0,      // 8th note - moderate release
+        attackTimeFallback: 10.0,   // milliseconds fallback
+        releaseTimeFallback: 100.0   // milliseconds fallback
     }
 };
 

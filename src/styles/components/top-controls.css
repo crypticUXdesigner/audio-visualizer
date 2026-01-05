@@ -17,6 +17,20 @@
     pointer-events: none;
   }
 
+  /* Hide recording and PNG export buttons by default (debug only) */
+  .top-control-item:has(#recordingBtn),
+  .top-control-item:has(#exportPngBtn) {
+    display: none !important;
+  }
+
+  /* Show recording and PNG export buttons in debug mode */
+  html.debug-mode & {
+    .top-control-item:has(#recordingBtn),
+    .top-control-item:has(#exportPngBtn) {
+      display: block !important;
+    }
+  }
+
   .top-control-item {
     position: relative;
   }

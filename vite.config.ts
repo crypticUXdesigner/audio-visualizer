@@ -1,9 +1,10 @@
 import { defineConfig, loadEnv, type Plugin } from 'vite';
 import { copyFileSync, mkdirSync, existsSync, readdirSync, statSync, writeFileSync, readFileSync } from 'fs';
-import { join } from 'path';
+import { join, resolve } from 'path';
 import type { IncomingMessage, ServerResponse } from 'http';
 import type { Connect } from 'vite';
 import { visualizer } from 'rollup-plugin-visualizer';
+import { Buffer } from 'buffer';
 
 // Plugin to copy shaders directory to dist
 const copyShadersPlugin = (): Plugin => {
@@ -17,7 +18,8 @@ const copyShadersPlugin = (): Plugin => {
         'arc-fragment.glsl',
         'heightmap-fragment.glsl',
         'refraction-fragment.glsl',
-        'strings-fragment.glsl'
+        'strings-fragment.glsl',
+        'test-pattern-fragment.glsl'
       ];
       
       const shadersSourceDir = join('src', 'shaders', 'source');
@@ -126,6 +128,31 @@ export default defineConfig(({ command, mode }) => {
   // Use base path only for production builds (GitHub Pages)
   // For dev server, use root path
   base: command === 'build' ? '/audio-visualizer/' : '/',
+  resolve: {
+    alias: [
+      {
+        find: /^ebml$/,
+        replacement: resolve(process.cwd(), 'src/utils/ebml-shim.ts'),
+      },
+      {
+        find: 'buffer',
+        replacement: 'buffer',
+      },
+    ],
+  },
+  define: {
+    'process.env': {},
+    global: 'globalThis',
+    'process.browser': true,
+  },
+  optimizeDeps: {
+    esbuildOptions: {
+      define: {
+        global: 'globalThis',
+      },
+    },
+    include: ['buffer', 'ts-ebml'],
+  },
   build: {
     outDir: 'dist',
     assetsDir: 'assets',

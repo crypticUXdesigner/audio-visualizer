@@ -31,6 +31,7 @@ export class AudioControls {
     scrubberContainer: HTMLElement | null;
     audioControlsContainer: HTMLElement | null;
     playbackModeBtn: HTMLElement | null;
+    copyLinkBtn: HTMLElement | null;
     uiControlsManager: UIControlsManager;
     titleDisplay: TitleDisplay;
     playbackController: PlaybackController;
@@ -62,6 +63,7 @@ export class AudioControls {
         this.scrubberContainer = document.querySelector('.scrubber-container');
         this.audioControlsContainer = document.querySelector('.audio-controls-container');
         this.playbackModeBtn = document.getElementById('playbackModeBtn');
+        this.copyLinkBtn = document.getElementById('copyLinkBtn');
         
         // isSeeking and seekUpdateInterval are now in PlaybackController
         // Playback mode state is now in PlaybackController
@@ -122,48 +124,9 @@ export class AudioControls {
             return;
         }
         
-        // Check for track parameter in URL
-        const urlParams = new URLSearchParams(window.location.search);
-        const trackParam = urlParams.get('track');
-        
-        let defaultTrackSet = false;
-        
-        // If track parameter is provided, try to load it
-        if (trackParam) {
-            // Try to find matching track (with or without .mp3 extension)
-            const trackToLoad = trackParam.endsWith('.mp3') ? trackParam : `${trackParam}.mp3`;
-            const matchingOption = Array.from(this.trackOptions).find(
-                option => option.dataset.track === trackToLoad || 
-                         option.dataset.track === trackParam ||
-                         (option.dataset.track && option.dataset.track.toLowerCase() === trackToLoad.toLowerCase())
-            );
-            
-            if (matchingOption) {
-                // Load the track from URL parameter
-                const filename = matchingOption.dataset.track;
-                if (!filename) return;
-                matchingOption.classList.add('active');
-                if (this.trackDropdownText) {
-                    this.trackDropdownText.textContent = matchingOption.textContent || '';
-                }
-                this.updateTrackTitle(matchingOption.textContent || '');
-                this.updateTrackCover(matchingOption);
-                
-                // Load track asynchronously after a short delay to ensure audio context is ready
-                setTimeout(async () => {
-                    await this.loadTrack(filename);
-                }, 100);
-                
-                defaultTrackSet = true;
-            } else {
-                ShaderLogger.warn(`Track "${trackParam}" not found, using default track`);
-            }
-        }
-        
-        // Set random track as active by default if no URL parameter or if URL track wasn't found
-        // Note: Don't load track here - tracks may not be fully loaded from API yet
-        // The track will be loaded when selectRandomTrack() is called after sorting
-        if (!defaultTrackSet && this.trackOptions.length > 0) {
+        // URL parameters are now handled after tracks are loaded in TrackLoadingService
+        // Set random track as active by default (URL parameters will override this after tracks load)
+        if (this.trackOptions.length > 0) {
             const randomIndex = Math.floor(Math.random() * this.trackOptions.length);
             const randomTrack = this.trackOptions[randomIndex];
             randomTrack.classList.add('active');
@@ -300,6 +263,59 @@ export class AudioControls {
         
         // Initialize title display
         this.titleDisplay.init();
+        
+        // Initialize copy link button
+        if (this.copyLinkBtn) {
+            this.copyLinkBtn.addEventListener('click', () => {
+                this.copyCurrentTrackLink();
+            });
+        }
+    }
+    
+    /**
+     * Copy current track and time URL to clipboard
+     * Preserves debug parameter if it exists in the current URL
+     */
+    async copyCurrentTrackLink(): Promise<void> {
+        try {
+            const audioElement = this.audioAnalyzer.audioElement;
+            if (!audioElement) {
+                ShaderLogger.warn('No audio element available to copy link');
+                return;
+            }
+            
+            // Get current track
+            const activeOption = Array.from(this.trackOptions).find(
+                option => option.classList.contains('active')
+            ) as HTMLElement | undefined;
+            
+            if (!activeOption) {
+                ShaderLogger.warn('No active track found to copy link');
+                return;
+            }
+            
+            // Prefer apiTrackId (for API tracks) over dataset.track (for local files)
+            const trackId = activeOption.dataset.apiTrackId || activeOption.dataset.track;
+            if (!trackId) {
+                ShaderLogger.warn('No track identifier found to copy link');
+                return;
+            }
+            
+            const currentTime = audioElement.currentTime || 0;
+            
+            // Build URL with track and time, preserving debug if it exists
+            const { buildTrackURL } = await import('../utils/urlParams.js');
+            const hasDebug = new URLSearchParams(window.location.search).has('debug');
+            const url = buildTrackURL(trackId, currentTime, hasDebug);
+            
+            // Copy to clipboard
+            await navigator.clipboard.writeText(url);
+            
+            // Show brief feedback (optional - could add a toast notification)
+            ShaderLogger.info('Link copied to clipboard');
+        } catch (error) {
+            ShaderLogger.error('Failed to copy link:', error);
+        }
     }
     
     

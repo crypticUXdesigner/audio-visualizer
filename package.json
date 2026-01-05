@@ -31,7 +31,10 @@
     "@bufbuild/protobuf": "^2.10.2",
     "@connectrpc/connect-web": "^2.1.1",
     "@sentry/browser": "^10.31.0",
+    "buffer": "^6.0.3",
     "node-fetch": "^3.3.2",
+    "ts-ebml": "^3.0.2",
+    "webm-muxer": "^5.1.4",
     "zod": "^4.2.1"
   }
 }

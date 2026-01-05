@@ -16,7 +16,7 @@ interface SmoothingState extends Record<string, unknown> {
     smoothedLeftBands: Float32Array | null;
     smoothedRightBands: Float32Array | null;
     smoothedMaskRadius: number;
-    smoothedContrastAudioLevel: number;
+    // Note: smoothedContrastAudioLevel is now handled by UniformManager via audioReactive config
     smoothedSphereBrightness: number;
     smoothedSphereSizeVolume: number;
     smoothedSphereSizeBass: number;
@@ -44,7 +44,7 @@ export class ArcShaderPlugin extends BaseShaderPlugin {
             smoothedLeftBands: null,
             smoothedRightBands: null,
             smoothedMaskRadius: 0.0,
-            smoothedContrastAudioLevel: 0.0,
+            // Note: smoothedContrastAudioLevel is now handled by UniformManager
             smoothedSphereBrightness: 0.0,
             smoothedSphereSizeVolume: 0.0,
             smoothedSphereSizeBass: 0.0,
@@ -793,67 +793,8 @@ export class ArcShaderPlugin extends BaseShaderPlugin {
         // ========================================================================
         // Audio Smoothing (Tempo-Relative)
         // ========================================================================
-        // Smooth contrast audio level for contrast modulation
-        const contrastAudioReactive = (params.contrastAudioReactive as number | undefined) || 0.0;
-        if (contrastAudioReactive > 0.0 && audioData) {
-            // Get audio source from config
-            const contrastAudioSource = (params.contrastAudioSource !== undefined 
-                ? params.contrastAudioSource : 1) as number;
-            
-            let targetContrastAudioLevel = 0.0;
-            if (contrastAudioSource === 0) {
-                targetContrastAudioLevel = audioData.volume || 0;
-            } else if (contrastAudioSource === 1) {
-                targetContrastAudioLevel = audioData.bass || 0;
-            } else if (contrastAudioSource === 2) {
-                targetContrastAudioLevel = audioData.mid || 0;
-            } else if (contrastAudioSource === 3) {
-                targetContrastAudioLevel = audioData.treble || 0;
-            }
-            targetContrastAudioLevel = Math.max(0, Math.min(1, targetContrastAudioLevel));
-            
-            // Get attack/release note values from config
-            const contrastAttackNote = (params.contrastAudioAttackNote !== undefined
-                ? params.contrastAudioAttackNote
-                : TempoSmoothingConfig.contrast.attackNote) as number;
-            const contrastReleaseNote = (params.contrastAudioReleaseNote !== undefined
-                ? params.contrastAudioReleaseNote
-                : TempoSmoothingConfig.contrast.releaseNote) as number;
-            
-            // Calculate tempo-relative time constants
-            const bpm = audioData.estimatedBPM || 0;
-            const attackTimeConstant = getTempoRelativeTimeConstant(
-                contrastAttackNote,
-                bpm,
-                TempoSmoothingConfig.contrast.attackTimeFallback
-            );
-            const releaseTimeConstant = getTempoRelativeTimeConstant(
-                contrastReleaseNote,
-                bpm,
-                TempoSmoothingConfig.contrast.releaseTimeFallback
-            );
-            
-            // Apply tempo-relative smoothing
-            this.smoothing.smoothedContrastAudioLevel = applyTempoRelativeSmoothing(
-                this.smoothing.smoothedContrastAudioLevel,
-                targetContrastAudioLevel,
-                deltaTime,
-                attackTimeConstant,
-                releaseTimeConstant
-            );
-            
-            // Validate and clamp
-            if (!isFinite(this.smoothing.smoothedContrastAudioLevel)) {
-                this.smoothing.smoothedContrastAudioLevel = 0.0;
-            }
-            this.smoothing.smoothedContrastAudioLevel = Math.max(0, Math.min(1, this.smoothing.smoothedContrastAudioLevel));
-            
-            helper.updateFloat('uSmoothedContrastAudioLevel', this.smoothing.smoothedContrastAudioLevel, 0.0);
-        } else {
-            // No audio reactivity: use zero level
-            this.smoothing.smoothedContrastAudioLevel = 0.0;
-            helper.updateFloat('uSmoothedContrastAudioLevel', 0.0, 0.0);
-        }
+        // Note: Contrast audio smoothing is now handled by UniformManager via audioReactive config
+        // The uSmoothedContrastAudioLevel uniform is set automatically by updateAudioReactiveParameters
     }
     
     /**
@@ -863,7 +804,7 @@ export class ArcShaderPlugin extends BaseShaderPlugin {
         this.smoothing.smoothedLeftBands = null;
         this.smoothing.smoothedRightBands = null;
         this.smoothing.smoothedMaskRadius = 0.0;
-        this.smoothing.smoothedContrastAudioLevel = 0.0;
+        // Note: smoothedContrastAudioLevel is now handled by UniformManager
         this.smoothing.smoothedSphereBrightness = 0.0;
         this.smoothing.smoothedSphereSizeVolume = 0.0;
         this.smoothing.smoothedSphereSizeBass = 0.0;

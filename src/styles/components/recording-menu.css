@@ -1,0 +1,169 @@
+/* Recording Menu Component */
+
+.recording-menu {
+  /* Inherits base styles from .top-control-menu */
+  max-width: 500px;
+  max-height: 700px;
+}
+
+.recording-preview {
+  width: 100%;
+  padding: var(--pd-md);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: var(--color-gray-30, #1a1a1a);
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--pd-md);
+  overflow: hidden;
+}
+
+#recordingPreviewCanvas {
+  width: 100%;
+  max-width: 640px;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  background: var(--color-gray-20, #0a0a0a);
+  border-radius: var(--radius-md);
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: crisp-edges;
+}
+
+.recording-progress {
+  padding: 0 var(--pd-lg);
+  margin-bottom: var(--pd-md);
+}
+
+.progress-bar {
+  width: 100%;
+  height: 8px;
+  background: var(--color-gray-60, #404040);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  margin-bottom: var(--pd-sm);
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--color-primary, #00ff88), var(--color-secondary, #0088ff));
+  border-radius: var(--radius-full);
+  transition: width 0.1s linear;
+  width: 0%;
+}
+
+.progress-text {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 14px;
+  color: var(--text-secondary, rgba(255, 255, 255, 0.7));
+  font-family: var(--font-brand, 'Lexend', sans-serif);
+}
+
+.progress-text .current-frame,
+.progress-text .total-frames {
+  font-weight: 500;
+  color: var(--text-primary, rgba(255, 255, 255, 0.9));
+}
+
+.progress-text .time-remaining {
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.recording-controls {
+  padding: 0 var(--pd-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--pd-md);
+  justify-content: center;
+}
+
+.recording-settings {
+  display: flex;
+  gap: var(--pd-sm);
+  align-items: center;
+  width: 100%;
+  justify-content: center;
+}
+
+.recording-label {
+  font-size: 14px;
+  color: var(--text-secondary, rgba(255, 255, 255, 0.7));
+  font-family: var(--font-brand, 'Lexend', sans-serif);
+  font-weight: 500;
+}
+
+.recording-select {
+  flex: 1;
+  max-width: 200px;
+  padding: var(--pd-sm) var(--pd-md);
+  border: 1px solid var(--border-medium, rgba(255, 255, 255, 0.1));
+  border-radius: var(--radius-md);
+  background: var(--color-gray-60, #404040);
+  color: var(--text-primary, rgba(255, 255, 255, 0.9));
+  font-size: 14px;
+  font-family: var(--font-brand, 'Lexend', sans-serif);
+  cursor: pointer;
+  transition: 
+    background var(--effects-fast),
+    border-color var(--effects-fast);
+}
+
+.recording-select:hover {
+  background: var(--color-gray-70, #505050);
+  border-color: var(--border-light, rgba(255, 255, 255, 0.2));
+}
+
+.recording-select:focus {
+  outline: none;
+  border-color: var(--color-primary, #00ff88);
+  box-shadow: 0 0 0 2px rgba(0, 255, 136, 0.2);
+}
+
+.recording-btn {
+  flex: 1;
+  padding: var(--pd-md) var(--pd-lg);
+  background: var(--color-gray-60, #404040);
+  border: 1px solid var(--border-medium, rgba(255, 255, 255, 0.1));
+  border-radius: var(--radius-lg);
+  color: var(--text-primary, rgba(255, 255, 255, 0.9));
+  font-family: var(--font-brand, 'Lexend', sans-serif);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: 
+    background var(--effects-fast),
+    border-color var(--effects-fast),
+    transform var(--spatial-default);
+  user-select: none;
+}
+
+.recording-btn:hover:not(:disabled) {
+  background: var(--color-gray-70, #505050);
+  border-color: var(--border-light, rgba(255, 255, 255, 0.2));
+  transform: translateY(-1px);
+}
+
+.recording-btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.recording-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.recording-error {
+  display: none;
+  color: var(--color-error, #ff4444);
+  padding: var(--pd-md);
+  margin-top: var(--pd-md);
+  text-align: center;
+  font-size: 14px;
+  font-family: var(--font-brand, 'Lexend', sans-serif);
+  background: rgba(255, 68, 68, 0.1);
+  border: 1px solid rgba(255, 68, 68, 0.3);
+  border-radius: var(--radius-md);
+}
+

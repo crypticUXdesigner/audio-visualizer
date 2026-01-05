@@ -1,0 +1,360 @@
+---
+description: Shader implementation and maintenance
+alwaysApply: false
+---
+# Shader Configuration Guidelines
+
+## Audio Reactive Effects Requirements
+
+### 1. Toggle and Strength Parameters
+**REQUIRED**: Every audio reactive effect MUST include:
+- **Enable/Toggle Parameter**: A boolean-like parameter (0.0/1.0 float) to turn the effect on/off
+  - Naming: `enable[EffectName]` or `[effectName]Enabled`
+  - Type: `float` with `min: 0.0`, `max: 1.0`, `step: 1.0`
+  - Example: `enableTimeModulation`, `enableFractalIntensity`
+  
+- **Strength Parameter**: A parameter to control the intensity/magnitude of the audio reactivity
+  - Naming: `[effectName]Strength` or `[effectName]Amount`
+  - Type: `float` with appropriate min/max/step for the effect
+  - Example: `timeModulationStrength`, `fractalIntensityStrength`
+
+**Bad Example** (missing toggle):
+```typescript
+timeModulationStrength: {
+    type: 'float',
+    default: 0.1,
+    // Missing enableTimeModulation toggle
+}
+```
+
+**Good Example**:
+```typescript
+enableTimeModulation: {
+    type: 'float',
+    default: 1.0,
+    min: 0.0,
+    max: 1.0,
+    step: 1.0,
+    label: 'Enable Time Modulation'
+},
+timeModulationStrength: {
+    type: 'float',
+    default: 0.1,
+    min: 0.0,
+    max: 2.0,
+    step: 0.1,
+    label: 'Time Modulation Strength'
+}
+```
+
+### 2. Audio Reactivity Configuration
+**REQUIRED**: Every audio reactive strength parameter MUST include an `audioReactive` configuration object:
+- **Audio Source**: What audio element the parameter reacts to (e.g., 'volume', 'bass', 'treble', 'frequencySpread')
+- **Attack Note**: Controls how quickly the effect responds to audio increases (optional, defaults to no smoothing)
+  - Range: 1/256 (very fast) to 1/4 (slow)
+  - If omitted, uses raw audio value without smoothing
+- **Release Note**: Controls how quickly the effect decays when audio decreases (optional, defaults to no smoothing)
+  - Range: 1/128 (fast) to 1/2 (slow)
+- **Strength**: Multiplier for the audio reactivity (optional, defaults to 1.0)
+- **Invert**: Invert the reactivity (optional, defaults to false)
+- **Min/Max**: Optional value mapping (if omitted, uses parameter's min/max)
+
+**Available Audio Sources**:
+- Basic: `'volume'`, `'bass'`, `'mid'`, `'treble'`
+- Frequency bands: `'freq1'` through `'freq10'` (smoothed), `'freq1Raw'` through `'freq10Raw'` (unsmoothed)
+- Smoothed: `'smoothedBass'`, `'smoothedMid'`, `'smoothedTreble'`
+- Peaks: `'peakVolume'`, `'peakBass'`, `'peakMid'`, `'peakTreble'`
+- Beat: `'beatIntensity'`, `'beatIntensityBass'`, `'beatIntensityMid'`, `'beatIntensityTreble'`
+- Stereo: `'bassStereo'`, `'midStereo'`, `'trebleStereo'`
+- Advanced: `'frequencySpread'`, `'bassOnset'`, `'midOnset'`, `'trebleOnset'`
+- Groupings: `'lowBass'`, `'midBass'`, `'lowMid'`, `'highMid'`, `'presence'`
+- Timing: `'beatPhase'`, `'beatAnticipation'`
+- Energy: `'energy'`, `'highEnergy'`, `'lowEnergy'`
+
+**Example**:
+```typescript
+timeModulationStrength: {
+    type: 'float',
+    default: 0.1,
+    min: 0.0,
+    max: 2.0,
+    step: 0.1,
+    label: 'Time Modulation Strength',
+    audioReactive: {
+        source: 'volume',
+        attackNote: 1.0 / 16.0,
+        releaseNote: 1.0 / 4.0,
+        strength: 1.0
+    } as AudioReactivityConfig
+}
+```
+
+**Note**: The old pattern with separate `[effectName]AttackNote` and `[effectName]ReleaseNote` parameters is deprecated for direct parameter modulation. However, some complex systems (like contrast min/max interpolation) may still use the old pattern until plugins are updated to support the new system.
+
+### 3. Parameter Grouping and Ordering
+**REQUIRED**: Parameters MUST be organized in the following order within each audio reactive effect group:
+
+1. **Static Configuration Parameters** (non-audio-reactive settings)
+   - All parameters that don't respond to audio
+   - Grouped by functional area with section comments
+   - Example: `baseAnimationSpeed`, `baseRadius`, `numBands`
+
+2. **Audio Reactive Effects** (grouped by effect, in order):
+   For each audio reactive effect, parameters MUST appear in this exact order:
+   a. **Enable/Toggle** parameter
+   b. **Strength** parameter (with `audioReactive` config if applicable)
+   c. **Other effect-specific parameters** (invert flags, etc.)
+   
+   **Note**: Attack/release timing and audio source selection are now part of the `audioReactive` config on the strength parameter, not separate parameters.
+
+**Example Structure**:
+```typescript
+parameters: {
+    // ============================================
+    // STATIC CONFIGURATION
+    // ============================================
+    baseAnimationSpeed: { /* ... */ },
+    baseRadius: { /* ... */ },
+    
+    // ============================================
+    // TIME MODULATION EFFECT
+    // ============================================
+    // Reacts to: Overall volume (loudness of entire signal)
+    // Visual effect: Speeds up or slows down the animation time based on overall loudness
+    enableTimeModulation: { /* ... */ },
+    timeModulationStrength: {
+        type: 'float',
+        default: 0.1,
+        min: 0.0,
+        max: 2.0,
+        step: 0.1,
+        label: 'Time Modulation Strength',
+        audioReactive: {
+            source: 'volume',
+            attackNote: 1.0 / 16.0,
+            releaseNote: 1.0 / 4.0,
+            strength: 1.0
+        } as AudioReactivityConfig
+    },
+    
+    // ============================================
+    // FRACTAL INTENSITY EFFECT
+    // ============================================
+    // Reacts to: Bass frequencies
+    // Visual effect: Increases or decreases the deformation strength of the fractal shape
+    enableFractalIntensity: { /* ... */ },
+    fractalIntensityStrength: {
+        type: 'float',
+        default: 0.7,
+        min: 0.0,
+        max: 3.0,
+        step: 0.1,
+        label: 'Fractal Intensity Strength',
+        audioReactive: {
+            source: 'bass',
+            attackNote: 1.0 / 128.0,
+            releaseNote: 1.0 / 16.0,
+            strength: 1.0
+        } as AudioReactivityConfig
+    },
+}
+```
+
+### 4. Audio Trigger Uniqueness
+**REQUIRED**: Avoid and flag implementations where:
+- ❌ **BAD**: The same visual effect is controlled by 2 different audio triggers
+  - Example: Both bass AND treble controlling the same brightness parameter
+  - This creates confusing, competing behaviors
+  
+- ✅ **GOOD**: The same audio trigger impacting different parts of the visual
+  - Example: Bass controlling both intensity and depth response (different visual aspects)
+  - This is acceptable but less ideal than separate triggers
+  
+- ✅ **BEST**: Each unique visual effect has its own dedicated audio trigger
+  - Example: Bass controls intensity, Treble controls layers, Volume controls speed
+  - This creates more unique and interesting visualizations
+
+**Review Checklist**:
+- [ ] No two audio reactive effects use the same audio source AND control the same visual property
+- [ ] Each audio reactive effect has a clearly distinct visual impact
+- [ ] Audio sources are distributed across different frequency ranges when possible
+
+**Example of Problem to Flag**:
+```typescript
+// BAD: Both bass and treble control the same brightness
+enableBrightnessBass: { /* ... */ },
+brightnessBassStrength: { /* ... */ },
+enableBrightnessTreble: { /* ... */ },
+brightnessTrebleStrength: { /* ... */ },
+// Both affect the same visual property (brightness)
+```
+
+**Better Approach**:
+```typescript
+// GOOD: Different triggers for different visual aspects
+// Bass controls intensity
+enableIntensityBass: { /* ... */ },
+intensityBassStrength: { /* ... */ },
+// Treble controls detail/layers
+enableDetailTreble: { /* ... */ },
+detailTrebleStrength: { /* ... */ },
+```
+
+### 5. Audio Reactive Effect Documentation
+**REQUIRED**: For each audio reactive effect group, include comments explaining:
+- **What audio source it reacts to**: Specify the exact audio trigger (e.g., "Bass frequencies", "Overall volume", "Treble frequencies", "Frequency bands uFreq1-uFreq10")
+- **What visual effect it controls**: Describe the specific visual change (e.g., "Speeds up animation time", "Increases fractal deformation strength", "Modulates color mapping thresholds")
+
+**Comment Format**:
+```typescript
+// [Effect Name]
+// Reacts to: [Audio source description]
+// Visual effect: [What visual property/behavior is controlled]
+```
+
+**Example**:
+```typescript
+// Time Modulation
+// Reacts to: Overall volume (loudness of entire signal)
+// Visual effect: Speeds up or slows down the animation time based on overall loudness
+enableTimeModulation: {
+    type: 'float',
+    default: 1.0,
+    min: 0.0,
+    max: 1.0,
+    step: 1.0,
+    label: 'Enable Time Modulation'
+},
+timeModulationStrength: {
+    type: 'float',
+    default: 0.1,
+    min: 0.0,
+    max: 2.0,
+    step: 0.1,
+    label: 'Time Modulation Strength',
+    audioReactive: {
+        source: 'volume',
+        attackNote: 1.0 / 16.0,
+        releaseNote: 1.0 / 4.0,
+        strength: 1.0
+    } as AudioReactivityConfig
+}
+```
+
+## Parameter Naming Conventions
+
+### Audio Reactive Parameters
+- Enable/Toggle: `enable[EffectName]` or `[effectName]Enabled`
+- Strength: `[effectName]Strength` or `[effectName]Amount` (includes `audioReactive` config)
+  - Audio source, attack/release timing, and other reactivity settings are configured via the `audioReactive` property
+- Audio Source: Configured via `audioReactive.source` (no separate parameter needed)
+
+### Static Parameters
+- Use descriptive names that indicate their purpose
+- Group related parameters with consistent prefixes
+- Example: `baseRadius`, `maxRadiusOffset`, `maskRadius`, `maxMaskRadius`
+
+## Helper Functions
+
+Use helper functions from `parameter-helpers.ts`:
+- `createToggleParameter()`: For enable/disable toggles (returns object with single parameter)
+- `createMinMaxParameters()`: For min/max parameter pairs
+- `createCurveParameters()`: For cubic bezier curve parameters
+
+**Note**: `createNoteParameter()` is deprecated for new audio-reactive parameters. Use `audioReactive.attackNote` and `audioReactive.releaseNote` instead.
+
+## Audio Reactivity Modes
+
+The `audioReactive` config supports two modes:
+
+### 1. Additive Mode (default)
+**Mode**: `'additive'` (or omit `mode` property)
+
+**Behavior**: The audio-reactive value is added to the base parameter value. The smoothed audio value (0-1) is multiplied by the parameter's range and added to the base value.
+
+**Use Case**: When you want audio to modulate a parameter around its base value.
+
+**Example**:
+```typescript
+timeModulationStrength: {
+    type: 'float',
+    default: 0.1,
+    min: 0.0,
+    max: 2.0,
+    step: 0.1,
+    label: 'Time Modulation Strength',
+    audioReactive: {
+        source: 'volume',
+        attackNote: 1.0 / 16.0,
+        releaseNote: 1.0 / 4.0,
+        strength: 1.0,
+        mode: 'additive'  // Optional, this is the default
+    } as AudioReactivityConfig
+}
+```
+
+### 2. Interpolation Mode
+**Mode**: `'interpolation'`
+
+**Behavior**: The audio-reactive value (0-1) is used to interpolate between a min and max parameter pair. The system automatically sets a `uSmoothed{BaseName}AudioLevel` uniform that the shader uses to interpolate between `{baseName}Min` and `{baseName}Max` values.
+
+**Use Case**: When you want audio to smoothly transition a parameter between two bounds (e.g., contrast between min and max values).
+
+**Requirements**:
+- Must use `createMinMaxParameters()` or define `{baseName}Min` and `{baseName}Max` parameters
+- The `audioReactive` config should be on the `Min` parameter
+- The shader must use the `uSmoothed{BaseName}AudioLevel` uniform to interpolate
+
+**Example**:
+```typescript
+// Contrast system using interpolation mode
+contrastMin: {
+    type: 'float',
+    default: 1.0,
+    min: 0.5,
+    max: 2.5,
+    step: 0.1,
+    label: 'Contrast Min',
+    audioReactive: {
+        source: 'bass',
+        attackNote: 1.0 / 32.0,
+        releaseNote: 1.0 / 2.0,
+        mode: 'interpolation'
+    } as AudioReactivityConfig
+},
+contrastMax: {
+    type: 'float',
+    default: 1.25,
+    min: 0.5,
+    max: 2.5,
+    step: 0.1,
+    label: 'Contrast Max'
+}
+```
+
+**Shader Usage** (GLSL):
+```glsl
+uniform float uContrastMin;
+uniform float uContrastMax;
+uniform float uSmoothedContrastAudioLevel;  // Set automatically by UniformManager
+
+// In shader code:
+float contrastValue = mix(uContrastMin, uContrastMax, uSmoothedContrastAudioLevel);
+```
+
+**Note**: For interpolation mode, the `min` and `max` properties in `audioReactive` config are ignored. The interpolation uses the `{baseName}Min` and `{baseName}Max` parameter values directly.
+
+## Code Review Checklist
+
+When reviewing shader configs, verify:
+- [ ] Every audio reactive effect has an enable/toggle parameter
+- [ ] Every audio reactive effect has a strength parameter with `audioReactive` config
+- [ ] `audioReactive` config includes `source` property
+- [ ] Attack/release timing is specified in `audioReactive` config (if smoothing is desired)
+- [ ] Parameters are grouped: static first, then audio reactive effects
+- [ ] Within each audio reactive effect, order is: enable → strength (with audioReactive) → others
+- [ ] Each audio reactive effect has comments explaining audio source and visual effect
+- [ ] No duplicate audio triggers controlling the same visual property
+- [ ] Audio sources are distributed across different frequency ranges
+- [ ] Each effect has a distinct, unique visual impact
+- [ ] Old pattern with separate attack/release parameters has been migrated to `audioReactive` config

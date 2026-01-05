@@ -381,8 +381,29 @@ export class ColorService {
     const shader = this.shaderManager.activeShader;
     if (!shader || !shader.isInitialized) return;
     
+    // Check if threshold uniforms exist (some shaders like grayscott don't use them)
+    const hasThresholdUniforms = shader.uniformLocations && 
+      shader.uniformLocations['uThreshold1'] !== null && 
+      shader.uniformLocations['uThreshold1'] !== undefined;
+    
+    if (!hasThresholdUniforms) {
+      // Shader doesn't use threshold uniforms, skip setting them
+      return;
+    }
+    
     for (let i = 0; i < thresholds.length; i++) {
-      shader.setUniform(`uThreshold${i + 1}`, thresholds[i]);
+      const uniformName = `uThreshold${i + 1}`;
+      // Double-check each uniform exists before setting
+      if (shader.uniformLocations && 
+          shader.uniformLocations[uniformName] !== null && 
+          shader.uniformLocations[uniformName] !== undefined) {
+        try {
+          shader.setUniform(uniformName, thresholds[i]);
+        } catch (error) {
+          // Silently ignore missing uniform errors for threshold uniforms
+          // Some shaders (like grayscott) don't use the color system
+        }
+      }
     }
   }
   

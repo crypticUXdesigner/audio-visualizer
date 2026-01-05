@@ -3,7 +3,7 @@
 
 import { createNoteParameter, createMinMaxParameters } from './parameter-helpers.js';
 import { sharedUniformMapping } from './shared-uniform-mapping.js';
-import type { ShaderConfig } from '../../types/index.js';
+import type { ShaderConfig, AudioReactivityConfig } from '../../types/index.js';
 
 const arcConfig: ShaderConfig = {
     name: 'arc',
@@ -294,17 +294,29 @@ const arcConfig: ShaderConfig = {
             step: 0.05,
             label: 'Contrast Audio Reactivity (0 = off, 1 = full)'
         },
-        contrastAudioSource: {
-            type: 'int',
-            default: 1,
-            min: 0,
-            max: 3,
-            step: 1,
-            label: 'Contrast Audio Source (0=Volume, 1=Bass, 2=Mid, 3=Treble)'
+        // Contrast system uses interpolation mode: audio level interpolates between contrastMin and contrastMax
+        contrastMin: {
+            type: 'float',
+            default: 1.0,
+            min: 0.5,
+            max: 2.5,
+            step: 0.1,
+            label: 'Contrast Min',
+            audioReactive: {
+                source: 'bass',
+                attackNote: 1.0 / 32.0,
+                releaseNote: 1.0 / 2.0,
+                mode: 'interpolation'
+            } as AudioReactivityConfig
         },
-        ...createMinMaxParameters('contrast', 1.0, 1.25, 0.5, 2.5, 0.1, 'Contrast'),
-        contrastAudioAttackNote: createNoteParameter('contrastAudioAttackNote', 1.0 / 32.0, 'Contrast Audio Attack (1/256 = very fast, 1/4 = slow)'),
-        contrastAudioReleaseNote: createNoteParameter('contrastAudioReleaseNote', 1.0 / 2.0, 'Contrast Audio Release (1/128 = fast, 1/2 = slow)'),
+        contrastMax: {
+            type: 'float',
+            default: 1.25,
+            min: 0.5,
+            max: 2.5,
+            step: 0.1,
+            label: 'Contrast Max'
+        },
         contrastMaskEnabled: {
             type: 'float',
             default: 1.0,
@@ -743,27 +755,6 @@ const arcConfig: ShaderConfig = {
             step: 5.0,
             label: 'Center Sphere Hue Shift Range (additional shift from audio in degrees, 0 = off)'
         },
-    },
-    
-    // Color configuration
-    colorConfig: {
-        baseHue: '#18191f',
-        darkest: {
-            lightness: 0.09,
-            chroma: 0.08,
-            hueOffset: -60
-        },
-        brightest: {
-            lightness: 0.97,
-            chroma: 0.2,
-            hueOffset: 60
-        },
-        interpolationCurve: {
-            lightness: [0.3, 0.0, 1.0, 0.7],
-            chroma: [0.0, 0.25, 1.0, 0.75],
-            hue: [0.0, 0.25, 1.0, 0.75]
-        },
-        thresholdCurve: [0.2, 0.2, 1.0, 0.7]
     },
     
     // Uniform mapping (how audio data maps to shader uniforms)

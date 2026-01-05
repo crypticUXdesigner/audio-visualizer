@@ -59,6 +59,11 @@ export class WebGLContextManager {
             );
         }
         
+        // Set sRGB color space for canvas to ensure consistent color reproduction
+        if ('colorSpace' in this.canvas) {
+            (this.canvas as any).colorSpace = 'srgb';
+        }
+        
         // Get WebGL context with fallback support
         const contextAttributes: WebGLContextAttributes = {
             alpha: false,
@@ -81,6 +86,11 @@ export class WebGLContextManager {
             this.showWebGLFallback();
             this.webglFallbackActive = true;
             return false; // Don't continue initialization
+        }
+        
+        // Set sRGB color space for WebGL2 context to ensure consistent color reproduction
+        if (this.gl instanceof WebGL2RenderingContext && 'drawingBufferColorSpace' in this.gl) {
+            (this.gl as any).drawingBufferColorSpace = 'srgb';
         }
         
         // Set WebGL context info as Sentry context
@@ -128,6 +138,10 @@ export class WebGLContextManager {
                       this.canvas!.getContext('webgl', contextAttributes) as WebGLRenderingContext | null ||
                       this.canvas!.getContext('experimental-webgl', contextAttributes) as WebGLRenderingContext | null;
             if (this.gl) {
+                // Set sRGB color space for restored context
+                if (this.gl instanceof WebGL2RenderingContext && 'drawingBufferColorSpace' in this.gl) {
+                    (this.gl as any).drawingBufferColorSpace = 'srgb';
+                }
                 this.ext = this.gl.getExtension('OES_standard_derivatives');
                 if (this.onContextRestored) {
                     this.onContextRestored();

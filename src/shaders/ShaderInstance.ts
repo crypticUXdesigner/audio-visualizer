@@ -510,6 +510,14 @@ export class ShaderInstance {
             this.parameters
         );
         
+        // Update audio-reactive parameters
+        this.uniformManager!.updateAudioReactiveParameters(
+            this.parameters,
+            this.config as ShaderConfig,
+            audioData,
+            deltaTime
+        );
+        
         // Call plugin hooks for shader-specific updates
         // Update textures (frequency textures, etc.)
         // Always call onUpdateTextures to ensure textures are initialized, even without audio
