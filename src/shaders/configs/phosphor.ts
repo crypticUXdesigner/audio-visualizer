@@ -130,7 +130,7 @@ const phosphorConfig: ShaderConfig = {
                 attackNote: 1.0 / 4.0,
                 releaseNote: 1.0 / 1.0,
                 startValue: 0.0,      // Silent = 0.26
-                targetValue: 8.0,     // Loud = 0.26 + (0.14 * 5.0)
+                targetValue: 7.0,     // Loud = 0.26 + (0.14 * 5.0)
                 curve: BezierPresets.easeOut
             } as AudioReactivityConfig
         },
