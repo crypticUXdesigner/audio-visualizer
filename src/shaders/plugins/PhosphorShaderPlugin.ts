@@ -35,10 +35,15 @@ export class PhosphorShaderPlugin extends BaseShaderPlugin {
         // Apply mobile-specific quality reduction
         // On mobile, be more aggressive with quality scaling for better stability
         const isMobile = this.isMobile();
-        if (isMobile && qualityLevel > 0.5) {
-            // On mobile, cap quality at 0.7 (70%) for better stability
+        if (isMobile) {
+            // On mobile, cap quality at 0.6 (60%) for better stability
             // This ensures we don't push mobile GPUs too hard
-            qualityLevel = Math.min(qualityLevel, 0.7);
+            qualityLevel = Math.min(qualityLevel, 0.6);
+            
+            // Also apply additional reduction for very low quality levels
+            if (qualityLevel < 0.55) {
+                qualityLevel = qualityLevel * 0.9; // Extra 10% reduction when struggling
+            }
         }
         
         // Get current values from uniform manager (set by audio-reactive system)
@@ -56,10 +61,10 @@ export class PhosphorShaderPlugin extends BaseShaderPlugin {
                 this.lastRaymarchSteps = currentValue;
                 
                 // Calculate quality-scaled value
-                // Range: min 20, max 200 at full quality (desktop) or 120 (mobile)
+                // Range: min 20, max 200 at full quality (desktop) or 100 (mobile - more conservative)
                 const minSteps = 20.0;
                 const maxStepsDesktop = 200.0;
-                const maxStepsMobile = 120.0; // Lower max on mobile for stability
+                const maxStepsMobile = 100.0; // Lower max on mobile for better stability
                 const maxStepsAtQuality = isMobile
                     ? 20.0 + (maxStepsMobile - 20.0) * qualityLevel
                     : 20.0 + (maxStepsDesktop - 20.0) * qualityLevel;
@@ -77,7 +82,7 @@ export class PhosphorShaderPlugin extends BaseShaderPlugin {
                 // Fallback: use last known value and scale it
                 const minSteps = 20.0;
                 const maxStepsDesktop = 200.0;
-                const maxStepsMobile = 120.0;
+                const maxStepsMobile = 100.0;
                 const maxStepsAtQuality = isMobile
                     ? 20.0 + (maxStepsMobile - 20.0) * qualityLevel
                     : 20.0 + (maxStepsDesktop - 20.0) * qualityLevel;
@@ -104,10 +109,10 @@ export class PhosphorShaderPlugin extends BaseShaderPlugin {
                 this.lastComplexity = currentValue;
                 
                 // Calculate quality-scaled value
-                // Range: min 5, max 15 at full quality (desktop) or 10 (mobile)
+                // Range: min 5, max 15 at full quality (desktop) or 8 (mobile - more conservative)
                 const minComplexity = 5.0;
                 const maxComplexityDesktop = 15.0;
-                const maxComplexityMobile = 10.0; // Lower max on mobile for stability
+                const maxComplexityMobile = 8.0; // Lower max on mobile for better stability
                 const maxComplexityAtQuality = isMobile
                     ? 5.0 + (maxComplexityMobile - 5.0) * qualityLevel
                     : 5.0 + (maxComplexityDesktop - 5.0) * qualityLevel;
@@ -125,7 +130,7 @@ export class PhosphorShaderPlugin extends BaseShaderPlugin {
                 // Fallback: use last known value and scale it
                 const minComplexity = 5.0;
                 const maxComplexityDesktop = 15.0;
-                const maxComplexityMobile = 10.0;
+                const maxComplexityMobile = 8.0;
                 const maxComplexityAtQuality = isMobile
                     ? 5.0 + (maxComplexityMobile - 5.0) * qualityLevel
                     : 5.0 + (maxComplexityDesktop - 5.0) * qualityLevel;

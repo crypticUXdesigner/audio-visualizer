@@ -66,7 +66,7 @@ export class PerformanceMonitor {
         
         // Detect mobile and set lower initial quality for better stability
         const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
-        const defaultInitialQuality = isMobile ? 0.6 : 1.0; // Start at 60% on mobile, 100% on desktop
+        const defaultInitialQuality = isMobile ? 0.5 : 1.0; // Start at 50% on mobile (more conservative), 100% on desktop
         this.qualityLevel = config.initialQuality ?? defaultInitialQuality;
         this.minTargetFPS = config.minTargetFPS ?? 30;
         this.maxTargetFPS = config.maxTargetFPS ?? 60;
@@ -117,19 +117,33 @@ export class PerformanceMonitor {
         const avgFrameTime = this.frameTimesSum / this.frameTimesCount;
         const currentFPS = 1000 / avgFrameTime;
         
-        // Early quality check for faster initial ramp-up (after 10 frames, then every 5 frames)
-        // Check more frequently during early frames for faster ramp-up
+        // Early quality check for faster adjustments (after 10 frames, then every 5 frames)
+        // Check more frequently during early frames for faster response
         if (this.frameTimesCount >= this.earlyCheckFrameCount && 
             this.frameTimesCount < this.frameHistorySize && 
-            this.qualityLevel < 1.0 &&
             this.frameTimesCount % 5 === 0) { // Check every 5 frames after initial check
-            // More aggressive threshold: if performance is at or above target, boost quality
-            // For beefy machines, this should trigger immediately
-            if (currentFPS >= this.targetFPS) {
+            const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+            const targetFPSThreshold = isMobile ? this.targetFPS * 0.9 : this.targetFPS * 0.85;
+            
+            // Adjust quality early if performance is poor
+            if (currentFPS < targetFPSThreshold && this.qualityLevel > 0.5) {
                 const previousQuality = this.qualityLevel;
-                // Jump directly to full quality if performance is good
-                this.qualityLevel = 1.0;
-                ShaderLogger.info(`Performance: Early quality boost to 100% (FPS: ${currentFPS.toFixed(1)}, frames: ${this.frameTimesCount})`);
+                const reductionStep = isMobile ? 0.15 : 0.1;
+                this.qualityLevel = Math.max(0.5, this.qualityLevel - reductionStep);
+                ShaderLogger.info(`Performance: Early quality reduction to ${(this.qualityLevel * 100).toFixed(0)}% (FPS: ${currentFPS.toFixed(1)}, frames: ${this.frameTimesCount})`);
+                
+                // Notify if quality changed
+                if (onQualityChange && previousQuality !== this.qualityLevel) {
+                    onQualityChange(this.qualityLevel);
+                }
+            }
+            // Only increase quality if significantly above target
+            else if (currentFPS >= this.targetFPS * 1.1 && this.qualityLevel < (isMobile ? 0.7 : 1.0)) {
+                const previousQuality = this.qualityLevel;
+                const maxQuality = isMobile ? 0.7 : 1.0;
+                const increaseStep = isMobile ? 0.1 : 0.15;
+                this.qualityLevel = Math.min(maxQuality, this.qualityLevel + increaseStep);
+                ShaderLogger.info(`Performance: Early quality increase to ${(this.qualityLevel * 100).toFixed(0)}% (FPS: ${currentFPS.toFixed(1)}, frames: ${this.frameTimesCount})`);
                 
                 // Notify if quality changed
                 if (onQualityChange && previousQuality !== this.qualityLevel) {
@@ -139,19 +153,27 @@ export class PerformanceMonitor {
         }
         
         // Full performance check every N frames (after collecting enough data)
-        if (this.frameTimesCount === this.frameHistorySize) {
-            // Send metrics to Sentry
-            this.sendMetrics(currentFPS, avgFrameTime);
+        // Also check more frequently (every 15 frames) for faster response
+        const shouldCheckPerformance = this.frameTimesCount === this.frameHistorySize || 
+                                      (this.frameTimesCount >= 15 && this.frameTimesCount % 15 === 0);
+        
+        if (shouldCheckPerformance) {
+            // Send metrics to Sentry only on full history
+            if (this.frameTimesCount === this.frameHistorySize) {
+                this.sendMetrics(currentFPS, avgFrameTime);
+            }
             
             // Update debug display
             this.updateDebugDisplay(currentFPS);
             
-            // Auto-adjust quality
+            // Auto-adjust quality (more frequent checks = faster response)
             const previousQuality = this.qualityLevel;
             this.adjustQuality(currentFPS);
             
-            // Adjust target FPS based on performance
-            this.adjustTargetFPS(currentFPS);
+            // Adjust target FPS based on performance (only on full history to avoid oscillation)
+            if (this.frameTimesCount === this.frameHistorySize) {
+                this.adjustTargetFPS(currentFPS);
+            }
             
             // Notify if quality changed
             if (onQualityChange && previousQuality !== this.qualityLevel) {
@@ -170,15 +192,21 @@ export class PerformanceMonitor {
      * @param currentFPS - Current FPS
      */
     adjustQuality(currentFPS: number): void {
-        if (currentFPS < this.targetFPS * 0.8 && this.qualityLevel > 0.5) {
-            // Reduce quality
-            this.qualityLevel = Math.max(0.5, this.qualityLevel - 0.1);
-            ShaderLogger.info(`Performance: Reducing quality to ${(this.qualityLevel * 100).toFixed(0)}% (FPS: ${currentFPS.toFixed(1)})`);
-        } else if (currentFPS >= this.targetFPS && this.qualityLevel < 1.0) {
-            // Increase quality more aggressively - jump to full quality if at or above target
-            const previousQuality = this.qualityLevel;
-            this.qualityLevel = 1.0;
-            ShaderLogger.info(`Performance: Increasing quality to 100% (FPS: ${currentFPS.toFixed(1)})`);
+        const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+        const targetFPSThreshold = isMobile ? this.targetFPS * 0.9 : this.targetFPS * 0.85; // React sooner on mobile
+        
+        if (currentFPS < targetFPSThreshold && this.qualityLevel > 0.5) {
+            // Reduce quality more aggressively, especially on mobile
+            const reductionStep = isMobile ? 0.15 : 0.1; // Bigger steps on mobile
+            this.qualityLevel = Math.max(0.5, this.qualityLevel - reductionStep);
+            ShaderLogger.info(`Performance: Reducing quality to ${(this.qualityLevel * 100).toFixed(0)}% (FPS: ${currentFPS.toFixed(1)}, target: ${this.targetFPS})`);
+        } else if (currentFPS >= this.targetFPS * 1.1 && this.qualityLevel < 1.0) {
+            // Only increase quality if significantly above target (prevents oscillation)
+            // On mobile, cap at 0.7 max
+            const maxQuality = isMobile ? 0.7 : 1.0;
+            const increaseStep = isMobile ? 0.1 : 0.15; // Smaller steps on mobile
+            this.qualityLevel = Math.min(maxQuality, this.qualityLevel + increaseStep);
+            ShaderLogger.info(`Performance: Increasing quality to ${(this.qualityLevel * 100).toFixed(0)}% (FPS: ${currentFPS.toFixed(1)})`);
         }
     }
     
