@@ -170,7 +170,7 @@ export class PhosphorShaderPlugin extends BaseShaderPlugin {
             }
         }
         
-        // Apply mobile brightness boost (1.65x multiplier)
+        // Apply mobile brightness boost (additive instead of multiplicative)
         // Use time-based smoothing to reduce flicker from volatile treble frequencies
         // This is critical on mobile where frame rates are inconsistent
         if (isMobile && locations.uBrightnessStrength && uniformManager) {
@@ -190,8 +190,12 @@ export class PhosphorShaderPlugin extends BaseShaderPlugin {
                 this.smoothedBrightness = this.smoothedBrightness * smoothingFactor + 
                                           currentBrightness * (1.0 - smoothingFactor);
                 
-                // Apply 1.65x brightness multiplier on mobile (using smoothed value)
-                const boostedBrightness = this.smoothedBrightness * 1.65;
+                // Apply additive brightness boost on mobile instead of multiplicative
+                // This shifts the range up without amplifying the range size
+                // Original range: 0.15-3.0, with boost: (0.15+0.5)-(3.0+0.5) = 0.65-3.5
+                // This reduces absolute brightness changes while maintaining relative reactivity
+                const brightnessBoost = 0.5; // Additive boost (adjust as needed)
+                const boostedBrightness = this.smoothedBrightness + brightnessBoost;
                 
                 // Increase threshold to 0.05 (5% of typical range) to prevent flickering
                 // The brightness range is 0.15-3.0, so 0.05 is reasonable
