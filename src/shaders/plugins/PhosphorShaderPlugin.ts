@@ -21,6 +21,8 @@ export class PhosphorShaderPlugin extends BaseShaderPlugin {
     
     // Track last boosted brightness to prevent flickering on mobile
     private lastBoostedBrightness: number | null = null;
+    // Additional smoothing layer for brightness to reduce flicker from volatile treble
+    private smoothedBrightness: number = 0;
     
     /**
      * Check if running on mobile device (cached)
@@ -169,13 +171,20 @@ export class PhosphorShaderPlugin extends BaseShaderPlugin {
         }
         
         // Apply mobile brightness boost (1.65x multiplier)
-        // Only update when value changes significantly to prevent flickering
+        // Use additional smoothing layer to reduce flicker from volatile treble frequencies
         if (isMobile && locations.uBrightnessStrength && uniformManager) {
             const currentBrightness = uniformManager.lastValues['uBrightnessStrength'] as number | undefined;
             
             if (currentBrightness !== undefined) {
-                // Apply 1.65x brightness multiplier on mobile
-                const boostedBrightness = currentBrightness * 1.65;
+                // Apply additional exponential smoothing to reduce rapid changes
+                // This smooths out volatile treble frequency fluctuations
+                // Lower smoothing factor = slower response (0.3 = responds to ~30% of change per frame)
+                const smoothingFactor = 0.3;
+                this.smoothedBrightness = this.smoothedBrightness * (1 - smoothingFactor) + 
+                                          currentBrightness * smoothingFactor;
+                
+                // Apply 1.65x brightness multiplier on mobile (using smoothed value)
+                const boostedBrightness = this.smoothedBrightness * 1.65;
                 
                 // Only update uniform if value changed significantly (threshold: 0.01)
                 // This prevents flickering from tiny treble frequency changes
