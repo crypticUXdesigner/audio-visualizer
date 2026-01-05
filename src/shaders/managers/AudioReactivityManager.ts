@@ -14,6 +14,11 @@ export class AudioReactivityManager {
     private smoothingStates: Map<string, number> = new Map();
     private speedAccumulations: Map<string, number> = new Map(); // For speed mode: accumulated speed values
     
+    // Bezier curve cache to avoid expensive recalculations
+    // Cache key: curve signature (x1,y1,x2,y2), value: Map of quantized input -> output
+    private bezierCache: Map<string, Map<number, number>> = new Map();
+    private readonly BEZIER_CACHE_RESOLUTION = 128; // Cache 128 quantized values per curve
+    
     /**
      * Get default linear bezier curve
      */
@@ -22,20 +27,75 @@ export class AudioReactivityManager {
     }
     
     /**
-     * Apply cubic bezier curve to smoothed audio value
+     * Generate cache key for bezier curve
+     */
+    private getBezierCacheKey(curve: CubicBezierCurve): string {
+        // Round to 4 decimal places to group similar curves
+        return `${curve.x1.toFixed(4)},${curve.y1.toFixed(4)},${curve.x2.toFixed(4)},${curve.y2.toFixed(4)}`;
+    }
+    
+    /**
+     * Apply cubic bezier curve to smoothed audio value with caching
      * @param value - Smoothed audio value (0-1)
      * @param curve - Cubic bezier curve configuration
+     * @param cacheKey - Optional cache key for this curve (for performance)
      * @returns Eased value (0-1)
      */
-    private applyBezierCurve(value: number, curve: CubicBezierCurve): number {
+    private applyBezierCurve(value: number, curve: CubicBezierCurve, cacheKey?: string): number {
         const clampedValue = Math.max(0, Math.min(1, value));
-        return BezierSolver.solve(
+        
+        // Use provided cache key or generate one
+        const key = cacheKey ?? this.getBezierCacheKey(curve);
+        
+        // Get or create cache for this curve
+        let curveCache = this.bezierCache.get(key);
+        if (!curveCache) {
+            curveCache = new Map();
+            this.bezierCache.set(key, curveCache);
+            
+            // Limit total cache size (keep most recent curves)
+            if (this.bezierCache.size > 10) {
+                const firstKey = this.bezierCache.keys().next().value;
+                this.bezierCache.delete(firstKey);
+            }
+        }
+        
+        // Quantize input to cache resolution for lookup
+        const quantized = Math.floor(clampedValue * this.BEZIER_CACHE_RESOLUTION) / this.BEZIER_CACHE_RESOLUTION;
+        
+        // Check cache
+        const cached = curveCache.get(quantized);
+        if (cached !== undefined) {
+            // Linear interpolation between cached values for smoothness
+            const nextQuantized = quantized + (1 / this.BEZIER_CACHE_RESOLUTION);
+            const nextCached = curveCache.get(nextQuantized);
+            
+            if (nextCached !== undefined && clampedValue !== quantized) {
+                // Interpolate between two cached points
+                const t = (clampedValue - quantized) * this.BEZIER_CACHE_RESOLUTION;
+                return cached + (nextCached - cached) * t;
+            }
+            return cached;
+        }
+        
+        // Calculate and cache
+        const result = BezierSolver.solve(
             clampedValue,
             curve.x1,
             curve.y1,
             curve.x2,
             curve.y2
         );
+        
+        curveCache.set(quantized, result);
+        
+        // Limit cache size per curve
+        if (curveCache.size > this.BEZIER_CACHE_RESOLUTION * 2) {
+            const firstKey = curveCache.keys().next().value;
+            curveCache.delete(firstKey);
+        }
+        
+        return result;
     }
     
     /**
@@ -100,7 +160,9 @@ export class AudioReactivityManager {
         
         // Apply bezier curve if configured
         if (config.curve) {
-            rawValue = this.applyBezierCurve(rawValue, config.curve);
+            // Generate cache key once per parameter for better cache hits
+            const curveCacheKey = this.getBezierCacheKey(config.curve);
+            rawValue = this.applyBezierCurve(rawValue, config.curve, curveCacheKey);
         }
         
         // Calculate target speed based on audio (0-1 maps to startValue-targetValue)
@@ -259,6 +321,7 @@ export class AudioReactivityManager {
     resetAll(): void {
         this.smoothingStates.clear();
         this.speedAccumulations.clear();
+        this.bezierCache.clear();
     }
 }
 

@@ -151,8 +151,21 @@ export const TempoSmoothingConfig: Record<string, SmoothingConfig> = {
 // Track last logged BPM to avoid spam (log once per BPM value)
 let lastLoggedBPM: number | null = null;
 
+// Cache for tempo calculations (noteFraction_bpm -> timeConstant)
+// Cache size limited to prevent memory growth
+const tempoCache = new Map<string, number>();
+const MAX_TEMPO_CACHE_SIZE = 50;
+
 /**
- * Calculate tempo-relative smoothing time constant from musical note fraction
+ * Generate cache key for tempo calculation
+ */
+function getTempoCacheKey(noteFraction: number, bpm: number): string {
+    // Round to 4 decimal places to group similar values
+    return `${noteFraction.toFixed(4)}_${bpm.toFixed(1)}`;
+}
+
+/**
+ * Calculate tempo-relative smoothing time constant from musical note fraction (cached)
  * @param noteFraction - Musical note fraction (e.g., 1/32 for 32nd note)
  * @param bpm - Beats per minute
  * @param fallbackTimeMs - Fallback time in milliseconds when BPM is unavailable
@@ -160,9 +173,25 @@ let lastLoggedBPM: number | null = null;
  */
 export function getTempoRelativeTimeConstant(noteFraction: number, bpm: number, fallbackTimeMs: number): number {
     if (bpm > 0) {
+        // Check cache first
+        const cacheKey = getTempoCacheKey(noteFraction, bpm);
+        const cached = tempoCache.get(cacheKey);
+        if (cached !== undefined) {
+            return cached;
+        }
+        
         // Calculate time in seconds from musical note fraction
         // Formula: time = (noteFraction * 60 / BPM) seconds
         const timeConstant = (noteFraction * 60.0) / bpm;
+        
+        // Cache result
+        tempoCache.set(cacheKey, timeConstant);
+        
+        // Limit cache size (remove oldest entries)
+        if (tempoCache.size > MAX_TEMPO_CACHE_SIZE) {
+            const firstKey = tempoCache.keys().next().value;
+            tempoCache.delete(firstKey);
+        }
         
         // Log when BPM is used (only once per BPM value to avoid spam)
         if (lastLoggedBPM !== bpm) {
@@ -173,7 +202,7 @@ export function getTempoRelativeTimeConstant(noteFraction: number, bpm: number, 
         
         return timeConstant;
     } else {
-        // Fallback to fixed time when BPM is not available (no logging)
+        // Fallback to fixed time when BPM is not available (no logging, no cache needed)
         return fallbackTimeMs / 1000.0;
     }
 }

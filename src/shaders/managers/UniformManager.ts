@@ -54,6 +54,15 @@ export class UniformManager {
     lastValues: LastValues;
     private audioReactivityManager: AudioReactivityManager;
     
+    // Cache for uniform name conversions (paramName -> uniformName)
+    private uniformNameCache: Map<string, string> = new Map();
+    // Cache for enable parameter name lookups (paramName -> enableParamName | null)
+    private enableParamNameCache: Map<string, string | null> = new Map();
+    // Cache for base name extraction (paramName -> baseName)
+    private baseNameCache: Map<string, string> = new Map();
+    // Cache for smoothed uniform names (baseName -> smoothedUniformName)
+    private smoothedUniformNameCache: Map<string, string> = new Map();
+    
     /**
      * @param gl - WebGL context
      * @param uniformLocations - Map of uniform names to locations
@@ -394,18 +403,73 @@ export class UniformManager {
     }
     
     /**
-     * Get the enable parameter name for a strength parameter
+     * Get the enable parameter name for a strength parameter (cached)
      * @param paramName - Parameter name (e.g., "vectorFieldComplexityStrength")
      * @returns Enable parameter name (e.g., "enableVectorFieldComplexity") or null if not found
      */
     private getEnableParamName(paramName: string): string | null {
+        // Check cache first
+        if (this.enableParamNameCache.has(paramName)) {
+            return this.enableParamNameCache.get(paramName)!;
+        }
+        
         // Pattern: [effectName]Strength -> enable[EffectName]
+        let result: string | null = null;
         if (paramName.endsWith('Strength')) {
             const baseName = paramName.slice(0, -8); // Remove "Strength" suffix
             // Capitalize first letter and prepend "enable"
-            return `enable${baseName.charAt(0).toUpperCase()}${baseName.slice(1)}`;
+            result = `enable${baseName.charAt(0).toUpperCase()}${baseName.slice(1)}`;
         }
-        return null;
+        
+        // Cache result
+        this.enableParamNameCache.set(paramName, result);
+        return result;
+    }
+    
+    /**
+     * Get uniform name from parameter name (cached)
+     * @param paramName - Parameter name (e.g., "vectorFieldComplexityStrength")
+     * @returns Uniform name (e.g., "uVectorFieldComplexityStrength")
+     */
+    private getUniformName(paramName: string): string {
+        if (this.uniformNameCache.has(paramName)) {
+            return this.uniformNameCache.get(paramName)!;
+        }
+        
+        const uniformName = `u${paramName.charAt(0).toUpperCase()}${paramName.slice(1)}`;
+        this.uniformNameCache.set(paramName, uniformName);
+        return uniformName;
+    }
+    
+    /**
+     * Get base name from parameter name (cached)
+     * @param paramName - Parameter name (e.g., "contrastMin" or "contrastMax")
+     * @returns Base name (e.g., "contrast")
+     */
+    private getBaseName(paramName: string): string {
+        if (this.baseNameCache.has(paramName)) {
+            return this.baseNameCache.get(paramName)!;
+        }
+        
+        const baseName = paramName.replace(/Min$|Max$/, '');
+        this.baseNameCache.set(paramName, baseName);
+        return baseName;
+    }
+    
+    /**
+     * Get smoothed uniform name from base name (cached)
+     * @param baseName - Base name (e.g., "contrast")
+     * @returns Smoothed uniform name (e.g., "uSmoothedContrastAudioLevel")
+     */
+    private getSmoothedUniformName(baseName: string): string {
+        if (this.smoothedUniformNameCache.has(baseName)) {
+            return this.smoothedUniformNameCache.get(baseName)!;
+        }
+        
+        const baseNameCapitalized = baseName.charAt(0).toUpperCase() + baseName.slice(1);
+        const smoothedUniformName = `uSmoothed${baseNameCapitalized}AudioLevel`;
+        this.smoothedUniformNameCache.set(baseName, smoothedUniformName);
+        return smoothedUniformName;
     }
     
     /**
@@ -453,15 +517,14 @@ export class UniformManager {
                 // For contrast system: paramName is typically "contrastMin" or "contrastMax"
                 // We only process once per min/max pair (when we encounter the Min parameter)
                 
-                // Extract base name (remove "Min" or "Max" suffix)
-                const baseName = paramName.replace(/Min$|Max$/, '');
+                // Extract base name (remove "Min" or "Max" suffix) - cached
+                const baseName = this.getBaseName(paramName);
                 
                 // Only process when we encounter the Min parameter (to avoid duplicate processing)
                 if (paramName.endsWith('Min')) {
                     // Set the smoothed audio level uniform (used by shader for interpolation)
-                    // Format: uSmoothed{BaseName}AudioLevel (e.g., uSmoothedContrastAudioLevel)
-                    const baseNameCapitalized = baseName.charAt(0).toUpperCase() + baseName.slice(1);
-                    const smoothedUniformName = `uSmoothed${baseNameCapitalized}AudioLevel`;
+                    // Format: uSmoothed{BaseName}AudioLevel (e.g., uSmoothedContrastAudioLevel) - cached
+                    const smoothedUniformName = this.getSmoothedUniformName(baseName);
                     const smoothedLocation = locations[smoothedUniformName];
                     
                     if (smoothedLocation !== null && smoothedLocation !== undefined) {
@@ -542,8 +605,8 @@ export class UniformManager {
                 const clampedValue = Math.max(min, Math.min(max, finalValue));
                 
                 // Update uniform if location exists
-                // Convert parameter name to uniform name (camelCase to uCamelCase)
-                const uniformName = `u${paramName.charAt(0).toUpperCase()}${paramName.slice(1)}`;
+                // Convert parameter name to uniform name (camelCase to uCamelCase) - cached
+                const uniformName = this.getUniformName(paramName);
                 const location = locations[uniformName];
                 
                 if (location !== null && location !== undefined) {

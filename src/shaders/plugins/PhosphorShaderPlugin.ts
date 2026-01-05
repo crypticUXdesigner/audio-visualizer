@@ -11,13 +11,27 @@ export class PhosphorShaderPlugin extends BaseShaderPlugin {
     private lastRaymarchSteps: number | null = null;
     private lastComplexity: number | null = null;
     
+    // Cache mobile detection (only check once, window size rarely changes)
+    private cachedIsMobile: boolean | null = null;
+    
+    // Cache last quality level and scaled values to avoid recalculation
+    private lastQualityLevel: number | null = null;
+    private lastScaledRaymarchSteps: number | null = null;
+    private lastScaledComplexity: number | null = null;
+    
     /**
-     * Check if running on mobile device
+     * Check if running on mobile device (cached)
      * @returns true if mobile device detected
      */
     private isMobile(): boolean {
-        if (typeof window === 'undefined') return false;
-        return window.innerWidth < 768;
+        if (this.cachedIsMobile === null) {
+            if (typeof window === 'undefined') {
+                this.cachedIsMobile = false;
+            } else {
+                this.cachedIsMobile = window.innerWidth < 768;
+            }
+        }
+        return this.cachedIsMobile;
     }
     
     /**
@@ -30,11 +44,12 @@ export class PhosphorShaderPlugin extends BaseShaderPlugin {
         if (!gl || !this.shaderInstance.uniformLocations) return;
         
         // Get quality level from performance monitor (0.5 = low quality, 1.0 = full quality)
-        let qualityLevel = this.shaderInstance.performanceMonitor?.qualityLevel ?? 1.0;
+        const currentQualityLevel = this.shaderInstance.performanceMonitor?.qualityLevel ?? 1.0;
         
         // Apply mobile-specific quality reduction
         // On mobile, be more aggressive with quality scaling for better stability
         const isMobile = this.isMobile();
+        let qualityLevel = currentQualityLevel;
         if (isMobile) {
             // On mobile, cap quality at 0.6 (60%) for better stability
             // This ensures we don't push mobile GPUs too hard
@@ -50,53 +65,62 @@ export class PhosphorShaderPlugin extends BaseShaderPlugin {
         const uniformManager = this.shaderInstance.uniformManager;
         const locations = this.shaderInstance.uniformLocations;
         
+        // Constants for raymarch steps scaling (extracted to avoid recalculation)
+        const RAYMARCH_MIN = 20.0;
+        const RAYMARCH_MAX_DESKTOP = 200.0;
+        const RAYMARCH_MAX_MOBILE = 100.0;
+        const RAYMARCH_ORIGINAL_MIN = 20.0;
+        const RAYMARCH_ORIGINAL_MAX = 260.0;
+        
         // Scale raymarch steps based on quality
         // Audio-reactive system can set values from 20-260 (or 30 default)
         // We scale the range: 20 (low quality) to 200 (high quality)
         if (locations.uRaymarchStepsStrength && uniformManager) {
             const currentValue = uniformManager.lastValues['uRaymarchStepsStrength'] as number | undefined;
             
-            if (currentValue !== undefined) {
+            // Check if we need to recalculate (value or quality changed)
+            const needsRecalculation = currentValue !== undefined && 
+                (currentValue !== this.lastRaymarchSteps || qualityLevel !== this.lastQualityLevel);
+            
+            if (needsRecalculation) {
                 // Store for next frame
                 this.lastRaymarchSteps = currentValue;
+                this.lastQualityLevel = qualityLevel;
                 
                 // Calculate quality-scaled value
-                // Range: min 20, max 200 at full quality (desktop) or 100 (mobile - more conservative)
-                const minSteps = 20.0;
-                const maxStepsDesktop = 200.0;
-                const maxStepsMobile = 100.0; // Lower max on mobile for better stability
                 const maxStepsAtQuality = isMobile
-                    ? 20.0 + (maxStepsMobile - 20.0) * qualityLevel
-                    : 20.0 + (maxStepsDesktop - 20.0) * qualityLevel;
+                    ? RAYMARCH_MIN + (RAYMARCH_MAX_MOBILE - RAYMARCH_MIN) * qualityLevel
+                    : RAYMARCH_MIN + (RAYMARCH_MAX_DESKTOP - RAYMARCH_MIN) * qualityLevel;
                 
                 // Scale the current value proportionally to quality
-                // If current value is in range 20-260, scale it to 20-maxStepsAtQuality
-                const originalMin = 20.0;
-                const originalMax = 260.0;
-                const normalizedValue = Math.max(0, Math.min(1, (currentValue - originalMin) / (originalMax - originalMin)));
-                const qualityScaledValue = originalMin + normalizedValue * (maxStepsAtQuality - originalMin);
+                const normalizedValue = Math.max(0, Math.min(1, 
+                    (currentValue - RAYMARCH_ORIGINAL_MIN) / (RAYMARCH_ORIGINAL_MAX - RAYMARCH_ORIGINAL_MIN)));
+                const qualityScaledValue = RAYMARCH_ORIGINAL_MIN + normalizedValue * (maxStepsAtQuality - RAYMARCH_ORIGINAL_MIN);
+                const flooredValue = Math.floor(qualityScaledValue);
                 
-                gl.uniform1f(locations.uRaymarchStepsStrength, Math.floor(qualityScaledValue));
-                uniformManager.lastValues['uRaymarchStepsStrength'] = qualityScaledValue;
-            } else if (this.lastRaymarchSteps !== null) {
-                // Fallback: use last known value and scale it
-                const minSteps = 20.0;
-                const maxStepsDesktop = 200.0;
-                const maxStepsMobile = 100.0;
-                const maxStepsAtQuality = isMobile
-                    ? 20.0 + (maxStepsMobile - 20.0) * qualityLevel
-                    : 20.0 + (maxStepsDesktop - 20.0) * qualityLevel;
-                const originalMin = 20.0;
-                const originalMax = 260.0;
-                const normalizedValue = Math.max(0, Math.min(1, (this.lastRaymarchSteps - originalMin) / (originalMax - originalMin)));
-                const qualityScaledValue = originalMin + normalizedValue * (maxStepsAtQuality - originalMin);
-                
-                gl.uniform1f(locations.uRaymarchStepsStrength, Math.floor(qualityScaledValue));
-                if (uniformManager) {
+                // Only update if value actually changed
+                if (flooredValue !== this.lastScaledRaymarchSteps) {
+                    gl.uniform1f(locations.uRaymarchStepsStrength, flooredValue);
                     uniformManager.lastValues['uRaymarchStepsStrength'] = qualityScaledValue;
+                    this.lastScaledRaymarchSteps = flooredValue;
+                }
+            } else if (this.lastRaymarchSteps !== null && this.lastScaledRaymarchSteps !== null) {
+                // Use cached value if nothing changed
+                const flooredValue = this.lastScaledRaymarchSteps;
+                const lastUniformValue = uniformManager.lastValues['uRaymarchStepsStrength'] as number | undefined;
+                if (lastUniformValue === undefined || Math.floor(lastUniformValue) !== flooredValue) {
+                    gl.uniform1f(locations.uRaymarchStepsStrength, flooredValue);
+                    uniformManager.lastValues['uRaymarchStepsStrength'] = flooredValue;
                 }
             }
         }
+        
+        // Constants for complexity scaling (extracted to avoid recalculation)
+        const COMPLEXITY_MIN = 5.0;
+        const COMPLEXITY_MAX_DESKTOP = 15.0;
+        const COMPLEXITY_MAX_MOBILE = 8.0;
+        const COMPLEXITY_ORIGINAL_MIN = 1.0;
+        const COMPLEXITY_ORIGINAL_MAX = 15.0;
         
         // Scale vector field complexity based on quality
         // Audio-reactive system can set values from 1-15 (clamped in shader)
@@ -104,54 +128,49 @@ export class PhosphorShaderPlugin extends BaseShaderPlugin {
         if (locations.uVectorFieldComplexityStrength && uniformManager) {
             const currentValue = uniformManager.lastValues['uVectorFieldComplexityStrength'] as number | undefined;
             
-            if (currentValue !== undefined) {
+            // Check if we need to recalculate (value or quality changed)
+            const needsRecalculation = currentValue !== undefined && 
+                (currentValue !== this.lastComplexity || qualityLevel !== this.lastQualityLevel);
+            
+            if (needsRecalculation) {
                 // Store for next frame
                 this.lastComplexity = currentValue;
+                this.lastQualityLevel = qualityLevel;
                 
                 // Calculate quality-scaled value
-                // Range: min 5, max 15 at full quality (desktop) or 8 (mobile - more conservative)
-                const minComplexity = 5.0;
-                const maxComplexityDesktop = 15.0;
-                const maxComplexityMobile = 8.0; // Lower max on mobile for better stability
                 const maxComplexityAtQuality = isMobile
-                    ? 5.0 + (maxComplexityMobile - 5.0) * qualityLevel
-                    : 5.0 + (maxComplexityDesktop - 5.0) * qualityLevel;
+                    ? COMPLEXITY_MIN + (COMPLEXITY_MAX_MOBILE - COMPLEXITY_MIN) * qualityLevel
+                    : COMPLEXITY_MIN + (COMPLEXITY_MAX_DESKTOP - COMPLEXITY_MIN) * qualityLevel;
                 
                 // Scale the current value proportionally to quality
-                // If current value is in range 1-15, scale it to minComplexity-maxComplexityAtQuality
-                const originalMin = 1.0;
-                const originalMax = 15.0;
-                const normalizedValue = Math.max(0, Math.min(1, (currentValue - originalMin) / (originalMax - originalMin)));
-                const qualityScaledValue = minComplexity + normalizedValue * (maxComplexityAtQuality - minComplexity);
+                const normalizedValue = Math.max(0, Math.min(1, 
+                    (currentValue - COMPLEXITY_ORIGINAL_MIN) / (COMPLEXITY_ORIGINAL_MAX - COMPLEXITY_ORIGINAL_MIN)));
+                const qualityScaledValue = COMPLEXITY_MIN + normalizedValue * (maxComplexityAtQuality - COMPLEXITY_MIN);
+                const flooredValue = Math.floor(qualityScaledValue);
                 
-                gl.uniform1f(locations.uVectorFieldComplexityStrength, Math.floor(qualityScaledValue));
-                uniformManager.lastValues['uVectorFieldComplexityStrength'] = qualityScaledValue;
-            } else if (this.lastComplexity !== null) {
-                // Fallback: use last known value and scale it
-                const minComplexity = 5.0;
-                const maxComplexityDesktop = 15.0;
-                const maxComplexityMobile = 8.0;
-                const maxComplexityAtQuality = isMobile
-                    ? 5.0 + (maxComplexityMobile - 5.0) * qualityLevel
-                    : 5.0 + (maxComplexityDesktop - 5.0) * qualityLevel;
-                const originalMin = 1.0;
-                const originalMax = 15.0;
-                const normalizedValue = Math.max(0, Math.min(1, (this.lastComplexity - originalMin) / (originalMax - originalMin)));
-                const qualityScaledValue = minComplexity + normalizedValue * (maxComplexityAtQuality - minComplexity);
-                
-                gl.uniform1f(locations.uVectorFieldComplexityStrength, Math.floor(qualityScaledValue));
-                if (uniformManager) {
+                // Only update if value actually changed
+                if (flooredValue !== this.lastScaledComplexity) {
+                    gl.uniform1f(locations.uVectorFieldComplexityStrength, flooredValue);
                     uniformManager.lastValues['uVectorFieldComplexityStrength'] = qualityScaledValue;
+                    this.lastScaledComplexity = flooredValue;
+                }
+            } else if (this.lastComplexity !== null && this.lastScaledComplexity !== null) {
+                // Use cached value if nothing changed
+                const flooredValue = this.lastScaledComplexity;
+                const lastUniformValue = uniformManager.lastValues['uVectorFieldComplexityStrength'] as number | undefined;
+                if (lastUniformValue === undefined || Math.floor(lastUniformValue) !== flooredValue) {
+                    gl.uniform1f(locations.uVectorFieldComplexityStrength, flooredValue);
+                    uniformManager.lastValues['uVectorFieldComplexityStrength'] = flooredValue;
                 }
             }
         }
         
-        // Apply mobile brightness boost (1.35x multiplier)
+        // Apply mobile brightness boost (1.65x multiplier)
         if (isMobile && locations.uBrightnessStrength && uniformManager) {
             const currentBrightness = uniformManager.lastValues['uBrightnessStrength'] as number | undefined;
             
             if (currentBrightness !== undefined) {
-                // Apply 1.35x brightness multiplier on mobile
+                // Apply 1.65x brightness multiplier on mobile
                 const boostedBrightness = currentBrightness * 1.65;
                 gl.uniform1f(locations.uBrightnessStrength, boostedBrightness);
                 // Don't update lastValues to avoid interfering with audio-reactive system
