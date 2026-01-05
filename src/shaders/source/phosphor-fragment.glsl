@@ -93,18 +93,19 @@ void main() {
     
     vec4 o = vec4(0.0);
     
-    float z = 0.0;
-    float d = 1.0;
+    // Use mediump for intermediate raymarch calculations (performance optimization for mobile)
+    mediump float z = 0.0;
+    mediump float d = 1.0;
     
     // Calculate normalized ray direction once outside the loop (performance optimization)
-    vec3 rayDir = normalize(FC.rgb * 2.0 - r.xyy);
+    mediump vec3 rayDir = normalize(FC.rgb * 2.0 - r.xyy);
     
     // Pre-calculate all uniform-dependent values outside the loop (performance optimization)
     // Vector field frequencies with audio reactivity
     float freqX = uEnableVectorFieldFrequencyX > 0.5 ? uVectorFieldFrequencyX : 4.0;
     float freqY = uEnableVectorFieldFrequencyY > 0.5 ? uVectorFieldFrequencyY : 2.0;
     float freqZ = uEnableVectorFieldFrequencyZ > 0.5 ? uVectorFieldFrequencyZ : 0.0;
-    vec3 frequencies = vec3(freqX, freqY, freqZ);
+    mediump vec3 frequencies = vec3(freqX, freqY, freqZ);
     
     // Radial strength with audio reactivity
     float radialStrength = uEnableVectorFieldRadialStrength > 0.5 ? uVectorFieldRadialStrength : 8.0;
@@ -141,9 +142,10 @@ void main() {
         // Early break if we've reached the desired step count
         if (i >= maxSteps) break;
         
-        vec3 p = z * rayDir;
+        // Use mediump for intermediate calculations in the loop
+        mediump vec3 p = z * rayDir;
         
-        vec3 a = normalize(cos(frequencies + vectorFieldTime - d * radialStrength));
+        mediump vec3 a = normalize(cos(frequencies + vectorFieldTime - d * radialStrength));
         p.z += 5.0;
         
         a = a * dot(a, p) - cross(a, p) * amplitude;
@@ -157,7 +159,7 @@ void main() {
         }
         
         // Use dynamic sphere radius (optimized: cache length calculation)
-        float pLen = length(p);
+        mediump float pLen = length(p);
         d = 0.05 * abs(pLen - sphereRadius) + distContrib * abs(a.y);
         
         o += (cos(d / 0.1 + vec4(0.0, 2.0, 4.0, 0.0)) + 1.0) / d * z * glowMultiplier;

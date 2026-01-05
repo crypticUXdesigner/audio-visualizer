@@ -148,7 +148,7 @@ const phosphorConfig: ShaderConfig = {
         },
         vectorFieldComplexityStrength: {
             type: 'float',
-            default: 8.0,  // Reduced from 15.0 for better mobile performance
+            default: 6.0,  // Reduced from 8.0 for better mobile performance
             min: 1.0,
             max: 15.0,  // Reduced from 20.0 to match shader loop bound for mobile performance
             step: 1.0,
@@ -157,8 +157,8 @@ const phosphorConfig: ShaderConfig = {
                 source: 'volume',
                 attackNote: 1.0 / 16.0,
                 releaseNote: 1.0 / 4.0,
-                startValue: 15.0,      // Silent = 20.0 (high detail)
-                targetValue: 30.0,     // Loud = 20.0 - (0.5 * (20.0 - 1.0)) = 10.5
+                startValue: 6.0,      // Silent = 20.0 (high detail)
+                targetValue: 15.0,     // Loud = 20.0 - (0.5 * (20.0 - 1.0)) = 10.5
                 curve: BezierPresets.easeIn  // Fast start, slow finish
             } as AudioReactivityConfig
         },
