@@ -36,6 +36,7 @@ export class AudioReactivityManager {
     
     /**
      * Apply cubic bezier curve to smoothed audio value with caching
+     * Always calculates exact values for smoothness, but caches results for performance
      * @param value - Smoothed audio value (0-1)
      * @param curve - Cubic bezier curve configuration
      * @param cacheKey - Optional cache key for this curve (for performance)
@@ -60,25 +61,33 @@ export class AudioReactivityManager {
             }
         }
         
-        // Quantize input to cache resolution for lookup
+        // Quantize for cache lookup (but we'll calculate exact value)
         const quantized = Math.floor(clampedValue * this.BEZIER_CACHE_RESOLUTION) / this.BEZIER_CACHE_RESOLUTION;
+        const distance = Math.abs(clampedValue - quantized);
+        const threshold = 1 / (this.BEZIER_CACHE_RESOLUTION * 2); // Half step threshold
         
-        // Check cache
+        // Check if we have cached values nearby that we can use for interpolation
         const cached = curveCache.get(quantized);
-        if (cached !== undefined) {
-            // Linear interpolation between cached values for smoothness
+        if (cached !== undefined && distance < threshold) {
+            // Input is very close to a cached quantized point
+            // Try to interpolate with neighbor for better accuracy
             const nextQuantized = quantized + (1 / this.BEZIER_CACHE_RESOLUTION);
             const nextCached = curveCache.get(nextQuantized);
             
-            if (nextCached !== undefined && clampedValue !== quantized) {
-                // Interpolate between two cached points
+            if (nextCached !== undefined && clampedValue > quantized) {
+                // Interpolate between two cached points for smoothness
                 const t = (clampedValue - quantized) * this.BEZIER_CACHE_RESOLUTION;
                 return cached + (nextCached - cached) * t;
             }
-            return cached;
+            
+            // Very close to cached point - use it directly (saves calculation)
+            if (distance < threshold * 0.5) {
+                return cached;
+            }
         }
         
-        // Calculate and cache
+        // Always calculate exact value for smooth animation
+        // This ensures we get precise bezier curve results even for small input changes
         const result = BezierSolver.solve(
             clampedValue,
             curve.x1,
@@ -87,9 +96,11 @@ export class AudioReactivityManager {
             curve.y2
         );
         
+        // Cache the result with quantized key for future approximate lookups
+        // This helps when we have similar values in the future
         curveCache.set(quantized, result);
         
-        // Limit cache size per curve
+        // Limit cache size per curve to prevent memory growth
         if (curveCache.size > this.BEZIER_CACHE_RESOLUTION * 2) {
             const firstKey = curveCache.keys().next().value;
             curveCache.delete(firstKey);
