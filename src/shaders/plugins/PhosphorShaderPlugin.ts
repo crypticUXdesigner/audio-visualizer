@@ -171,25 +171,32 @@ export class PhosphorShaderPlugin extends BaseShaderPlugin {
         }
         
         // Apply mobile brightness boost (1.65x multiplier)
-        // Use additional smoothing layer to reduce flicker from volatile treble frequencies
+        // Use time-based smoothing to reduce flicker from volatile treble frequencies
+        // This is critical on mobile where frame rates are inconsistent
         if (isMobile && locations.uBrightnessStrength && uniformManager) {
             const currentBrightness = uniformManager.lastValues['uBrightnessStrength'] as number | undefined;
             
             if (currentBrightness !== undefined) {
-                // Apply additional exponential smoothing to reduce rapid changes
-                // This smooths out volatile treble frequency fluctuations
-                // Lower smoothing factor = slower response (0.3 = responds to ~30% of change per frame)
-                const smoothingFactor = 0.3;
-                this.smoothedBrightness = this.smoothedBrightness * (1 - smoothingFactor) + 
-                                          currentBrightness * smoothingFactor;
+                // Use time-based exponential smoothing instead of frame-based
+                // This ensures consistent smoothing regardless of frame rate
+                // Time constant: 150ms for smooth, responsive but not jarring changes
+                const smoothingTimeConstant = 0.15; // 150ms
+                
+                // Calculate time-based smoothing factor
+                // Formula: factor = exp(-deltaTime / timeConstant)
+                const smoothingFactor = Math.exp(-_deltaTime / smoothingTimeConstant);
+                
+                // Apply exponential smoothing (time-based, not frame-based)
+                this.smoothedBrightness = this.smoothedBrightness * smoothingFactor + 
+                                          currentBrightness * (1.0 - smoothingFactor);
                 
                 // Apply 1.65x brightness multiplier on mobile (using smoothed value)
                 const boostedBrightness = this.smoothedBrightness * 1.65;
                 
-                // Only update uniform if value changed significantly (threshold: 0.01)
-                // This prevents flickering from tiny treble frequency changes
+                // Increase threshold to 0.05 (5% of typical range) to prevent flickering
+                // The brightness range is 0.15-3.0, so 0.05 is reasonable
                 if (this.lastBoostedBrightness === null || 
-                    Math.abs(boostedBrightness - this.lastBoostedBrightness) > 0.01) {
+                    Math.abs(boostedBrightness - this.lastBoostedBrightness) > 0.05) {
                     gl.uniform1f(locations.uBrightnessStrength, boostedBrightness);
                     this.lastBoostedBrightness = boostedBrightness;
                 }
