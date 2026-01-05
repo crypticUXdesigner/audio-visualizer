@@ -1,11 +1,113 @@
 // Phosphor Shader Plugin
 // Handles parameter uniform updates for phosphor shader
+// Implements adaptive quality system for mobile performance
 
 import { BaseShaderPlugin } from './BaseShaderPlugin.js';
 import type { ShaderConfig, ParameterValue } from '../../types/index.js';
 import type { UniformManager } from '../managers/UniformManager.js';
 
 export class PhosphorShaderPlugin extends BaseShaderPlugin {
+    // Track last audio-reactive values to apply quality scaling
+    private lastRaymarchSteps: number | null = null;
+    private lastComplexity: number | null = null;
+    
+    /**
+     * Update performance-based adaptive uniforms
+     * Adjusts raymarch steps and complexity based on device performance
+     * This is called after audio-reactive updates, so we scale the audio-reactive values by quality
+     */
+    onUpdateUniforms(_audioData: unknown, _colors: unknown, _deltaTime: number): void {
+        const gl = this.shaderInstance.gl;
+        if (!gl || !this.shaderInstance.uniformLocations) return;
+        
+        // Get quality level from performance monitor (0.5 = low quality, 1.0 = full quality)
+        const qualityLevel = this.shaderInstance.performanceMonitor?.qualityLevel ?? 1.0;
+        
+        // Get current values from uniform manager (set by audio-reactive system)
+        const uniformManager = this.shaderInstance.uniformManager;
+        const locations = this.shaderInstance.uniformLocations;
+        
+        // Scale raymarch steps based on quality
+        // Audio-reactive system can set values from 20-260 (or 30 default)
+        // We scale the range: 20 (low quality) to 200 (high quality)
+        if (locations.uRaymarchStepsStrength && uniformManager) {
+            const currentValue = uniformManager.lastValues['uRaymarchStepsStrength'] as number | undefined;
+            
+            if (currentValue !== undefined) {
+                // Store for next frame
+                this.lastRaymarchSteps = currentValue;
+                
+                // Calculate quality-scaled value
+                // Range: min 20, max 200 at full quality
+                const minSteps = 20.0;
+                const maxStepsAtQuality = 20.0 + (200.0 - 20.0) * qualityLevel;
+                
+                // Scale the current value proportionally to quality
+                // If current value is in range 20-260, scale it to 20-maxStepsAtQuality
+                const originalMin = 20.0;
+                const originalMax = 260.0;
+                const normalizedValue = Math.max(0, Math.min(1, (currentValue - originalMin) / (originalMax - originalMin)));
+                const qualityScaledValue = originalMin + normalizedValue * (maxStepsAtQuality - originalMin);
+                
+                gl.uniform1f(locations.uRaymarchStepsStrength, Math.floor(qualityScaledValue));
+                uniformManager.lastValues['uRaymarchStepsStrength'] = qualityScaledValue;
+            } else if (this.lastRaymarchSteps !== null) {
+                // Fallback: use last known value and scale it
+                const minSteps = 20.0;
+                const maxStepsAtQuality = 20.0 + (200.0 - 20.0) * qualityLevel;
+                const originalMin = 20.0;
+                const originalMax = 260.0;
+                const normalizedValue = Math.max(0, Math.min(1, (this.lastRaymarchSteps - originalMin) / (originalMax - originalMin)));
+                const qualityScaledValue = originalMin + normalizedValue * (maxStepsAtQuality - originalMin);
+                
+                gl.uniform1f(locations.uRaymarchStepsStrength, Math.floor(qualityScaledValue));
+                if (uniformManager) {
+                    uniformManager.lastValues['uRaymarchStepsStrength'] = qualityScaledValue;
+                }
+            }
+        }
+        
+        // Scale vector field complexity based on quality
+        // Audio-reactive system can set values from 1-15 (clamped in shader)
+        // We scale the range: 5 (low quality) to 15 (high quality)
+        if (locations.uVectorFieldComplexityStrength && uniformManager) {
+            const currentValue = uniformManager.lastValues['uVectorFieldComplexityStrength'] as number | undefined;
+            
+            if (currentValue !== undefined) {
+                // Store for next frame
+                this.lastComplexity = currentValue;
+                
+                // Calculate quality-scaled value
+                // Range: min 5, max 15 at full quality
+                const minComplexity = 5.0;
+                const maxComplexityAtQuality = 5.0 + (15.0 - 5.0) * qualityLevel;
+                
+                // Scale the current value proportionally to quality
+                // If current value is in range 1-15, scale it to minComplexity-maxComplexityAtQuality
+                const originalMin = 1.0;
+                const originalMax = 15.0;
+                const normalizedValue = Math.max(0, Math.min(1, (currentValue - originalMin) / (originalMax - originalMin)));
+                const qualityScaledValue = minComplexity + normalizedValue * (maxComplexityAtQuality - minComplexity);
+                
+                gl.uniform1f(locations.uVectorFieldComplexityStrength, Math.floor(qualityScaledValue));
+                uniformManager.lastValues['uVectorFieldComplexityStrength'] = qualityScaledValue;
+            } else if (this.lastComplexity !== null) {
+                // Fallback: use last known value and scale it
+                const minComplexity = 5.0;
+                const maxComplexityAtQuality = 5.0 + (15.0 - 5.0) * qualityLevel;
+                const originalMin = 1.0;
+                const originalMax = 15.0;
+                const normalizedValue = Math.max(0, Math.min(1, (this.lastComplexity - originalMin) / (originalMax - originalMin)));
+                const qualityScaledValue = minComplexity + normalizedValue * (maxComplexityAtQuality - minComplexity);
+                
+                gl.uniform1f(locations.uVectorFieldComplexityStrength, Math.floor(qualityScaledValue));
+                if (uniformManager) {
+                    uniformManager.lastValues['uVectorFieldComplexityStrength'] = qualityScaledValue;
+                }
+            }
+        }
+    }
+    
     /**
      * Update phosphor shader-specific parameter uniforms
      */
