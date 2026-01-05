@@ -152,7 +152,7 @@ export class PhosphorShaderPlugin extends BaseShaderPlugin {
             
             if (currentBrightness !== undefined) {
                 // Apply 1.35x brightness multiplier on mobile
-                const boostedBrightness = currentBrightness * 1.35;
+                const boostedBrightness = currentBrightness * 1.65;
                 gl.uniform1f(locations.uBrightnessStrength, boostedBrightness);
                 // Don't update lastValues to avoid interfering with audio-reactive system
                 // The audio-reactive system will set it again next frame, and we'll boost it again
