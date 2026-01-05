@@ -145,6 +145,19 @@ export class PhosphorShaderPlugin extends BaseShaderPlugin {
                 }
             }
         }
+        
+        // Apply mobile brightness boost (1.35x multiplier)
+        if (isMobile && locations.uBrightnessStrength && uniformManager) {
+            const currentBrightness = uniformManager.lastValues['uBrightnessStrength'] as number | undefined;
+            
+            if (currentBrightness !== undefined) {
+                // Apply 1.35x brightness multiplier on mobile
+                const boostedBrightness = currentBrightness * 1.35;
+                gl.uniform1f(locations.uBrightnessStrength, boostedBrightness);
+                // Don't update lastValues to avoid interfering with audio-reactive system
+                // The audio-reactive system will set it again next frame, and we'll boost it again
+            }
+        }
     }
     
     /**
