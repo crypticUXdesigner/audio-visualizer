@@ -148,9 +148,9 @@ const phosphorConfig: ShaderConfig = {
         },
         vectorFieldComplexityStrength: {
             type: 'float',
-            default: 15.0,
+            default: 8.0,  // Reduced from 15.0 for better mobile performance
             min: 1.0,
-            max: 20.0,
+            max: 15.0,  // Reduced from 20.0 to match shader loop bound for mobile performance
             step: 1.0,
             label: 'Vector Field Complexity (max layers, decreases with beats)',
             audioReactive: {
@@ -232,7 +232,7 @@ const phosphorConfig: ShaderConfig = {
         },
         raymarchStepsStrength: {
             type: 'float',
-            default: 50.0,
+            default: 30.0,  // Reduced from 50.0 for better mobile performance
             min: 20.0,
             max: 200.0,
             step: 5.0,

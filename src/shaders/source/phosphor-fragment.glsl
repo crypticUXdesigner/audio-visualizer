@@ -96,9 +96,43 @@ void main() {
     float z = 0.0;
     float d = 1.0;
     
+    // Calculate normalized ray direction once outside the loop (performance optimization)
+    vec3 rayDir = normalize(FC.rgb * 2.0 - r.xyy);
+    
+    // Pre-calculate all uniform-dependent values outside the loop (performance optimization)
+    // Vector field frequencies with audio reactivity
+    float freqX = uEnableVectorFieldFrequencyX > 0.5 ? uVectorFieldFrequencyX : 4.0;
+    float freqY = uEnableVectorFieldFrequencyY > 0.5 ? uVectorFieldFrequencyY : 2.0;
+    float freqZ = uEnableVectorFieldFrequencyZ > 0.5 ? uVectorFieldFrequencyZ : 0.0;
+    vec3 frequencies = vec3(freqX, freqY, freqZ);
+    
+    // Radial strength with audio reactivity
+    float radialStrength = uEnableVectorFieldRadialStrength > 0.5 ? uVectorFieldRadialStrength : 8.0;
+    
+    // Distortion amplitude with audio reactivity
+    float amplitude = uEnableVectorFieldAmplitude > 0.5 ? uVectorFieldAmplitude : 1.0;
+    
+    // Vector field complexity with audio reactivity (inverted - quieter = more complex)
+    // uVectorFieldComplexityStrength is always used (static when disabled, audio-reactive when enabled)
+    // When audio-reactive: high beats = low complexity, low beats = high complexity
+    float complexity = uVectorFieldComplexityStrength;
+    complexity = clamp(complexity, 1.0, 15.0);  // Reduced max from 20.0 to 15.0 for mobile performance
+    
+    // Harmonic amplitude with audio reactivity
+    float harmonicAmp = uEnableVectorFieldHarmonicAmplitude > 0.5 ? uVectorFieldHarmonicAmplitude : 1.0;
+    
+    // Distance contribution with audio reactivity
+    float distContrib = uEnableVectorFieldDistanceContribution > 0.5 ? uVectorFieldDistanceContribution : 0.04;
+    
+    // Apply glow intensity and brightness with audio reactivity
+    // uGlowIntensityStrength and uBrightnessStrength are already audio-reactive (modulated by treble)
+    float glowIntensity = uEnableGlowIntensity > 0.5 ? uGlowIntensityStrength : 0.2;
+    float brightness = uEnableBrightness > 0.5 ? uBrightnessStrength : 1.0;
+    float glowMultiplier = glowIntensity * brightness;
+    
     // Calculate raymarch steps with audio reactivity (inverted - quieter = more steps)
     // uRaymarchStepsStrength is already audio-reactive (modulated by volume, inverted)
-    float maxSteps = uEnableRaymarchSteps > 0.5 ? uRaymarchStepsStrength : 60.0;
+    float maxSteps = uEnableRaymarchSteps > 0.5 ? uRaymarchStepsStrength : 30.0;  // Reduced from 60.0 for mobile performance
     maxSteps = clamp(maxSteps, 20.0, 200.0);
     
     // Use constant maximum for loop bound (GLSL requirement)
@@ -107,51 +141,24 @@ void main() {
         // Early break if we've reached the desired step count
         if (i >= maxSteps) break;
         
-        vec3 p = z * normalize(FC.rgb * 2.0 - r.xyy);
-        
-        // Vector field frequencies with audio reactivity
-        float freqX = uEnableVectorFieldFrequencyX > 0.5 ? uVectorFieldFrequencyX : 4.0;
-        float freqY = uEnableVectorFieldFrequencyY > 0.5 ? uVectorFieldFrequencyY : 2.0;
-        float freqZ = uEnableVectorFieldFrequencyZ > 0.5 ? uVectorFieldFrequencyZ : 0.0;
-        vec3 frequencies = vec3(freqX, freqY, freqZ);
-        
-        // Radial strength with audio reactivity
-        float radialStrength = uEnableVectorFieldRadialStrength > 0.5 ? uVectorFieldRadialStrength : 8.0;
+        vec3 p = z * rayDir;
         
         vec3 a = normalize(cos(frequencies + vectorFieldTime - d * radialStrength));
         p.z += 5.0;
         
-        // Distortion amplitude with audio reactivity
-        float amplitude = uEnableVectorFieldAmplitude > 0.5 ? uVectorFieldAmplitude : 1.0;
         a = a * dot(a, p) - cross(a, p) * amplitude;
         
-        // Vector field complexity with audio reactivity (inverted - quieter = more complex)
-        // uVectorFieldComplexityStrength is always used (static when disabled, audio-reactive when enabled)
-        // When audio-reactive: high beats = low complexity, low beats = high complexity
-        float complexity = uVectorFieldComplexityStrength;
-        complexity = clamp(complexity, 1.0, 20.0);
-        
-        // Harmonic amplitude with audio reactivity
-        float harmonicAmp = uEnableVectorFieldHarmonicAmplitude > 0.5 ? uVectorFieldHarmonicAmplitude : 1.0;
-        
         // Use constant maximum for loop bound (GLSL requirement)
-        for(float j = 1.0; j < 20.0; j++) {
+        // Reduced from 20.0 to 15.0 to match complexity clamp for mobile performance
+        for(float j = 1.0; j < 15.0; j++) {
             // Early break if we've reached the desired complexity
             if (j >= complexity) break;
             a += sin(a * j + vectorFieldTime).yzx / j * harmonicAmp;
         }
         
-        // Distance contribution with audio reactivity
-        float distContrib = uEnableVectorFieldDistanceContribution > 0.5 ? uVectorFieldDistanceContribution : 0.04;
-        
-        // Use dynamic sphere radius
-        d = 0.05 * abs(length(p) - sphereRadius) + distContrib * abs(a.y);
-        
-        // Apply glow intensity and brightness with audio reactivity
-        // uGlowIntensityStrength and uBrightnessStrength are already audio-reactive (modulated by treble)
-        float glowIntensity = uEnableGlowIntensity > 0.5 ? uGlowIntensityStrength : 0.2;
-        float brightness = uEnableBrightness > 0.5 ? uBrightnessStrength : 1.0;
-        float glowMultiplier = glowIntensity * brightness;
+        // Use dynamic sphere radius (optimized: cache length calculation)
+        float pLen = length(p);
+        d = 0.05 * abs(pLen - sphereRadius) + distContrib * abs(a.y);
         
         o += (cos(d / 0.1 + vec4(0.0, 2.0, 4.0, 0.0)) + 1.0) / d * z * glowMultiplier;
         z += d;
