@@ -9,7 +9,6 @@ import type { UniformManager } from '../managers/UniformManager.js';
 export class PhosphorShaderPlugin extends BaseShaderPlugin {
     // Track last audio-reactive values to apply quality scaling
     private lastRaymarchSteps: number | null = null;
-    private lastComplexity: number | null = null;
     
     // Cache mobile detection (only check once, window size rarely changes)
     private cachedIsMobile: boolean | null = null;
@@ -17,7 +16,6 @@ export class PhosphorShaderPlugin extends BaseShaderPlugin {
     // Cache last quality level and scaled values to avoid recalculation
     private lastQualityLevel: number | null = null;
     private lastScaledRaymarchSteps: number | null = null;
-    private lastScaledComplexity: number | null = null;
     
     // Track last boosted brightness to prevent flickering on mobile
     private lastBoostedBrightness: number | null = null;
@@ -41,7 +39,7 @@ export class PhosphorShaderPlugin extends BaseShaderPlugin {
     
     /**
      * Update performance-based adaptive uniforms
-     * Adjusts raymarch steps and complexity based on device performance
+     * Adjusts raymarch steps based on device performance
      * This is called after audio-reactive updates, so we scale the audio-reactive values by quality
      */
     onUpdateUniforms(_audioData: unknown, _colors: unknown, _deltaTime: number): void {
@@ -120,56 +118,6 @@ export class PhosphorShaderPlugin extends BaseShaderPlugin {
             }
         }
         
-        // Constants for complexity scaling (extracted to avoid recalculation)
-        const COMPLEXITY_MIN = 5.0;
-        const COMPLEXITY_MAX_DESKTOP = 15.0;
-        const COMPLEXITY_MAX_MOBILE = 8.0;
-        const COMPLEXITY_ORIGINAL_MIN = 1.0;
-        const COMPLEXITY_ORIGINAL_MAX = 15.0;
-        
-        // Scale vector field complexity based on quality
-        // Audio-reactive system can set values from 1-15 (clamped in shader)
-        // We scale the range: 5 (low quality) to 15 (high quality)
-        if (locations.uVectorFieldComplexityStrength && uniformManager) {
-            const currentValue = uniformManager.lastValues['uVectorFieldComplexityStrength'] as number | undefined;
-            
-            // Check if we need to recalculate (value or quality changed)
-            const needsRecalculation = currentValue !== undefined && 
-                (currentValue !== this.lastComplexity || qualityLevel !== this.lastQualityLevel);
-            
-            if (needsRecalculation) {
-                // Store for next frame
-                this.lastComplexity = currentValue;
-                this.lastQualityLevel = qualityLevel;
-                
-                // Calculate quality-scaled value
-                const maxComplexityAtQuality = isMobile
-                    ? COMPLEXITY_MIN + (COMPLEXITY_MAX_MOBILE - COMPLEXITY_MIN) * qualityLevel
-                    : COMPLEXITY_MIN + (COMPLEXITY_MAX_DESKTOP - COMPLEXITY_MIN) * qualityLevel;
-                
-                // Scale the current value proportionally to quality
-                const normalizedValue = Math.max(0, Math.min(1, 
-                    (currentValue - COMPLEXITY_ORIGINAL_MIN) / (COMPLEXITY_ORIGINAL_MAX - COMPLEXITY_ORIGINAL_MIN)));
-                const qualityScaledValue = COMPLEXITY_MIN + normalizedValue * (maxComplexityAtQuality - COMPLEXITY_MIN);
-                const flooredValue = Math.floor(qualityScaledValue);
-                
-                // Only update if value actually changed
-                if (flooredValue !== this.lastScaledComplexity) {
-                    gl.uniform1f(locations.uVectorFieldComplexityStrength, flooredValue);
-                    uniformManager.lastValues['uVectorFieldComplexityStrength'] = qualityScaledValue;
-                    this.lastScaledComplexity = flooredValue;
-                }
-            } else if (this.lastComplexity !== null && this.lastScaledComplexity !== null) {
-                // Use cached value if nothing changed
-                const flooredValue = this.lastScaledComplexity;
-                const lastUniformValue = uniformManager.lastValues['uVectorFieldComplexityStrength'] as number | undefined;
-                if (lastUniformValue === undefined || Math.floor(lastUniformValue) !== flooredValue) {
-                    gl.uniform1f(locations.uVectorFieldComplexityStrength, flooredValue);
-                    uniformManager.lastValues['uVectorFieldComplexityStrength'] = flooredValue;
-                }
-            }
-        }
-        
         // Apply mobile brightness boost (additive instead of multiplicative)
         // Use time-based smoothing to reduce flicker from volatile treble frequencies
         // This is critical on mobile where frame rates are inconsistent
@@ -225,10 +173,7 @@ export class PhosphorShaderPlugin extends BaseShaderPlugin {
             { name: 'uSphereRadius', param: 'sphereRadius', default: 3.0 },
             
             // Audio reactive enable flags
-            { name: 'uEnableAnimationSpeed', param: 'enableAnimationSpeed', default: 1.0 },
-            { name: 'uEnableVectorFieldSpeed', param: 'enableVectorFieldSpeed', default: 1.0 },
             { name: 'uEnableSphereRadius', param: 'enableSphereRadius', default: 1.0 },
-            { name: 'uEnableVectorFieldComplexity', param: 'enableVectorFieldComplexity', default: 1.0 },
             { name: 'uEnableGlowIntensity', param: 'enableGlowIntensity', default: 1.0 },
             { name: 'uEnableBrightness', param: 'enableBrightness', default: 1.0 },
             { name: 'uEnableRaymarchSteps', param: 'enableRaymarchSteps', default: 1.0 },
@@ -243,8 +188,7 @@ export class PhosphorShaderPlugin extends BaseShaderPlugin {
             { name: 'uEnableVectorFieldDistanceContribution', param: 'enableVectorFieldDistanceContribution', default: 0.0 },
             
             // Color system
-            { name: 'uEnableColorSystem', param: 'enableColorSystem', default: 1.0 },
-            { name: 'uEnableColorFrequency', param: 'enableColorFrequency', default: 0.0 }
+            { name: 'uEnableColorSystem', param: 'enableColorSystem', default: 1.0 }
         ];
         
         phosphorParams.forEach(({ name, param, default: defaultValue }) => {
@@ -265,10 +209,7 @@ export class PhosphorShaderPlugin extends BaseShaderPlugin {
         // The audio-reactive system will update them when enabled, but we need to set initial values
         // and update them when parameters change (especially when audio-reactivity is disabled)
         const audioReactiveParams = [
-            { name: 'uAnimationSpeedStrength', param: 'animationSpeedStrength', default: 0.3 },
-            { name: 'uVectorFieldSpeedStrength', param: 'vectorFieldSpeedStrength', default: 0.3 },
             { name: 'uSphereRadiusStrength', param: 'sphereRadiusStrength', default: 0.26 },
-            { name: 'uVectorFieldComplexityStrength', param: 'vectorFieldComplexityStrength', default: 20.0 },
             { name: 'uGlowIntensityStrength', param: 'glowIntensityStrength', default: 0.2 },
             { name: 'uBrightnessStrength', param: 'brightnessStrength', default: 1.0 },
             { name: 'uRaymarchStepsStrength', param: 'raymarchStepsStrength', default: 60.0 },
@@ -296,4 +237,3 @@ export class PhosphorShaderPlugin extends BaseShaderPlugin {
         });
     }
 }
-

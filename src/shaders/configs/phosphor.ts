@@ -23,17 +23,6 @@ const phosphorConfig: ShaderConfig = {
             step: 1.0,
             label: 'Enable Color System (off = original colors)'
         },
-        // Reacts to: 10 frequency bands (uFreq1-uFreq10)
-        // Visual effect: Modulates color mapping thresholds based on frequency content
-        enableColorFrequency: {
-            type: 'float',
-            default: 0.0,
-            min: 0.0,
-            max: 1.0,
-            step: 1.0,
-            label: 'Enable Frequency-Based Colors'
-        },
-        
         // ============================================
         // STATIC CONFIGURATION
         // ============================================
@@ -50,62 +39,6 @@ const phosphorConfig: ShaderConfig = {
         // ============================================
         // AUDIO REACTIVE EFFECTS
         // ============================================
-        // Animation Speed Reactivity
-        // Reacts to: Overall volume (loudness of entire signal)
-        // Visual effect: Speeds up or slows down the animation time based on overall loudness
-        enableAnimationSpeed: {
-            type: 'float',
-            default: 0.0,
-            min: 0.0,
-            max: 1.0,
-            step: 1.0,
-            label: 'Enable Animation Speed Reactivity'
-        },
-        animationSpeedStrength: {
-            type: 'float',
-            default: 0.5,
-            min: 0.0,
-            max: 5.0,
-            step: 0.1,
-            label: 'Animation Speed Strength',
-            audioReactive: {
-                source: 'bass',
-                attackNote: 1.0 / 4.0,
-                releaseNote: 1.0 / 1.0,
-                startValue: 0.5,      // Silent = 0.3
-                targetValue: 1.8,     // Loud = 0.3 + (0.3 * 5.0)
-                curve: BezierPresets.easeOut  // Slow start, fast finish
-            } as AudioReactivityConfig
-        },
-        
-        // Vector Field Speed Reactivity
-        // Reacts to: Mid frequencies
-        // Visual effect: Vector field rotation speed increases with mid frequency loudness
-        enableVectorFieldSpeed: {
-            type: 'float',
-            default: 0.0,
-            min: 0.0,
-            max: 1.0,
-            step: 1.0,
-            label: 'Enable Vector Field Speed Reactivity'
-        },
-        vectorFieldSpeedStrength: {
-            type: 'float',
-            default: 0.1,
-            min: 0.0,
-            max: 5.0,
-            step: 0.1,
-            label: 'Vector Field Speed Strength',
-            audioReactive: {
-                source: 'volume',
-                attackNote: 1.0 / 4.0,
-                releaseNote: 1.0 / 4.0,
-                startValue: 0.1,      // Base speed (always applied, continuous forward progression)
-                targetValue: 0.3,     // Maximum speed (base + audio boost)
-                curve: BezierPresets.linear,
-                mode: 'speed'         // Continuous forward progression mode
-            } as AudioReactivityConfig
-        },
         
         // Sphere Radius Reactivity
         // Reacts to: Bass frequencies
@@ -132,34 +65,6 @@ const phosphorConfig: ShaderConfig = {
                 startValue: 0.0,      // Silent = 0.26
                 targetValue: 7.0,     // Loud = 0.26 + (0.14 * 5.0)
                 curve: BezierPresets.easeOut
-            } as AudioReactivityConfig
-        },
-        
-        // Vector Field Complexity Reactivity
-        // Reacts to: Beat intensity
-        // Visual effect: Complexity decreases with beat intensity (inverted - quieter = more complex)
-        enableVectorFieldComplexity: {
-            type: 'float',
-            default: 0.0,
-            min: 0.0,
-            max: 1.0,
-            step: 1.0,
-            label: 'Enable Vector Field Complexity Reactivity'
-        },
-        vectorFieldComplexityStrength: {
-            type: 'float',
-            default: 6.0,  // Reduced from 8.0 for better mobile performance
-            min: 1.0,
-            max: 15.0,  // Reduced from 20.0 to match shader loop bound for mobile performance
-            step: 1.0,
-            label: 'Vector Field Complexity (max layers, decreases with beats)',
-            audioReactive: {
-                source: 'volume',
-                attackNote: 1.0 / 16.0,
-                releaseNote: 1.0 / 4.0,
-                startValue: 6.0,      // Silent = 20.0 (high detail)
-                targetValue: 15.0,     // Loud = 20.0 - (0.5 * (20.0 - 1.0)) = 10.5
-                curve: BezierPresets.easeIn  // Fast start, slow finish
             } as AudioReactivityConfig
         },
         
