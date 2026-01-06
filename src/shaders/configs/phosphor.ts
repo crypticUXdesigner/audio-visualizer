@@ -109,7 +109,7 @@ const phosphorConfig: ShaderConfig = {
         },
         brightnessStrength: {
             type: 'float',
-            default: 0.15,
+            default: 0.3,
             min: 0.0,
             max: 3.0,
             step: 0.1,
@@ -118,7 +118,7 @@ const phosphorConfig: ShaderConfig = {
                 source: 'treble',
                 attackNote: 1.0 / 4.0,
                 releaseNote: 1.0 / 1.0,
-                startValue: 0.15,       // Silent = 0.0
+                startValue: 0.3,       // Silent = 0.0
                 targetValue: 3.0,      // Loud = 0.0 + (0.1 * 3.0)
                 curve: BezierPresets.easeOut
             } as AudioReactivityConfig
