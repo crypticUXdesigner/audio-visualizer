@@ -89,7 +89,7 @@ const phosphorConfig: ShaderConfig = {
             audioReactive: {
                 source: 'treble',
                 attackNote: 1.0 / 4.0,
-                releaseNote: 1.0 / 4.0,
+                releaseNote: 1.0 / 1.0,
                 startValue: 0.2,       // Silent = 0.2
                 targetValue: 1.4,      // Loud = 0.2 + (0.2 * 5.0)
                 curve: BezierPresets.easeOut
