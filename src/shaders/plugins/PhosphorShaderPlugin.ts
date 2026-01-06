@@ -17,11 +17,6 @@ export class PhosphorShaderPlugin extends BaseShaderPlugin {
     private lastQualityLevel: number | null = null;
     private lastScaledRaymarchSteps: number | null = null;
     
-    // Track last boosted brightness to prevent flickering on mobile
-    private lastBoostedBrightness: number | null = null;
-    // Additional smoothing layer for brightness to reduce flicker from volatile treble
-    private smoothedBrightness: number = 0;
-    
     /**
      * Check if running on mobile device (cached)
      * @returns true if mobile device detected
@@ -115,44 +110,6 @@ export class PhosphorShaderPlugin extends BaseShaderPlugin {
                     gl.uniform1f(locations.uRaymarchStepsStrength, flooredValue);
                     uniformManager.lastValues['uRaymarchStepsStrength'] = flooredValue;
                 }
-            }
-        }
-        
-        // Apply mobile brightness boost (additive instead of multiplicative)
-        // Use time-based smoothing to reduce flicker from volatile treble frequencies
-        // This is critical on mobile where frame rates are inconsistent
-        if (isMobile && locations.uBrightnessStrength && uniformManager) {
-            const currentBrightness = uniformManager.lastValues['uBrightnessStrength'] as number | undefined;
-            
-            if (currentBrightness !== undefined) {
-                // Use time-based exponential smoothing instead of frame-based
-                // This ensures consistent smoothing regardless of frame rate
-                // Time constant: 150ms for smooth, responsive but not jarring changes
-                const smoothingTimeConstant = 0.15; // 150ms
-                
-                // Calculate time-based smoothing factor
-                // Formula: factor = exp(-deltaTime / timeConstant)
-                const smoothingFactor = Math.exp(-_deltaTime / smoothingTimeConstant);
-                
-                // Apply exponential smoothing (time-based, not frame-based)
-                this.smoothedBrightness = this.smoothedBrightness * smoothingFactor + 
-                                          currentBrightness * (1.0 - smoothingFactor);
-                
-                // Apply additive brightness boost on mobile instead of multiplicative
-                // This shifts the range up without amplifying the range size
-                // Original range: 0.15-3.0, with boost: (0.15+0.5)-(3.0+0.5) = 0.65-3.5
-                // This reduces absolute brightness changes while maintaining relative reactivity
-                const brightnessBoost = 0.5; // Additive boost (adjust as needed)
-                const boostedBrightness = this.smoothedBrightness + brightnessBoost;
-                
-                // Always update uniform if value changed (smoothing handles smoothness)
-                if (this.lastBoostedBrightness === null || 
-                    boostedBrightness !== this.lastBoostedBrightness) {
-                    gl.uniform1f(locations.uBrightnessStrength, boostedBrightness);
-                    this.lastBoostedBrightness = boostedBrightness;
-                }
-                // Don't update lastValues to avoid interfering with audio-reactive system
-                // The audio-reactive system will set it again next frame, and we'll boost it again
             }
         }
     }
