@@ -145,10 +145,9 @@ export class PhosphorShaderPlugin extends BaseShaderPlugin {
                 const brightnessBoost = 0.5; // Additive boost (adjust as needed)
                 const boostedBrightness = this.smoothedBrightness + brightnessBoost;
                 
-                // Increase threshold to 0.05 (5% of typical range) to prevent flickering
-                // The brightness range is 0.15-3.0, so 0.05 is reasonable
+                // Always update uniform if value changed (smoothing handles smoothness)
                 if (this.lastBoostedBrightness === null || 
-                    Math.abs(boostedBrightness - this.lastBoostedBrightness) > 0.05) {
+                    boostedBrightness !== this.lastBoostedBrightness) {
                     gl.uniform1f(locations.uBrightnessStrength, boostedBrightness);
                     this.lastBoostedBrightness = boostedBrightness;
                 }
