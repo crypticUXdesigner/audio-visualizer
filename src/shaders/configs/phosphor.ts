@@ -88,8 +88,8 @@ const phosphorConfig: ShaderConfig = {
             label: 'Glow Intensity Strength',
             audioReactive: {
                 source: 'treble',
-                attackNote: 1.0 / 16.0,
-                releaseNote: 1.0 / 16.0,
+                attackNote: 1.0 / 4.0,
+                releaseNote: 1.0 / 4.0,
                 startValue: 0.2,       // Silent = 0.2
                 targetValue: 1.4,      // Loud = 0.2 + (0.2 * 5.0)
                 curve: BezierPresets.easeOut
@@ -116,7 +116,7 @@ const phosphorConfig: ShaderConfig = {
             label: 'Brightness Strength',
             audioReactive: {
                 source: 'treble',
-                attackNote: 1.0 / 16.0,
+                attackNote: 1.0 / 4.0,
                 releaseNote: 1.0 / 1.0,
                 startValue: 0.15,       // Silent = 0.0
                 targetValue: 3.0,      // Loud = 0.0 + (0.1 * 3.0)
